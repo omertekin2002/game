@@ -1,0 +1,16 @@
+{
+  "name": "starseed-isle",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A cute, cozy open-world 3D adventure in the browser (Three.js).",
+  "scripts": {
+    "start": "node tools/serve.mjs 8080"
+  },
+  "devDependencies": {
+    "@gltf-transform/core": "4.5.1",
+    "@gltf-transform/extensions": "4.5.1",
+    "@gltf-transform/functions": "4.5.1",
+    "meshoptimizer": "^0.25.0",
+    "sharp": "^0.35.5"
+  }
+}

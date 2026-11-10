@@ -1,0 +1,6 @@
+# Raw AI-generated source sheets (large; regenerate-able). Processed game assets live in assets/.
+art/raw/
+.DS_Store
+__pycache__/
+.playwright-mcp/
+node_modules/

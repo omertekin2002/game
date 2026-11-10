@@ -1,0 +1,92 @@
+// Asset manifest — maps sprite/texture keys to files.
+// Owned by the art pipeline (tools/*.py). The engine must tolerate any key
+// being absent (draw a fallback) so the game always runs.
+//
+// sprites:  transparent PNGs, tightly trimmed (2px pad), bottom edge = feet/ground contact.
+//           Optional animation strips: { src, frames, fps } — a horizontal strip of equal-width frames.
+//           chest_closed/chest_open share one canvas height (same scale); so do great_tree/great_tree_bloom.
+// textures: opaque seamless tiles, used with ctx.createPattern.
+// ui:       full images (title art etc).
+// models:   GLB files normalised to origin bottom-centre (feet), facing +Z, exactly 1 unit tall.
+//           { src, height } — height = in-game size in metres (scale uniformly by it).
+window.ASSET_MANIFEST = {
+  sprites: {
+    bat: { src: 'assets/sprites/bat.png' },
+    bee: { src: 'assets/sprites/bee.png' },
+    boss_crab: { src: 'assets/sprites/boss_crab.png' },
+    boss_frost: { src: 'assets/sprites/boss_frost.png' },
+    boss_shroom: { src: 'assets/sprites/boss_shroom.png' },
+    boulder: { src: 'assets/sprites/boulder.png' },
+    bush: { src: 'assets/sprites/bush.png' },
+    chest_closed: { src: 'assets/sprites/chest_closed.png' },
+    chest_open: { src: 'assets/sprites/chest_open.png' },
+    coin: { src: 'assets/sprites/coin.png' },
+    crab: { src: 'assets/sprites/crab.png' },
+    fence: { src: 'assets/sprites/fence.png' },
+    flowers: { src: 'assets/sprites/flowers.png' },
+    grass_tuft: { src: 'assets/sprites/grass_tuft.png' },
+    great_tree: { src: 'assets/sprites/great_tree.png' },
+    great_tree_bloom: { src: 'assets/sprites/great_tree_bloom.png' },
+    heart: { src: 'assets/sprites/heart.png' },
+    heart_container: { src: 'assets/sprites/heart_container.png' },
+    heart_empty: { src: 'assets/sprites/heart_empty.png' },
+    hero_down: { src: 'assets/sprites/hero_down.png' },
+    hero_right: { src: 'assets/sprites/hero_right.png' },
+    hero_up: { src: 'assets/sprites/hero_up.png' },
+    house_a: { src: 'assets/sprites/house_a.png' },
+    house_b: { src: 'assets/sprites/house_b.png' },
+    lamp: { src: 'assets/sprites/lamp.png' },
+    mushroom: { src: 'assets/sprites/mushroom.png' },
+    mushroom_deco: { src: 'assets/sprites/mushroom_deco.png' },
+    npc_bunny: { src: 'assets/sprites/npc_bunny.png' },
+    npc_cat: { src: 'assets/sprites/npc_cat.png' },
+    npc_frog: { src: 'assets/sprites/npc_frog.png' },
+    npc_mole: { src: 'assets/sprites/npc_mole.png' },
+    npc_owl: { src: 'assets/sprites/npc_owl.png' },
+    npc_turtle: { src: 'assets/sprites/npc_turtle.png' },
+    pedestal: { src: 'assets/sprites/pedestal.png' },
+    pot: { src: 'assets/sprites/pot.png' },
+    potion: { src: 'assets/sprites/potion.png' },
+    rock: { src: 'assets/sprites/rock.png' },
+    seed_forest: { src: 'assets/sprites/seed_forest.png' },
+    seed_frost: { src: 'assets/sprites/seed_frost.png' },
+    seed_sea: { src: 'assets/sprites/seed_sea.png' },
+    shell_deco: { src: 'assets/sprites/shell_deco.png' },
+    shop: { src: 'assets/sprites/shop.png' },
+    sign: { src: 'assets/sprites/sign.png' },
+    slime: { src: 'assets/sprites/slime.png' },
+    snowpuff: { src: 'assets/sprites/snowpuff.png' },
+    stump: { src: 'assets/sprites/stump.png' },
+    sword_shiny: { src: 'assets/sprites/sword_shiny.png' },
+    sword_wood: { src: 'assets/sprites/sword_wood.png' },
+    tree_palm: { src: 'assets/sprites/tree_palm.png' },
+    tree_pine: { src: 'assets/sprites/tree_pine.png' },
+    tree_round: { src: 'assets/sprites/tree_round.png' },
+    tree_snow: { src: 'assets/sprites/tree_snow.png' },
+    well: { src: 'assets/sprites/well.png' },
+  },
+  textures: {
+    grass: { src: 'assets/textures/grass.png' },
+    forest: { src: 'assets/textures/forest.png' },
+    meadow: { src: 'assets/textures/meadow.png' },
+    sand: { src: 'assets/textures/sand.png' },
+    snow: { src: 'assets/textures/snow.png' },
+    dirt: { src: 'assets/textures/dirt.png' },
+    water: { src: 'assets/textures/water.png' },
+    rock: { src: 'assets/textures/rock.png' },
+  },
+  models: {
+    hero: { src: 'assets/models/hero.glb', height: 1.0 },
+    boss_shroom: { src: 'assets/models/boss_shroom.glb', height: 3.2 },
+    boss_crab: { src: 'assets/models/boss_crab.glb', height: 2.6 },
+    boss_frost: { src: 'assets/models/boss_frost.glb', height: 3.4 },
+    great_tree: { src: 'assets/models/great_tree.glb', height: 9.0 },
+    great_tree_bloom: { src: 'assets/models/great_tree_bloom.glb', height: 9.5 },
+    npc_turtle: { src: 'assets/models/npc_turtle.glb', height: 1.15 },
+    npc_cat: { src: 'assets/models/npc_cat.glb', height: 1.1 },
+  },
+  ui: {
+    title: { src: 'assets/ui/title.jpg' },
+    icon: { src: 'assets/ui/icon.png' },
+  },
+};
