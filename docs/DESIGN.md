@@ -22,8 +22,8 @@ squash & stretch, hit-stop, camera shake, particles, bouncy UI.
   Available addons: `loaders/GLTFLoader.js`, `utils/*` (BufferGeometryUtils, SkeletonUtils…),
   `postprocessing/*`, `shaders/*`, `math/*`, `objects/*`, `geometries/*`, `curves/*`,
   `libs/meshopt_decoder.module.js`.
-- Native ES modules, **no build step, no runtime npm deps**. The game is served over HTTP
-  (`npm start` → zero-dependency static server `tools/serve.mjs` on port 8080; `python3 -m http.server`
+- Native ES modules, **no build step, no runtime deps**. The game is served over HTTP
+  (`bun run start` → zero-dependency static server `tools/serve.mjs` on port 8080; `python3 -m http.server`
   also works). README must say so.
 - `js/audio.js` is an existing **classic script** that sets `window.G.audio` (interface below). Load it with a
   normal `<script>` before the module entry point. Guard every call so a missing/broken audio module never

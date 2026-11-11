@@ -10,12 +10,12 @@ Frostbun, and bring the seeds home so the tree can bloom again.
 The game uses native ES modules and must be served over HTTP (opening `index.html` from disk will not work):
 
 ```sh
-npm start            # zero-dependency static server (tools/serve.mjs) → http://localhost:8080/
+bun run start        # zero-dependency static server (tools/serve.mjs) → http://localhost:8080/
 # or
 python3 -m http.server 8080
 ```
 
-No build step and no runtime npm dependencies. Works in recent Chrome, Edge, Firefox and Safari (WebGL2).
+No build step and no runtime dependencies. Works in recent Chrome, Edge, Firefox and Safari (WebGL2).
 
 ## Controls
 
