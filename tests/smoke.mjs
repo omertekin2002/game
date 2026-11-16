@@ -24,6 +24,7 @@ async function startServer() {
   const port = await freePort();
   const proc = spawn(process.execPath, ['tools/serve.mjs', String(port)], { cwd: root, stdio: ['ignore', 'pipe', 'inherit'] });
   await new Promise((resolve, reject) => {
+    reject = ((r) => (e) => { proc.kill(); r(e); })(reject);
     const timer = setTimeout(() => reject(new Error('static server did not start within 10 s')), 10_000);
     proc.once('exit', (code) => { clearTimeout(timer); reject(new Error(`static server exited early (code ${code})`)); });
     proc.stdout.on('data', (d) => { if (String(d).includes('http://')) { clearTimeout(timer); resolve(); } });
@@ -36,12 +37,12 @@ const step = (msg) => console.log(`[smoke] ${msg}`);
 async function main() {
   const problems = [];
   const server = await startServer();
-  const browser = await chromium.launch({
-    headless: true,
-    args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
-  });
-  let page;
+  let browser, page;
   try {
+    browser = await chromium.launch({
+      headless: true,
+      args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
+    });
     page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
     page.on('pageerror', (e) => problems.push(`pageerror: ${e.stack || e.message}`));
     page.on('console', (m) => { if (m.type() === 'error') problems.push(`console.error: ${m.text()}`); });
@@ -90,7 +91,7 @@ async function main() {
     }
     throw e;
   } finally {
-    await browser.close();
+    if (browser) await browser.close().catch(() => {});
     server.proc.kill();
   }
   step('PASS');
