@@ -4,3 +4,4 @@ art/raw/
 __pycache__/
 .playwright-mcp/
 node_modules/
+_site/
