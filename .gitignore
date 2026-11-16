@@ -5,3 +5,4 @@ __pycache__/
 .playwright-mcp/
 node_modules/
 test-results/
+_site/
