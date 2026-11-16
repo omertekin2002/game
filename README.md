@@ -21,8 +21,8 @@ No build step and no runtime dependencies. Works in recent Chrome, Edge, Firefox
 
 ```sh
 bun install
-bun test             # unit tests: world generation (determinism, reachability, chests) + content tables
-bun run test:smoke   # boots the game in headless Chromium and starts a New Game; fails on any error
+bun test             # unit tests: world generation, content tables, save schema (migration + validation)
+bun run test:smoke   # headless Chromium: New Game, then Continue a valid / corrupt / newer save; fails on any error
 ```
 
 The smoke test needs Playwright's Chromium once: `bunx playwright install chromium`. On failure it saves a

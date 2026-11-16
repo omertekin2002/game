@@ -28,6 +28,8 @@ export const CFG = {
   potRespawn: 240,
 };
 
+// The storage key stays fixed so existing saves keep loading. The save's schema version is its `v` field
+// (SAVE_VERSION in js/save.js), not the "v2" in this name: bump SAVE_VERSION and add a migration instead.
 export const SAVE_KEY = 'starseed-isle-save-v2';
 
 export const REGION = { VILLAGE: 0, WOODS: 1, PEAKS: 2, SHORES: 3, MEADOW: 4 };

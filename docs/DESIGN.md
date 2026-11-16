@@ -188,6 +188,15 @@ Fredoka font; use the 2D sprites for icons)
 pos, hp, maxHp, coins, potions, swordLevel, seeds collected/placed, opened chests, bosses defeated, heart
 containers taken, ending seen, time of day, visited regions.
 
+The schema lives in `js/save.js` (pure, unit-tested in `tests/save.test.js`). Every save carries a `v` field,
+`SAVE_VERSION` (currently 2); the version comes from `v`, not from the storage key, which stays
+`starseed-isle-save-v2`. Loading runs `loadSave(raw, seed)`: `migrate` applies the `MIGRATIONS[n]` steps
+(version n → n + 1) up to `SAVE_VERSION` and rejects non-objects, saves without `seed`, saves newer than
+`SAVE_VERSION` or with no migration path; then `normalize` fills missing fields from `freshState` and
+clamps or coerces the rest (hp 1..maxHp, maxHp ≤ `CFG.maxHp`, potions ≤ `CFG.potionMax`, coins ≥ 0,
+swordLevel 1 or 2, map fields always plain objects, position finite or null). A rejected save is treated
+as no save. To change the layout: bump `SAVE_VERSION`, add a `MIGRATIONS[old]` step and a test for it.
+
 ## Audio interface (`js/audio.js`, already implemented)
 ```js
 G.audio.init()        // call on first user gesture (it also self-installs gesture listeners)
