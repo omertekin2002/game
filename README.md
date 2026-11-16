@@ -5,6 +5,8 @@ The Great Tree has lost its three **Starseeds** to three grumpy guardians. Help 
 leaf-green fox-eared hood — explore Starseed Isle in any order, beat Grumble Shroom, Captain Pinch and
 Frostbun, and bring the seeds home so the tree can bloom again.
 
+**Play it:** https://omertekin2002.github.io/game/
+
 ## Run it
 
 The game uses native ES modules and must be served over HTTP (opening `index.html` from disk will not work):
@@ -16,6 +18,15 @@ python3 -m http.server 8080
 ```
 
 No build step and no runtime dependencies. Works in recent Chrome, Edge, Firefox and Safari (WebGL2).
+
+### Publishing (GitHub Pages)
+
+`.github/workflows/pages.yml` publishes the game to https://omertekin2002.github.io/game/ on every push to `main`
+(and on demand from the Actions tab via *Run workflow*). It runs `node tools/build-pages.mjs`, which copies only the
+runtime files (`index.html`, `styles.css`, `js/`, `assets/`, `vendor/three/`) into `_site/` and fails if a referenced
+file is missing or a path is root-absolute (`/assets/...`); the game is served from the `/game/` subpath, so every
+path must stay relative. Pull requests run the same build and checks without deploying. The repo's Pages source must
+be set to **GitHub Actions**.
 
 ## Controls
 
