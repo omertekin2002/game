@@ -28,6 +28,17 @@ file is missing or a path is root-absolute (`/assets/...`); the game is served f
 path must stay relative. Pull requests run the same build and checks without deploying. The repo's Pages source must
 be set to **GitHub Actions**.
 
+## Tests
+
+```sh
+bun install
+bun test             # unit tests: world generation, content tables, save schema (migration + validation)
+bun run test:smoke   # headless Chromium: New Game, then Continue a valid / corrupt / newer save; fails on any error
+```
+
+The smoke test needs Playwright's Chromium once: `bunx playwright install chromium`. On failure it saves a
+screenshot to `test-results/`. CI (`.github/workflows/ci.yml`) runs both on pushes and pull requests.
+
 ## Controls
 
 | Action | Keyboard / mouse | Gamepad |

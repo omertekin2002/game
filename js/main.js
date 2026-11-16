@@ -1,7 +1,8 @@
 // Boot: renderer, asset loading (with progress), world generation, scene assembly, title, fixed-step loop.
 import * as THREE from 'three';
-import { G, music, audioInit } from './core.js';
-import { CFG } from './data.js';
+import { G, music, audioInit, store } from './core.js';
+import { CFG, SAVE_KEY } from './data.js';
+import { loadSave } from './save.js';
 import { loadAll } from './assets.js';
 import { generateWorld } from './world.js';
 import { buildTerrain, buildWater, buildMapCanvas } from './terrain.js';
@@ -45,7 +46,7 @@ async function boot() {
   ui.setLoading(0.6, 'Growing the island...');
   await nextFrame();
   const q = location.search.match(/[?&]seed=(\d+)/);
-  const saved = (() => { try { return JSON.parse(localStorage.getItem('starseed-isle-save-v2') || 'null'); } catch (e) { return null; } })();
+  const saved = loadSave(store.get(SAVE_KEY), CFG.seed);
   const seed = q ? +q[1] : (saved && saved.seed) || CFG.seed;
   const world = generateWorld(seed);
   G.world = world;

@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { G, sfx, music, audioInit, store } from './core.js';
 import { CFG, SAVE_KEY, REGIONS, REGION, NPCS, SEED_ORDER, SEEDS, BOSSES, progress } from './data.js';
+import { freshState, loadSave } from './save.js';
 import { Player } from './player.js';
 import { NPC } from './npcs.js';
 import { Enemy, Projectile, Pickup, Blobs, trySpawnEnemy } from './entities.js';
@@ -14,14 +15,6 @@ import { N, HALF } from './world.js';
 import { clamp, lerp, rand, pick, TAU, len2, angDiff, smoothstep, Ease } from './util.js';
 
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3();
-
-function freshState(seed) {
-  return {
-    v: 2, seed, hp: CFG.startHp, maxHp: CFG.startHp, coins: 0, potions: 0, swordLevel: 1,
-    seeds: { woods: 0, peaks: 0, shores: 0 }, chests: {}, bosses: {}, shopHeart: false, ending: false,
-    tod: CFG.startTimeOfDay, visited: {}, introDone: false, controlsSeen: false, playTime: 0, px: null, pz: null, facing: Math.PI,
-  };
-}
 
 export class Game {
   constructor(ctx) {
@@ -160,7 +153,8 @@ export class Game {
   }
 
   // ------------------------------------------------------------------ session
-  hasSave() { const s = store.get(SAVE_KEY); return !!(s && s.v === 2 && s.seed != null); }
+  // Saves are validated and migrated by js/save.js (keyed off their `v` field, not SAVE_KEY's name).
+  hasSave() { return !!loadSave(store.get(SAVE_KEY), this.world.seed); }
   newGame() {
     audioInit();
     this.S = freshState(this.world.seed);
@@ -168,10 +162,9 @@ export class Game {
   }
   continueGame() {
     audioInit();
-    const s = store.get(SAVE_KEY);
+    const s = loadSave(store.get(SAVE_KEY), this.world.seed);
     if (!s) return this.newGame();
-    this.S = Object.assign(freshState(this.world.seed), s);
-    this.S.seeds = Object.assign({ woods: 0, peaks: 0, shores: 0 }, s.seeds || {});
+    this.S = s;
     this.startSession(false);
   }
   startSession(isNew) {
