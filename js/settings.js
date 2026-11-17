@@ -73,8 +73,10 @@ function coerce(sc, v) {
     const n = Number(v);
     return typeof sc.def === 'number' && sc.opts.includes(n) ? n : undefined;
   }
+  // a number, or text that reads as one: Number() would also make 0 of false, [] and blank text, 1 of true
+  if (typeof v === 'string' ? v.trim() === '' : typeof v !== 'number') return undefined;
   let n = Number(v);
-  if (v === null || v === '' || !Number.isFinite(n)) return undefined;
+  if (!Number.isFinite(n)) return undefined;
   if (sc.step) n = Math.round(n / sc.step) * sc.step;
   n = Math.min(sc.max, Math.max(sc.min, n));
   return +n.toFixed(4);
