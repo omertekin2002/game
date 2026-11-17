@@ -104,7 +104,7 @@ export default function register(suite) {
         const ds = R.got.filter((q) => q.p.source === e).map((q) => Math.hypot(q.p.source.pos.x - game.player.pos.x, q.p.source.pos.z - game.player.pos.z));
         const far = ds.length ? Math.max(...ds) : 0;
         rows[ty + '@' + dist + '/' + rel] = { tel: ds.length, far: +far.toFixed(2), reach: TA.reach[ty] };
-        t.ok(far <= TA.reach[ty] + 0.05, ty + ' from ' + dist + ' m @' + rel + '°: no telegraph beyond its reach', rows[ty + '@' + dist + '/' + rel]);
+        t.ok(far <= TA.reach[ty] + 0.05, ty + ' at ' + dist + ' m @' + rel + '°: no telegraph beyond its reach', rows[ty + '@' + dist + '/' + rel]);
       }
       t.ok(rows['slime@11/0'].tel > 0 && rows['slime@9/180'].tel > 0, 'a far slime closes in and then attacks', rows);
       // the reach is honest: forced from reach − 0.15 m in view, each melee attack lands on a standing Pip

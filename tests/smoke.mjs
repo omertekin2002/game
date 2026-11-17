@@ -12,7 +12,13 @@ const SAVE_KEY = 'starseed-isle-save-v2'; // SAVE_KEY in js/data.js
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const BOOT_TIMEOUT = Number(process.env.SMOKE_BOOT_TIMEOUT || 120_000);
-const STEP_TIMEOUT = 20_000;
+// Starting a session compiles every shader on its first frame; in software WebGL on a two-core runner that frame
+// alone takes around 10 s.
+const STEP_TIMEOUT = 60_000;
+// nolock=1: the game looks by mouse drag instead of capturing the pointer. Headless Chromium keeps feeding mouse
+// moves to a page that holds the pointer lock; at software-WebGL frame rates the page cannot drain them and the
+// browser process grows by about 100 MB a second until the runner is out of memory.
+const QUERY = '?debug=1&nolock=1';
 const SHOT = new URL('../test-results/smoke-failure.png', import.meta.url);
 
 const freePort = () => new Promise((resolve, reject) => {
@@ -59,8 +65,8 @@ async function main() {
       page.on('console', (m) => { if (m.type() === 'error') problems.push(`console.error: ${m.text()}`); });
       page.on('requestfailed', (r) => problems.push(`request failed: ${r.url()} (${r.failure()?.errorText})`));
       page.on('response', (r) => { if (r.status() >= 400) problems.push(`HTTP ${r.status()}: ${r.url()}`); });
-      step(`open ${server.url}?debug=1${save !== undefined ? ' with a save in localStorage' : ''}`);
-      await page.goto(`${server.url}?debug=1`, { waitUntil: 'load' });
+      step(`open ${server.url}${QUERY}${save !== undefined ? ' with a save in localStorage' : ''}`);
+      await page.goto(`${server.url}${QUERY}`, { waitUntil: 'load' });
       const ms = await waitFor('boot (G.world, loading screen gone, title shown)', () => {
         const G = window.G;
         const loading = document.getElementById('loading');
@@ -99,7 +105,9 @@ async function main() {
     if (info.unreachable !== 0) fail(`world reports ${info.unreachable} unreachable targets`);
     if (problems.length) fail('errors during gameplay');
 
-    // 2. Continue a valid v2 save (one chest open, one boss beaten and its seed placed, a saved position)
+    // 2. Continue a valid v2 save (one chest open, one boss beaten and its seed placed, a saved position).
+    // controlsV is the controls-card version the player has seen (CONTROLS_V in js/game.js); a save without it
+    // predates the first-person controls and gets the card once more, which clears controlsSeen.
     const save = await page.evaluate(() => {
       const W = window.G.world;
       let px = W.spawn.x, pz = W.spawn.z;
@@ -110,7 +118,7 @@ async function main() {
         v: 2, seed: W.seed, hp: 5, maxHp: 8, coins: 42, potions: 1, swordLevel: 1,
         seeds: { woods: 2, peaks: 0, shores: 0 }, chests: { [W.chests[0].id]: true }, bosses: { woods: true },
         shopHeart: false, ending: false, tod: 0.45, visited: { village: true, woods: true },
-        introDone: true, controlsSeen: true, playTime: 321.5, px, pz, facing: 0.5,
+        introDone: true, controlsSeen: true, controlsV: 2, playTime: 321.5, px, pz, facing: 0.5,
       };
     });
     await openGame(save);

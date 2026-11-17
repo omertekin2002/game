@@ -54,6 +54,7 @@ Grep rules (must stay empty): `grep -rnE "\.yawTarget|cam\.bias|cam\.yaw" js` an
 | `js/core.js`, `js/util.js` | `G`, guarded audio calls, `store`, `spriteUrl`; maths, RNG, noise, easing, conventions, `LAYER` | §1 |
 | `js/tune.js`, `js/settings.js` | `TUNE` groups; settings schema and persistence | §16, §12 |
 | `js/game.js` | session, save, transitions, input routing, step and render orchestration, module host | §3, §6 |
+| `js/save.js` | save schema: `SAVE_VERSION`, `freshState`, `migrate`, `normalize`, `loadSave` (pure; unit-tested in `tests/save.test.js`) | §12 |
 | `js/view/view.js` | `ViewController`: look, camera pose, FOV, near plane, layers, shots | §7, [WP1](wp/WP1.md) |
 | `js/view/rig-fp.js`, `rig-tp.js`, `lockon.js`, `shots.js`, `shake.js`, `comfort.js`, `feel.js` | FP eye rig and feel layers, TP spring arm, lock-on camera, cinematics, trauma shake, comfort factors, module `wp1-feel` | §7, [WP1](wp/WP1.md) |
 | `js/view/viewmodel.js`, `js/vm/*.js` | module `wp2-viewmodel`: FP hands and swords pass (`anim`, `rig`, `fx`, `boots`, `dither`) | §13, [WP2](wp/WP2.md) |
@@ -546,6 +547,12 @@ and `waypoint { x, z }` (the map marker). Non-numeric optional fields fall back 
 fights and at key events. `wp9-world.onSession` moves a Continue whose saved spot is now inside a collider to the
 nearest free spot.
 
+Every read of the save goes through `loadSave(raw, seed)` in `js/save.js`: `Game.hasSave`, `Game.continueGame` and the
+seed lookup at boot in `main.js`. It migrates older versions (`MIGRATIONS`), rejects unusable saves (treated as no save)
+and fills, clamps or coerces the known fields; unknown fields such as `pitch`, `controlsV` and `waypoint` pass through.
+`js/save.js` imports only `js/data.js`, so `bun test` can load it. To change the layout, bump `SAVE_VERSION` and add a
+`MIGRATIONS[old]` step with a test (`docs/DESIGN.md` §15).
+
 ## 13. Viewmodel (`js/view/viewmodel.js`, module `wp2-viewmodel`) — detail: [WP2](wp/WP2.md)
 
 Pip's hands and swords in FP are drawn in their own pass after the world: an own `scene` and `camera` (vertical FOV
@@ -756,6 +763,13 @@ Namespaces added by modules:
 
 ## 18. In-page tests (`js/debug/tests.js`, `js/debug/tests/wp1.js … wp9.js`)
 
+CI (`.github/workflows/ci.yml`) does not run these. It runs `bun test` (`tests/*.test.js`: world generation, content
+tables, save schema) and `tests/smoke.mjs` (headless Chromium with software WebGL: New Game, then Continue a valid, a
+corrupt and a newer-version save). `jsconfig.json` maps `three` to the vendored copy for `bun test`, as the import map
+in `index.html` does for the browser, because `js/world.js` reaches `js/props.js` and so three.js. The Pages build
+(`tools/build-pages.mjs`) scans every `js/**/*.js` for `from '…'` with a regular expression, comments and strings
+included, so text such as `from 'dash'` in a comment fails it: keep that pattern out of comments and messages.
+
 Loaded only by `G.debug.test.run / list` (a dynamic import that needs `?debug=1`), so normal play never pays for them.
 Run them from the browser console on `http://localhost:8080/?debug=1`:
 
@@ -821,7 +835,8 @@ settings, view system, input with pointer lock, debug API, test runner) followed
 actors and audio, WP6 HUD, menus and touch, WP7 rendering performance, WP8 atmosphere, WP9 world content) and two rounds
 of integration fixes and playtests. Module names (`wp1-feel` …), test suites (`wp1` …) and `docs/wp/WP1.md … WP9.md`
 keep those numbers. The detail files record each round's measurements and decisions; they cite the design proposals
-(as arch / feel / art §n) and cross-area contracts (C1–C18), which are not part of the repository. Decisions that differ
+(as arch / feel / art §n), cross-area contracts (C1–C18) and evidence files under `S/…` (the scratch directory of the
+build session), none of which are part of the repository. Decisions that differ
 from the original plan and are kept on purpose: the ending looks up with FOV +8°; the TP lock boom grows +2.0 m during
 Frostbun's leap; one swing-magnetism table for both views; boss HP doubled (48 / 48 / 50) with every big attack taking
 half a heart; passive enemy contact does not hurt; tree LOD over 38–48 m; dynamic resolution scales the main pass, not

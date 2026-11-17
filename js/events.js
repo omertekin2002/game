@@ -10,7 +10,7 @@ export const EV = {
   DOWN: 'down',                 // playerDown           {}
   RESPAWN: 'respawn',           // dizzy respawn        {}
   DASH_START: 'dashStart',      // player               { dirX, dirZ }
-  DASH_END: 'dashEnd',          // player, any exit from 'dash' (timer, cutscene, item-get, place)  {}
+  DASH_END: 'dashEnd',          // player, any exit of the 'dash' state (timer, cutscene, item-get, place)  {}
   JUMP: 'jump',                 // player (WP3)         {}
   LAND: 'land',                 // player (WP3)         { impact, surface }
   STEP: 'step',                 // player footstep      { foot: 'L'|'R', surface: 'grass'|'dirt'|'sand'|'snow'|'wood'|'water'|'stone', speed }
