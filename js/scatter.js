@@ -1,41 +1,107 @@
-// Scenery: chunked InstancedMeshes for props/decoration (frustum-culled per chunk), buildings, Great Tree,
-// bridges and chests. Supports hiding/showing single instances (cut bushes, broken pots, cut grass).
+// Scenery: instanced props / decoration with distance culling, view-cone packing and tree LOD (WP7, arch §9.2-1/2),
+// buildings, Great Tree, bridges and chests. Supports hiding/showing single instances (cut bushes, broken pots, cut grass).
+//
+// One layer per prop type (not per 40 m chunk any more): an InstancedMesh for the full model (+ its outline hull, with its
+// own instance buffer: only the items inside the hull's fade end), for trees and heavy props a fitted-primitive proxy
+// (perf/lod.js, ≤ TUNE.perf.lodTris) with its own outline hull (sharing the proxy's instance buffer) and, for shadow
+// casters, a shadow-only mesh on LAYER_SHADOW (the sun's shadow camera renders it, the view never does). cull(camera, view) re-packs the
+// instance buffers from the CPU-side item list whenever the camera moved / turned enough: only items inside the view's
+// XZ cone (+ margin) and inside their class distance are packed, nearest-first for the outline prefix (hulls stop at
+// their fade end), trees by distance into the full model (< lodBand[1]) and the proxy (> lodBand[0]), crossfaded in the
+// shader with complementary Bayer masks. Deco / small props shrink to nothing over the last `fade` metres (vertex scale
+// in the shader, the same XZ distance as the CPU test), so nothing pops. Items behind the view that can still throw a
+// shadow into it (inside the sun's light-space box) go to the shadow-only mesh.
+// Stable ids: p._inst = { L, k } never changes; hide(p) zeroes the item's current slots at once, show(p) re-packs.
 import * as THREE from 'three';
 import { HALF, CHUNK, NCH } from './world.js';
-import { toonMat, sharedOutline, outlineMat, meshWithOutline } from './toon.js';
-import { makeModel } from './assets.js';
+import { toonMat, sharedOutline, outlineMat, meshWithOutline, outlineGeometry, radialProfile, setHullProfile } from './toon.js';
+import { makeModel, Assets } from './assets.js';
 import { propModel, PROP_KIND, houseA, houseB, shopModel, greatTreeParts, bridgeGeo, chestParts } from './props.js';
 import { hash2 } from './util.js';
+import { perf as TP } from './tune.js';
+import { proxyGeometry } from './perf/lod.js';
 
+export const LAYER_SHADOW = 4;   // WP7: shadow-only casters (enabled on the sun's shadow camera by the perf module)
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _e = new THREE.Euler(), _c = new THREE.Color();
-const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
 
+// material kinds: toon options, outline (shared kind name or px options), shadow casting
+const OLC = {   // outline configs (the named ones are the shared outline kinds of toon.js)
+  tree: { ...TP.outline.tree, occ: true, sway: 0.018, swayBase: 1.6 }, bush: { ...TP.outline.bush, sway: 0.03, swayBase: 0.1 },
+  prop: { ...TP.outline.prop }, big: { ...TP.outline.big, occ: true },
+};
+const KIND = {
+  tree: { mat: { sway: 0.018, swayBase: 1.6, occ: true, glow: true }, ol: 'tree', cast: true },
+  palm: { mat: { sway: 0.03, swayBase: 2.6, occ: true, glow: true }, ol: { ...TP.outline.tree, occ: true, sway: 0.03, swayBase: 2.6 }, cast: true },
+  bush: { mat: { sway: 0.03, swayBase: 0.1, glow: true }, ol: 'bush', cast: true },
+  solid: { mat: { glow: true }, ol: 'prop', cast: true },
+  big: { mat: { occ: true, glow: true, nightGlow: true, glowBase: 0.3 }, ol: 'big', cast: true },
+  grass: { mat: { sway: 0.11, swayBase: 0, push: true, rim: 0.4 }, ol: null, cast: false },
+  deco: { mat: { glow: true }, ol: null, cast: false },
+  decoGlow: { mat: { glow: true, nightGlow: true, glowBase: 0.3, nightGlowAmt: 2.2 }, ol: null, cast: false },
+  glow: { mat: { glow: true, nightGlow: true, glowBase: 0.25, nightGlowAmt: 1.8 }, ol: 'prop', cast: true },
+  canopy: { mat: { sway: 0.01, swayBase: 7, occ: true, glow: true }, ol: { ...TP.outline.big, occ: true, sway: 0.01, swayBase: 7 }, cast: true },
+};
 let MATS = null;
+const olMats = new Map(), variants = new Map();
+function olFor(k) { const ol = KIND[k].ol; if (!ol) return null; if (typeof ol === 'string') return sharedOutline(ol); if (!olMats.has(k)) olMats.set(k, outlineMat(ol)); return olMats.get(k); }
 function mats() {
   if (MATS) return MATS;
-  MATS = {
-    tree: { m: toonMat({ sway: 0.018, swayBase: 1.6, occ: true, glow: true }), ol: sharedOutline('tree'), cast: true },
-    palm: { m: toonMat({ sway: 0.03, swayBase: 2.6, occ: true, glow: true }), ol: outlineMat({ width: 0.04, occ: true, sway: 0.03, swayBase: 2.6 }), cast: true },
-    bush: { m: toonMat({ sway: 0.03, swayBase: 0.1, glow: true }), ol: sharedOutline('bush'), cast: true },
-    solid: { m: toonMat({ glow: true }), ol: sharedOutline('prop'), cast: true },
-    big: { m: toonMat({ occ: true, glow: true, nightGlow: true, glowBase: 0.3 }), ol: sharedOutline('big'), cast: true },
-    grass: { m: toonMat({ sway: 0.11, swayBase: 0, push: true, rim: 0.4 }), ol: null, cast: false },
-    deco: { m: toonMat({ glow: true }), ol: null, cast: false },
-    decoGlow: { m: toonMat({ glow: true, nightGlow: true, glowBase: 0.3, nightGlowAmt: 2.2 }), ol: null, cast: false },
-    glow: { m: toonMat({ glow: true, nightGlow: true, glowBase: 0.25, nightGlowAmt: 1.8 }), ol: sharedOutline('prop'), cast: true },
-    canopy: { m: toonMat({ sway: 0.01, swayBase: 7, occ: true, glow: true }), ol: outlineMat({ width: 0.05, occ: true, sway: 0.01, swayBase: 7 }), cast: true },
-  };
+  MATS = {};
+  for (const k in KIND) MATS[k] = { m: toonMat(KIND[k].mat), ol: olFor(k), cast: KIND[k].cast };
   return MATS;
 }
 export function sceneryMats() { return mats(); }
-
-// Decoration the graphics preset may thin out: non-interactive and never collides. Not `tallgrass`, which is cuttable.
-const THINNABLE = new Set(['grass', 'flowers', 'fern', 'pebble', 'shell', 'glowshroom', 'crystal']);
+/** a kind's material with an instance fade band or LOD crossfade (one program per flag set, a material per band) */
+function variant(kind, o) {
+  const key = kind + '|' + JSON.stringify(o);
+  if (!variants.has(key)) variants.set(key, toonMat({ ...KIND[kind].mat, ...o }));
+  return variants.get(key);
+}
+/** the outline of a layer that crossfades to a proxy: side 0 = the full model's hull, which keeps its width through the
+ *  band and dithers out with the model (the proxy's own hull takes over, so the line never thins and thickens again);
+ *  side 1 = the proxy's hull, dithered in over the band and drawn to the far plane (px outlines thin with distance).
+ *  No band: the kind's own outline. One material per layer (type): its radial profile (eye in the crown) is its own
+ *  uniform; materials with the same flags share one program */
+function olVariant(kind, band, side = 0, range = null, type = '', cut = null) {
+  const ol = KIND[kind].ol, cfg = typeof ol === 'string' ? OLC[ol] : ol;
+  const key = kind + '|ol' + side + '|' + (band ? band.join(',') : '-') + '|' + range + '|' + type;
+  if (!variants.has(key)) variants.set(key, outlineMat({ ...(band ? { ...cfg, far: side ? [1e9, 2e9] : [band[1], band[1] + 1], lodBand: band, lod: side, ...(side && range ? { instFade: range } : {}) } : cfg), ...(cut ? { cut } : {}) }));
+  return variants.get(key);
+}
+/** r3 canopy cutaway parameters of a tree model (toonMat / outlineMat `cut`, model units): [canopy base (lowest leaf
+ *  vertex), canopy radius (farthest leaf vertex from the axis), trunk radius the hull keeps (bark inside the canopy band,
+ *  ≤ 0.45 m), top]. Leaves and snow are every vertex colour that is not bark (bark: red > 1.2 × green) */
+function canopyCut(geo) {
+  const p = geo.attributes.position, c = geo.attributes.color;
+  if (!p || !c) return null;
+  let base = Infinity, R = 0, top = -Infinity;
+  for (let i = 0; i < p.count; i++) { const y = p.getY(i); top = Math.max(top, y); if (c.getX(i) > c.getY(i) * 1.2) continue; base = Math.min(base, y); R = Math.max(R, Math.hypot(p.getX(i), p.getZ(i))); }
+  let keep = 0;
+  for (let i = 0; i < p.count; i++) if (c.getX(i) > c.getY(i) * 1.2 && p.getY(i) >= base) keep = Math.max(keep, Math.hypot(p.getX(i), p.getZ(i)));
+  return R > 0 && base < top ? [base, R, Math.min(keep + 0.05, 0.45), top] : null;
+}
+const triCount = (g) => (g.index ? g.index.count / 3 : g.attributes.position.count / 3);
 
 const VARIATION = {
   tree_round: 0.12, tree_pine: 0.1, tree_snow: 0.06, tree_palm: 0.08, bush: 0.12, grass: 0.14, tallgrass: 0.12, fern: 0.14, flowers: 0.05,
   rock: 0.08, boulder: 0.08,
 };
+/** cull class of a prop type: deco 35 m, glowing deco 60 m, small props 90 m, trees LOD, big / lamps never */
+function classOf(kind, radius) {
+  if (kind === 'tree' || kind === 'palm') return 'tree';
+  if (kind === 'grass' || kind === 'deco') return 'deco';
+  if (kind === 'decoGlow') return 'glow';
+  if (kind === 'big' || kind === 'glow' || kind === 'canopy') return 'big';
+  return radius > 3 ? 'big' : 'small';
+}
+function classRange(cls) {
+  const C = TP.cull;
+  if (cls === 'deco') return [C.deco - C.decoFade, C.deco];
+  if (cls === 'glow') return [C.glow - C.glowFade, C.glow];
+  if (cls === 'small') return [C.small - C.smallFade, C.small];
+  return null;   // never culled by distance (trees: LOD)
+}
+const olFar = (ol) => (ol && ol.userData.far ? ol.userData.far.value.y : 55);
 
 export class Scenery {
   constructor(W, scene) {
@@ -45,84 +111,129 @@ export class Scenery {
     this.root.name = 'scenery';
     scene.add(this.root);
     this.meshes = [];
-    this.thinned = []; // { mesh, keys }: decoration meshes whose instances are sorted by `keys` (ascending)
-    this.decoDensity = 1;
+    this.layers = [];
     this.chests = new Map();
+    this.cullOff = false;            // G.debug.perf.cull(false): everything packed, full models only (base for A/B)
+    this.packs = 0; this.packMs = 0; // stats
+    this._v = null; this.dirty = true;
   }
   build() {
     const W = this.W;
-    this.buildInstanced(W.props.filter((p) => !p.removed && PROP_KIND[p.type]), true);
-    this.buildInstanced(W.deco, false);
+    this.buildInstanced(W.props.filter((p) => !p.removed && PROP_KIND[p.type]));
+    this.buildInstanced(W.deco);
     this.buildBuildings();
     this.buildGreatTree();
     this.buildBridges();
     this.buildChests();
   }
-  buildInstanced(list, isProp) {
-    const groups = new Map();
-    for (const p of list) {
-      const ci = Math.min(NCH - 1, Math.max(0, Math.floor((p.x + HALF) / CHUNK)));
-      const cj = Math.min(NCH - 1, Math.max(0, Math.floor((p.z + HALF) / CHUNK)));
-      const key = p.type + '|' + ci + '|' + cj;
-      let g = groups.get(key);
-      if (!g) groups.set(key, (g = { type: p.type, items: [] }));
-      g.items.push(p);
-    }
-    for (const g of groups.values()) {
-      const model = propModel(g.type);
+  buildInstanced(list) {
+    const byType = new Map();
+    for (const p of list) { let a = byType.get(p.type); if (!a) byType.set(p.type, (a = [])); a.push(p); }
+    for (const [type, items] of byType) {
+      const model = propModel(type);
       if (!model || !model.geo) continue;
-      // Thinnable decoration is ordered by a fixed per-instance hash, so drawing only the first `count`
-      // instances drops a stable, evenly spread subset (see setDecoDensity). `p._inst.i` follows the new order.
-      let keys = null;
-      if (!isProp && THINNABLE.has(g.type)) {
-        const keyed = g.items.map((p) => ({ p, k: hash2(Math.round(p.x * 10), Math.round(p.z * 10), 31) }));
-        keyed.sort((a, b) => a.k - b.k);
-        g.items = keyed.map((e) => e.p);
-        keys = Float32Array.from(keyed, (e) => e.k);
-      }
-      const kind = mats()[PROP_KIND[g.type]] || mats().solid;
-      const mesh = new THREE.InstancedMesh(model.geo, kind.m, g.items.length);
-      const vari = VARIATION[g.type] || 0;
-      g.items.forEach((p, i) => {
+      const kind = KIND[PROP_KIND[type]] ? PROP_KIND[type] : 'solid';
+      const base = mats()[kind];
+      const bs = model.geo.boundingSphere || (model.geo.computeBoundingSphere(), model.geo.boundingSphere);
+      const n = items.length;
+      let smax = 0;
+      for (const p of items) smax = Math.max(smax, p.s || 1);
+      const cls = classOf(kind, bs.radius * smax);
+      const range = classRange(cls);
+      // LOD: trees always; other classes when the model is heavy ([band start, band end, proxy triangles])
+      // (a layer of a few instances, such as the 12 lamps or the one well, keeps its full model: the saving is nil)
+      const lodCfg = cls === 'tree' ? [TP.lodBand[0], TP.lodBand[1], TP.lodTris] : TP.lod[cls] && triCount(model.geo) > TP.lodMin && n * triCount(model.geo) > TP.lodMinTotal ? TP.lod[cls] : null;
+      const pg = lodCfg ? proxyGeometry(model.geo, lodCfg[2]) : null;
+      const band = pg ? [lodCfg[0], lodCfg[1]] : null;
+      const cut = cls === 'tree' ? canopyCut(model.geo) : null;   // r3: canopy cutaway beside the TP camera (full model only)
+      const L = {
+        type, kind, cls, n, items, cast: base.cast, rad: bs.radius, cy: bs.center.y, cut,
+        x: new Float32Array(n), z: new Float32Array(n), y: new Float32Array(n), r: new Float32Array(n),
+        M: new Float32Array(n * 16), C: VARIATION[type] ? new Float32Array(n * 3) : null, hidden: new Uint8Array(n),
+        slot0: new Int32Array(n).fill(-1), slot1: new Int32Array(n).fill(-1), slotS: new Int32Array(n).fill(-1), slotO: new Int32Array(n).fill(-1),
+        range, band, far0: band ? band[1] : range ? range[1] : Infinity, far1: range ? range[1] : Infinity, olR: Infinity,
+        m0: null, ol0: null, m1: null, olP: null, ms: null, msProxy: false, chunks: [], n0: 0, n0s: 0, nOl: 0, n1: 0, n1s: 0, ns: 0,
+        // cone margin (deg): cheap short-range deco packs a much wider cone, so turning rarely re-packs it
+        margin: (cls === 'deco' || cls === 'glow' ? TP.coneMarginDeco : TP.coneMargin) * Math.PI / 180, v: null, dirty: true,
+      };
+      items.forEach((p, k) => {
         this.composeFor(p);
-        mesh.setMatrixAt(i, _m);
-        if (vari) {
-          const h = hash2(Math.round(p.x * 10), Math.round(p.z * 10), 7);
+        _m.toArray(L.M, k * 16);
+        const s = p.s || 1;
+        L.x[k] = p.x; L.z[k] = p.z; L.y[k] = p.y + L.cy * s; L.r[k] = bs.radius * s;
+        if (L.C) {
+          const h = hash2(Math.round(p.x * 10), Math.round(p.z * 10), 7), vari = VARIATION[type];
           const v = 1 + (h - 0.5) * 2 * vari;
-          _c.setRGB(v * (1 + (h - 0.5) * vari * 0.6), v, v * (1 - (h - 0.5) * vari * 0.5));
-          mesh.setColorAt(i, _c);
+          L.C[k * 3] = v * (1 + (h - 0.5) * vari * 0.6); L.C[k * 3 + 1] = v; L.C[k * 3 + 2] = v * (1 - (h - 0.5) * vari * 0.5);
         }
-        p._inst = { mesh, i };
+        p._inst = { L, k };
       });
-      mesh.instanceMatrix.needsUpdate = true;
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-      mesh.castShadow = kind.cast;
-      mesh.receiveShadow = true;
-      mesh.computeBoundingSphere();
-      this.root.add(mesh);
-      this.meshes.push(mesh);
-      if (kind.ol && model.ol) {
-        const om = new THREE.InstancedMesh(model.ol, kind.ol, g.items.length);
-        om.instanceMatrix = mesh.instanceMatrix;
-        om.computeBoundingSphere();
-        om.castShadow = false;
-        om.raycast = () => {};
-        this.root.add(om);
-        mesh.userData.outline = om;
+      // CPU-side 40 m buckets (the world chunks) with bounding circles, so a pack only visits the chunks in range
+      const buckets = new Map();
+      items.forEach((p, k) => {
+        const ci = Math.min(NCH - 1, Math.max(0, Math.floor((p.x + HALF) / CHUNK))), cj = Math.min(NCH - 1, Math.max(0, Math.floor((p.z + HALF) / CHUNK)));
+        const key = ci * 64 + cj; let b = buckets.get(key); if (!b) buckets.set(key, (b = [])); b.push(k);
+      });
+      for (const idx of buckets.values()) {
+        let cx = 0, cz = 0;
+        for (const k of idx) { cx += L.x[k]; cz += L.z[k]; }
+        cx /= idx.length; cz /= idx.length;
+        let r = 0;
+        for (const k of idx) r = Math.max(r, Math.hypot(L.x[k] - cx, L.z[k] - cz) + L.r[k]);
+        L.chunks.push({ x: cx, z: cz, r, idx: Int32Array.from(idx) });
       }
-      if (keys) { this.thinned.push({ mesh, keys }); this.thinMesh(mesh, keys); }
+      // meshes: full model (+ hull), tree proxy, shadow-only casters
+      const inst = (geo, mat, cast) => {
+        const m = new THREE.InstancedMesh(geo, mat, n);
+        m.count = 0; m.visible = false; m.frustumCulled = false;
+        m.castShadow = cast; m.receiveShadow = true;
+        m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        if (L.C) { m.setColorAt(0, _c.setRGB(1, 1, 1)); m.instanceColor.setUsage(THREE.DynamicDrawUsage); }
+        m.userData.scatter = type;
+        this.root.add(m); this.meshes.push(m);
+        return m;
+      };
+      const fo = range ? { instFade: range } : {};
+      const mat0 = band ? variant(kind, { lod: 0, lodBand: band, ...fo, ...(cut ? { cut } : {}) }) : range ? variant(kind, fo) : base.m;
+      L.m0 = inst(model.geo, mat0, base.cast);
+      // draw order (three sorts opaque meshes by renderOrder, then material id, then depth): the trees' full models first
+      // (the big near occluders), every outline hull after the terrain (renderOrder 1), so hull and ground fragments
+      // behind a body fail the early depth test. Same picture; 0.5-0.7 ms less GPU in the woods at 1080p
+      if (cls === 'tree') L.m0.renderOrder = -1;
+      if (base.cast) {   // the shadow pass draws only the full models inside the light box (packed first)
+        L.m0.onBeforeShadow = function () { this.userData.full = this.count; this.count = L.n0s; };
+        L.m0.onAfterShadow = function () { this.count = this.userData.full; };
+      }
+      if (base.ol && model.ol) {
+        // its own material: no hull while the eye is inside this model's radial profile (in a pine tier, a bush, a crown)
+        const olm = olVariant(kind, band, 0, null, type, cut);
+        setHullProfile(olm, radialProfile(model.ol));
+        const om = new THREE.InstancedMesh(model.ol, olm, n);   // own instance buffer: only the items inside the hull's fade end
+        om.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        om.count = 0; om.visible = false; om.frustumCulled = false; om.castShadow = false; om.raycast = () => {}; om.userData.scatter = type; om.renderOrder = 2;
+        this.root.add(om); this.meshes.push(om);
+        L.ol0 = om; L.m0.userData.outline = om;
+        L.olR = Math.min(L.far0, olFar(olm));
+      }
+      if (pg) {
+        L.m1 = inst(pg, variant(kind, { lod: 1, lodBand: band, ...fo }), base.cast);
+        L.m1.userData.lod = 1; L.lodTris = triCount(pg);
+        // the shadow pass draws only the proxies inside the light box (they are packed first)
+        L.m1.onBeforeShadow = function () { this.userData.full = this.count; this.count = L.n1s; };
+        L.m1.onAfterShadow = function () { this.count = this.userData.full; };
+        if (base.ol && model.ol) {   // the proxy's own outline hull (shares the proxy's instance buffer and count)
+          const pm = new THREE.InstancedMesh(outlineGeometry([pg]), olVariant(kind, band, 1, range), n);
+          pm.instanceMatrix = L.m1.instanceMatrix;
+          pm.renderOrder = 2;
+          pm.count = 0; pm.visible = false; pm.frustumCulled = false; pm.castShadow = false; pm.raycast = () => {}; pm.userData.scatter = type;
+          this.root.add(pm); this.meshes.push(pm);
+          L.olP = pm; L.m1.userData.outline = pm;
+        }
+      }
+      // shadow-only casters (behind the view, and full models farther than shadowFullR): the proxy where there is one
+      if (base.cast) { L.ms = inst(pg || model.geo, base.m, true); L.ms.layers.set(LAYER_SHADOW); L.ms.receiveShadow = false; L.msProxy = !!pg; }
+      this.layers.push(L);
     }
-  }
-  /** Draw only this fraction (0..1) of the thinnable decoration. Fewer instances are submitted, so the
-   *  triangles really drop (a zero-scaled instance would still cost its vertices). */
-  setDecoDensity(d) {
-    this.decoDensity = Math.min(1, Math.max(0, d));
-    for (const t of this.thinned) this.thinMesh(t.mesh, t.keys);
-  }
-  thinMesh(mesh, keys) {
-    let n = keys.length;
-    if (this.decoDensity < 1) { n = 0; while (n < keys.length && keys[n] < this.decoDensity) n++; }
-    for (const m of [mesh, mesh.userData.outline]) if (m) { m.count = n; m.visible = n > 0; }
   }
   composeFor(p) {
     _e.set(0, p.rot || 0, 0);
@@ -134,16 +245,125 @@ export class Scenery {
     _m.compose(_p, _q, _s);
     return _m;
   }
+  /** cut / broken: gone from every mesh it is packed in right now (stable id p._inst) */
   hide(p) {
-    if (!p || !p._inst) return;
-    p._inst.mesh.setMatrixAt(p._inst.i, ZERO);
-    p._inst.mesh.instanceMatrix.needsUpdate = true;
+    const r = p && p._inst;
+    if (!r || !r.L) return;
+    const L = r.L, k = r.k;
+    L.hidden[k] = 1;
+    for (const [mesh, slots] of [[L.m0, L.slot0], [L.ol0, L.slotO], [L.m1, L.slot1], [L.ms, L.slotS]]) {
+      if (!mesh || slots[k] < 0) continue;
+      const a = mesh.instanceMatrix.array, o = slots[k] * 16;
+      for (let i = 0; i < 16; i++) a[o + i] = 0;
+      mesh.instanceMatrix.addUpdateRange(o, 16); mesh.instanceMatrix.needsUpdate = true;
+      slots[k] = -1;
+    }
   }
+  /** regrown: packed again by the next cull() (show(p, { grow }) keeps the old signature; grow is accepted) */
   show(p) {
-    if (!p || !p._inst) return;
-    this.composeFor(p);
-    p._inst.mesh.setMatrixAt(p._inst.i, _m);
-    p._inst.mesh.instanceMatrix.needsUpdate = true;
+    const r = p && p._inst;
+    if (!r || !r.L) return;
+    r.L.hidden[r.k] = 0;
+    r.L.dirty = true;
+  }
+  /**
+   * Re-pack every layer for this camera when needed (WP7 perf module, afterCamera). view = { x, z, fx, fz, cosH, full,
+   * box: { tx, ty, tz, ax, ay, az, bx, by, bz, E } | null } (light-space box of the sun's shadow camera) → true when packed
+   */
+  cull(view, force = false) {
+    const t0 = performance.now(), all = force || this.dirty;
+    let n = 0;
+    for (const L of this.layers) {
+      if (!all && !L.dirty && !this.needs(L, view)) continue;
+      this.pack(L, view);
+      L.v = { x: view.x, z: view.z, fx: view.fx, fz: view.fz, half: view.half, full: view.full, box: view.box && { ...view.box } };
+      L.dirty = false; n++;
+    }
+    this.dirty = false;
+    if (n) { this.packs++; this.packMs = performance.now() - t0; this.packLayers = n; }
+    return n > 0;
+  }
+  /** a layer re-packs when the camera moved repackMove, turned (or widened the view) by half its cone margin, or the sun's
+   *  shadow box moved (casters) */
+  needs(L, v) {
+    const o = L.v;
+    if (!o || v.full !== o.full || Math.hypot(v.x - o.x, v.z - o.z) >= TP.repackMove) return true;
+    if (L.cast && boxMoved(v.box, o.box)) return true;
+    if (v.full || v.half + L.margin >= Math.PI * 0.98) return false;
+    return Math.acos(Math.max(-1, Math.min(1, v.fx * o.fx + v.fz * o.fz))) + Math.max(0, v.half - o.half) >= L.margin * 0.5;
+  }
+  pack(L, v) {
+    const off = this.cullOff, near = TP.nearAll, B = v.box, pad = TP.shadowPad, mv = TP.repackMove + 0.5, sfr = L.msProxy && !off ? TP.shadowFullR : Infinity;
+    const H = v.half + L.margin, full = v.full || H >= Math.PI * 0.98, cosH = Math.cos(H);
+    const lod0 = L.m1 ? L.band[0] - mv : Infinity, far1 = L.far1 + mv;
+    const far0 = off ? Infinity : L.far0 + mv, olR = L.olR + mv;
+    const tmp = Scenery._tmp || (Scenery._tmp = { a: new Int32Array(1 << 15), b: new Int32Array(1 << 15), c: new Int32Array(1 << 15), d: new Int32Array(1 << 15), e: new Int32Array(1 << 15), o: new Int32Array(1 << 15) });
+    if (tmp.a.length < L.n) for (const k in tmp) tmp[k] = new Int32Array(L.n * 2);
+    // a: full model in the light box, b: full model, o: outlined (near), c: proxy in the box, d: proxy, e: shadow-only
+    let na = 0, nb = 0, nc = 0, nd = 0, ne = 0, no = 0;
+    const maxR = Math.max(L.m1 ? far1 : far0, L.ms ? 120 : 0);
+    const inBox = (k) => {
+      if (!B) return Math.hypot(L.x[k] - v.x, L.z[k] - v.z) < 60;
+      const dx = L.x[k] - B.tx, dy = L.y[k] - B.ty, dz = L.z[k] - B.tz, e = B.E + L.r[k] + pad;
+      return Math.abs(dx * B.ax + dy * B.ay + dz * B.az) <= e && Math.abs(dx * B.bx + dy * B.by + dz * B.bz) <= e;
+    };
+    L.slot0.fill(-1); L.slot1.fill(-1); L.slotS.fill(-1); L.slotO.fill(-1);
+    for (const ch of L.chunks) {
+      const dc = Math.hypot(ch.x - v.x, ch.z - v.z);
+      if (dc - ch.r > maxR) continue;
+      const chunkCone = off || full || dc < ch.r + near || (ch.x - v.x) * v.fx + (ch.z - v.z) * v.fz >= cosH * dc - ch.r - mv;
+      if (!chunkCone && !L.ms) continue;
+      for (let j = 0; j < ch.idx.length; j++) {
+        const k = ch.idx[j];
+        if (L.hidden[k]) continue;
+        const dx = L.x[k] - v.x, dz = L.z[k] - v.z, d = Math.sqrt(dx * dx + dz * dz), r = L.r[k];
+        // inside the view cone (sphere test, conservative), or close enough to show at the screen edge whatever the yaw
+        const cone = off || full || d < near + r || dx * v.fx + dz * v.fz >= cosH * d - r - mv;
+        if (cone && d <= far0) {
+          // in the light box: the full model casts its own shadow up to shadowFullR, beyond that its proxy (shadow-only) does
+          if (L.cast && inBox(k)) { if (d <= sfr) tmp.a[na++] = k; else { tmp.b[nb++] = k; tmp.e[ne++] = k; } } else tmp.b[nb++] = k;
+          if (L.ol0 && (off || d <= olR)) tmp.o[no++] = k;
+        }
+        if (cone && !off && d > lod0 && d <= far1) { if (L.cast && inBox(k)) tmp.c[nc++] = k; else tmp.d[nd++] = k; }
+        if (!cone && L.ms && !off && d < 120 && inBox(k)) tmp.e[ne++] = k;
+      }
+    }
+    L.n0 = na + nb; L.n0s = na; L.nOl = no; L.n1 = nc + nd; L.n1s = nc; L.ns = ne;
+    writeMesh(L, L.m0, L.slot0, tmp.a, na, tmp.b, nb);
+    if (L.ol0) writeMesh(L, L.ol0, L.slotO, tmp.o, no, null, 0);
+    if (L.m1) writeMesh(L, L.m1, L.slot1, tmp.c, nc, tmp.d, nd);
+    if (L.olP) { L.olP.count = L.m1.count; L.olP.visible = L.m1.visible; }
+    if (L.ms) writeMesh(L, L.ms, L.slotS, tmp.e, ne, null, 0);
+  }
+  /** A/B base (G.debug.perf.cull(false)): every item packed as its full model, no instance fade, LOD dither or outline
+   *  distance fade, so the culled view can be compared with "everything drawn" (on = true); false restores */
+  setBase(on) {
+    this.cullOff = !!on; this.dirty = true;
+    const BIG = [1e9, 2e9], keep = this._base || (this._base = new Map());
+    for (const L of this.layers) {
+      for (const m of [L.m0, L.ol0, L.m1, L.olP, L.ms]) {
+        const u = m && m.material.userData;
+        if (!u) continue;
+        for (const k of ['lodBand', 'instFade', 'far']) {
+          const un = u[k];
+          if (!un || !un.value) continue;
+          if (!keep.has(un)) keep.set(un, un.value.toArray());
+          un.value.fromArray(on ? BIG : keep.get(un));
+        }
+      }
+    }
+  }
+  /** pack counts for tests / G.debug.perf.state() */
+  stats() {
+    const out = { packs: this.packs, packMs: +this.packMs.toFixed(3), layers: {} };
+    let tris = 0;
+    for (const L of this.layers) {
+      const t0 = L.m0.geometry.index ? L.m0.geometry.index.count / 3 : L.m0.geometry.attributes.position.count / 3;
+      out.layers[L.type] = { cls: L.cls, n: L.n, full: L.n0, outlined: L.nOl, proxy: L.n1, proxyHull: !!L.olP, proxyShadow: L.n1s, shadowOnly: L.ns, lodTris: L.lodTris || null };
+      tris += L.n0 * t0;
+    }
+    out.fullTris = tris;
+    return out;
   }
   buildBuildings() {
     const W = this.W;
@@ -167,6 +387,7 @@ export class Scenery {
     const parts = greatTreeParts();
     const g = new THREE.Group();
     g.position.set(W.greatTree.x, W.greatTree.y - 0.1, W.greatTree.z);
+    g.userData.cull = { dist: Infinity };
     const big = mats().big, can = mats().canopy;
     g.add(meshWithOutline(parts.trunk, big.m, big.ol, { receive: true }));
     const canopy = meshWithOutline(parts.canopy, can.m, can.ol);
@@ -179,9 +400,10 @@ export class Scenery {
     this.root.add(g);
     this.greatTree = { group: g, canopy, bloom, sleepy, awake, branchEnds: parts.branchEnds, height: 14 };
     // Prefer the art pipeline's GLBs when present (sleepy + bloom); procedural parts stay as fallback.
-    const glbA = makeModel('great_tree', { outline: 'big', occ: true, receive: true });
+    const sh = W.greatTree.scaleHeight;   // WP9 sets it in world.js (≈ 19.8 m); absent → the manifest height
+    const glbA = makeModel('great_tree', { outline: 'big', occ: true, receive: true, height: sh });
     if (glbA) {
-      const glbB = makeModel('great_tree_bloom', { outline: 'big', occ: true, receive: true });
+      const glbB = makeModel('great_tree_bloom', { outline: 'big', occ: true, receive: true, height: sh && sh * bloomK() });
       g.children.slice().forEach((c) => (c.visible = false));
       g.add(glbA.group);
       if (glbB) { glbB.group.visible = false; g.add(glbB.group); }
@@ -208,6 +430,7 @@ export class Scenery {
     for (const br of this.W.bridges) {
       const built = bridgeGeo(br);
       const g = meshWithOutline(built, solid.m, solid.ol, { receive: true });
+      g.userData.cull = { dist: Infinity };   // built in world coordinates (origin at 0, 0): never by distance
       this.root.add(g);
     }
   }
@@ -249,6 +472,31 @@ export class Scenery {
   }
 }
 
+/** copy the items of two index lists into a mesh's instance buffer (first list first), recording each item's slot */
+function writeMesh(L, mesh, slots, a, na, b, nb) {
+  const arr = mesh.instanceMatrix.array, M = L.M, C = L.C, carr = C && mesh.instanceColor ? mesh.instanceColor.array : null;
+  let s = 0;
+  for (let pass = 0; pass < 2; pass++) {
+    const list = pass ? b : a, n = pass ? nb : na;
+    for (let j = 0; j < n; j++, s++) {
+      const k = list[j], o = s * 16, mo = k * 16;
+      for (let i = 0; i < 16; i++) arr[o + i] = M[mo + i];
+      if (carr) { carr[s * 3] = C[k * 3]; carr[s * 3 + 1] = C[k * 3 + 1]; carr[s * 3 + 2] = C[k * 3 + 2]; }
+      slots[k] = s;
+    }
+  }
+  mesh.count = s; mesh.visible = s > 0;
+  const im = mesh.instanceMatrix;
+  im.clearUpdateRanges(); im.addUpdateRange(0, Math.max(16, s * 16)); im.needsUpdate = true;
+  if (carr) { const ic = mesh.instanceColor; ic.clearUpdateRanges(); ic.addUpdateRange(0, Math.max(3, s * 3)); ic.needsUpdate = true; }
+}
+function boxMoved(a, b) {
+  if (!a || !b) return !!a !== !!b;
+  return Math.hypot(a.tx - b.tx, a.tz - b.tz) > 2 || a.ax * b.ax + a.ay * b.ay + a.az * b.az < 0.9995 || a.bx * b.bx + a.by * b.by + a.bz * b.bz < 0.9995 || Math.abs(a.E - b.E) > 0.5;
+}
+
+/** bloom / sleepy model height ratio from the manifest (the bloom crown is a little taller) */
+function bloomK() { const m = Assets.modelInfo; return m.great_tree_bloom && m.great_tree ? m.great_tree_bloom.height / m.great_tree.height : 1; }
 /** radius of a model's footprint near the ground (roots/trunk), in metres */
 function footprintRadius(obj, h) {
   obj.updateMatrixWorld(true);

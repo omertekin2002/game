@@ -1,101 +1,149 @@
-// Player settings: defaults, ranges, load-time sanitizing and the small helpers the game applies them with.
-// Pure module (no Three.js, DOM or localStorage) so `bun test` can import it. js/main.js does the storage.
+// Player preferences: per device, survive New Game, separate from the save (key 'starseed-isle-settings-v1').
+// Only values the player changed are stored; defaults are computed once at load (portrait phone → third person,
+// prefers-reduced-motion → motion comfort). Stored keys this build doesn't know are kept for forward compatibility.
+// Mute keeps its own key ('starseed-isle-muted', owned by audio.js).
+import { G, store } from './core.js';
+import { EV } from './events.js';
 
-// Bump when the settings layout changes. Stored separately from the save, so New Game never resets settings.
-export const SETTINGS_VERSION = 1;
 export const SETTINGS_KEY = 'starseed-isle-settings-v1';
 
-// Numeric settings: allowed range and the step the menu moves them by.
-export const RANGES = {
-  musicVolume: { min: 0, max: 1, step: 0.1 },
-  sfxVolume: { min: 0, max: 1, step: 0.1 },
-  camSensitivity: { min: 0.5, max: 2, step: 0.25 },
+// def = default; opts = allowed values; min/max/step = numeric range. FOVs are horizontal degrees at 16:9 (Hor+).
+export const SCHEMA = {
+  view: { def: 'fp', opts: ['fp', 'tp'] },                        // phone portrait defaults to 'tp'
+  fovFP: { def: 100, min: 80, max: 115, step: 1 },
+  fovTP: { def: 90, min: 75, max: 100, step: 1 },
+  sens: { def: 1.0, min: 0.25, max: 4.0, step: 0.05 },           // × 0.0022 rad per mouse count
+  invertY: { def: false },
+  rawInput: { def: false },                                       // unadjustedMovement pointer lock
+  padSens: { def: 1.0, min: 0.5, max: 2.0, step: 0.05 },
+  padInvertY: { def: false },
+  padCurve: { def: 'default', opts: ['linear', 'default', 'precise'] },
+  touchSens: { def: 1.0, min: 0.5, max: 2.0, step: 0.05 },
+  arrowLook: { def: false },                                      // arrow keys look (accessibility)
+  headBob: { def: 1.0, min: 0, max: 1, step: 0.05 },
+  shake: { def: 1.0, min: 0, max: 1, step: 0.05 },
+  speedFx: { def: 1.0, min: 0, max: 1, step: 0.05 },             // dash/sprint FOV, hit punches
+  cameraRoll: { def: true },
+  reduceMotion: { def: false },                                   // "Motion comfort" preset; true under prefers-reduced-motion
+  crosshair: { def: 'dot', opts: ['dot', 'ring', 'off'] },
+  crosshairSize: { def: 'm', opts: ['s', 'm', 'l'] },
+  crosshairColor: { def: 'cream', opts: ['cream', 'yellow'] },
+  aimAssist: { def: 'auto', opts: ['auto', 'off', 'low', 'high'] }, // swing magnetism; auto = mouse low, pad high, touch max
+  lockMode: { def: 'toggle', opts: ['toggle', 'hold'] },
+  lockTurnsCamera: { def: true },
+  autoLockBosses: { def: 'auto', opts: ['auto', 'on', 'off'] },  // auto = pad/touch on, mouse off
+  tpShoulder: { def: 'right', opts: ['right', 'left', 'center'] },
+  tpBodyFacesCamera: { def: false },
+  tpAutoRecenter: { def: true },
+  dialogueLookAt: { def: true },
+  musicVol: { def: 1.0, min: 0, max: 1, step: 0.05 },
+  sfxVol: { def: 1.0, min: 0, max: 1, step: 0.05 },
+  ambVol: { def: 1.0, min: 0, max: 1, step: 0.05 },
+  textSpeed: { def: 52, opts: [30, 52, 90] },                    // dialogue characters per second
+  hudScale: { def: 1.0, min: 0.8, max: 1.2, step: 0.05 },
+  minimap: { def: 'heading', opts: ['heading', 'north', 'off'] },
+  quality: { def: 'auto', opts: ['auto', 'low', 'high'] },
+  dynRes: { def: true },
+  touchLeftHanded: { def: false },
 };
-export const BOOLS = ['invertCamX', 'invertCamY', 'reducedMotion'];
-// Choice settings: the allowed values, in menu order (← / − moves left, → / + moves right).
-export const ENUMS = {
-  quality: ['low', 'medium', 'high'],
-};
 
-// What each graphics preset sets. High is the original look. Each knob only grows from low to high.
-//  pixelRatioCap: upper bound for the renderer pixel ratio (the device ratio is used when it is lower)
-//  shadows / shadowMapSize: sun shadows and the size of their square shadow map
-//  decoDensity: the fraction of non-interactive decoration that is drawn (grass, flowers, ferns, pebbles, shells,
-//    glowshrooms, crystals; js/scatter.js). Low uses 0.15: with shadows off, that draws about 42% fewer
-//    triangles than High at the spawn view (0.35 gave only 36%; trees and their outlines are most of the rest).
-const QUALITY = {
-  low: { pixelRatioCap: 1, shadows: false, shadowMapSize: 1024, decoDensity: 0.15 },
-  medium: { pixelRatioCap: 1.25, shadows: true, shadowMapSize: 1024, decoDensity: 0.65 },
-  high: { pixelRatioCap: 1.75, shadows: true, shadowMapSize: 2048, decoDensity: 1 },
-};
+const mq = (q) => { try { return !!(window.matchMedia && window.matchMedia(q).matches); } catch (e) { return false; } };
 
-// With reduced motion on, the full-screen white and red flashes never go above this opacity.
-export const FLASH_CAP = 0.2;
-
-// Volumes match js/audio.js's own defaults. `reducedMotion` follows the OS `prefers-reduced-motion`
-// value, which the caller passes in (this module has no DOM).
-export function defaultSettings(prefersReducedMotion = false) {
-  return {
-    v: SETTINGS_VERSION, musicVolume: 0.35, sfxVolume: 0.7, camSensitivity: 1,
-    invertCamX: false, invertCamY: false, reducedMotion: !!prefersReducedMotion, quality: 'high',
-  };
+/** device-dependent defaults, computed once */
+function computeDefaults() {
+  const d = {};
+  for (const k in SCHEMA) d[k] = SCHEMA[k].def;
+  try { if (mq('(pointer: coarse)') && window.innerWidth < window.innerHeight) d.view = 'tp'; } catch (e) { /* ignore */ }
+  if (mq('(prefers-reduced-motion: reduce)')) d.reduceMotion = true;
+  return d;
 }
-export const DEFAULT_SETTINGS = Object.freeze(defaultSettings(false));
 
-const isObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
-const round = (x) => Math.round(x * 1000) / 1000;
-
-// A complete, valid settings object from anything (garbage, null, an older or newer `v`): numbers are
-// clamped to their range, choices must be one of their values, anything missing, wrong-typed or NaN takes the
-// default, unknown keys are dropped.
-// Never throws.
-export function sanitizeSettings(raw, defaults = DEFAULT_SETTINGS) {
-  const d = isObj(defaults) ? defaults : DEFAULT_SETTINGS;
-  const src = isObj(raw) ? raw : {};
-  const out = { v: SETTINGS_VERSION };
-  for (const [k, r] of Object.entries(RANGES)) {
-    const v = src[k];
-    out[k] = typeof v === 'number' && Number.isFinite(v) ? round(Math.min(r.max, Math.max(r.min, v))) : d[k];
+/** coerce a value to the schema; returns undefined when it can't be made valid */
+function coerce(sc, v) {
+  if (typeof sc.def === 'boolean') {
+    if (typeof v === 'boolean') return v;
+    if (v === 1 || v === 'true') return true;
+    if (v === 0 || v === 'false') return false;
+    return undefined;
   }
-  for (const k of BOOLS) out[k] = typeof src[k] === 'boolean' ? src[k] : !!d[k];
-  for (const [k, vals] of Object.entries(ENUMS)) {
-    out[k] = vals.includes(src[k]) ? src[k] : vals.includes(d[k]) ? d[k] : DEFAULT_SETTINGS[k];
+  if (sc.opts) {
+    if (sc.opts.includes(v)) return v;
+    const n = Number(v);
+    return typeof sc.def === 'number' && sc.opts.includes(n) ? n : undefined;
   }
-  return out;
+  let n = Number(v);
+  if (v === null || v === '' || !Number.isFinite(n)) return undefined;
+  if (sc.step) n = Math.round(n / sc.step) * sc.step;
+  n = Math.min(sc.max, Math.max(sc.min, n));
+  return +n.toFixed(4);
 }
 
-// The settings with `key` moved one step in `dir` (+1 / -1): numbers go to the next step on the grid
-// (clamped, or wrapping past the ends when `wrap` is set); choices move to the next value the same way;
-// booleans toggle. Returns a new object.
-export function stepSetting(s, key, dir, wrap = false) {
-  const out = { ...s };
-  if (BOOLS.includes(key)) { out[key] = !s[key]; return out; }
-  const vals = ENUMS[key];
-  if (vals) {
-    const n = vals.length, i = Math.max(0, vals.indexOf(s[key])) + (dir > 0 ? 1 : -1);
-    out[key] = vals[wrap ? (i + n) % n : Math.min(n - 1, Math.max(0, i))];
-    return out;
+export class Settings {
+  constructor() {
+    this.defaults = computeDefaults();
+    this.user = {};          // only changed values (+ unknown keys from newer builds)
+    this.subs = new Map();   // key | '*' → [fn]
+    this.saveT = null;
+    const raw = store.get(SETTINGS_KEY);
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      for (const k in raw) {
+        if (k === 'v') continue;
+        if (!SCHEMA[k]) { this.user[k] = raw[k]; continue; }
+        const v = coerce(SCHEMA[k], raw[k]);
+        if (v !== undefined) this.user[k] = v;
+      }
+    }
+    try { window.addEventListener('pagehide', () => { if (this.saveT) this.flush(); }); } catch (e) { /* ignore */ }
   }
-  const r = RANGES[key];
-  if (!r) return out;
-  const i = (s[key] - r.min) / r.step;
-  const n = dir > 0 ? Math.floor(i + 1e-6) + 1 : Math.ceil(i - 1e-6) - 1;
-  let v = round(r.min + n * r.step);
-  if (wrap && v > r.max + 1e-6) v = r.min;
-  else if (wrap && v < r.min - 1e-6) v = r.max;
-  out[key] = Math.min(r.max, Math.max(r.min, v));
-  return out;
+  get(k) { return k in this.user && SCHEMA[k] ? this.user[k] : this.defaults[k]; }
+  /** every known setting with its effective value */
+  all() { const o = {}; for (const k in SCHEMA) o[k] = this.get(k); return o; }
+  /** clamps/validates, persists (debounced 250 ms), notifies; returns the effective value */
+  set(k, v) {
+    const sc = SCHEMA[k];
+    if (!sc) { if (G.debugOn) console.warn('[Starseed] unknown setting', k); return undefined; }
+    const c = coerce(sc, v);
+    if (c === undefined) return this.get(k);
+    const prev = this.get(k);
+    if (c === this.defaults[k]) delete this.user[k]; else this.user[k] = c;
+    this.persist();
+    if (c !== prev) this.notify(k, c);
+    return c;
+  }
+  /** back to defaults (one key, or all when k is omitted) */
+  reset(k) {
+    const keys = k ? [k] : Object.keys(SCHEMA);
+    for (const key of keys) {
+      if (!SCHEMA[key]) continue;
+      const prev = this.get(key);
+      delete this.user[key];
+      if (this.get(key) !== prev) this.notify(key, this.get(key));
+    }
+    this.persist();
+  }
+  /** subscribe to one key or '*'; fn(value, key); returns off() */
+  on(k, fn) {
+    let a = this.subs.get(k);
+    if (!a) this.subs.set(k, (a = []));
+    a.push(fn);
+    return () => { const i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); };
+  }
+  notify(k, v) {
+    for (const key of [k, '*']) {
+      const a = this.subs.get(key);
+      if (a) for (const fn of a.slice()) { try { fn(v, k); } catch (e) { console.error('[Starseed] settings listener', k, e); } }
+    }
+    if (G.events) G.events.emit(EV.SETTINGS, { key: k, value: v });
+  }
+  persist() {
+    clearTimeout(this.saveT);
+    this.saveT = setTimeout(() => this.flush(), 250);
+  }
+  flush() {
+    clearTimeout(this.saveT);
+    this.saveT = null;
+    return store.set(SETTINGS_KEY, Object.assign({ v: 1 }, this.user));
+  }
 }
 
-// Multipliers for the camera's yaw and pitch input deltas (sensitivity and invert).
-export function camScale(s) {
-  return { yaw: s.camSensitivity * (s.invertCamX ? -1 : 1), pitch: s.camSensitivity * (s.invertCamY ? -1 : 1) };
-}
-
-// Full-screen flash opacity after the reduced-motion cap.
-export function capFlash(a, s) { return s && s.reducedMotion ? Math.min(a, FLASH_CAP) : a; }
-
-// The concrete renderer and scenery knobs for a graphics preset (unknown values get the default, High).
-export function qualityProfile(quality) {
-  return { ...(QUALITY[quality] || QUALITY[DEFAULT_SETTINGS.quality]) };
-}
+export const settings = new Settings();

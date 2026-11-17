@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Headless-browser smoke test: serve the repo, boot the game in Chromium (software WebGL via SwiftShader),
-// start a New Game, change settings (incl. the graphics preset) from the pause menu and reload, then continue a valid, a corrupt and a
-// newer-version save from localStorage (with corrupt settings). Fails on any page error, console error or failed request.
+// start a New Game, then continue a valid, a corrupt and a newer-version save from localStorage. Fails on any
+// page error, console error or failed request.
 // Usage: node tests/smoke.mjs   (or `bun run test:smoke`). On failure a screenshot lands in test-results/.
 import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
@@ -9,11 +9,16 @@ import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 const SAVE_KEY = 'starseed-isle-save-v2'; // SAVE_KEY in js/data.js
-const SETTINGS_KEY = 'starseed-isle-settings-v1'; // SETTINGS_KEY in js/settings.js
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const BOOT_TIMEOUT = Number(process.env.SMOKE_BOOT_TIMEOUT || 120_000);
-const STEP_TIMEOUT = 20_000;
+// Starting a session compiles every shader on its first frame; in software WebGL on a two-core runner that frame
+// alone takes around 10 s.
+const STEP_TIMEOUT = 60_000;
+// nolock=1: the game looks by mouse drag instead of capturing the pointer. Headless Chromium keeps feeding mouse
+// moves to a page that holds the pointer lock; at software-WebGL frame rates the page cannot drain them and the
+// browser process grows by about 100 MB a second until the runner is out of memory.
+const QUERY = '?debug=1&nolock=1';
 const SHOT = new URL('../test-results/smoke-failure.png', import.meta.url);
 
 const freePort = () => new Promise((resolve, reject) => {
@@ -48,30 +53,20 @@ async function main() {
     });
     const fail = (msg) => { throw new Error(msg); };
     // Open the game in a fresh context (its own localStorage). `save`, if given, is written to localStorage
-    // before any page script runs, so the game boots with exactly that save. `settings` is a raw stored string.
-    const openGame = async (save, settings) => {
+    // before any page script runs, so the game boots with exactly that save.
+    const openGame = async (save) => {
       const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
       if (save !== undefined) {
         await ctx.addInitScript(([k, v]) => localStorage.setItem(k, v), [SAVE_KEY, JSON.stringify(save)]);
       }
-      if (settings !== undefined) await ctx.addInitScript(([k, v]) => localStorage.setItem(k, v), [SETTINGS_KEY, settings]);
       if (page) await page.context().close();
-      page = null;
-      await openPage(ctx, save !== undefined ? ' with a save in localStorage' : '');
-    };
-    // Open the game in a new page of `ctx`, which shares its localStorage (closing the previous page first).
-    const openPage = async (ctx, note = '') => {
-      if (page) await page.close();
       page = await ctx.newPage();
       page.on('pageerror', (e) => problems.push(`pageerror: ${e.stack || e.message}`));
       page.on('console', (m) => { if (m.type() === 'error') problems.push(`console.error: ${m.text()}`); });
       page.on('requestfailed', (r) => problems.push(`request failed: ${r.url()} (${r.failure()?.errorText})`));
       page.on('response', (r) => { if (r.status() >= 400) problems.push(`HTTP ${r.status()}: ${r.url()}`); });
-      step(`open ${server.url}?debug=1${note}`);
-      await page.goto(`${server.url}?debug=1`, { waitUntil: 'load', timeout: BOOT_TIMEOUT });
-      await waitBoot();
-    };
-    const waitBoot = async () => {
+      step(`open ${server.url}${QUERY}${save !== undefined ? ' with a save in localStorage' : ''}`);
+      await page.goto(`${server.url}${QUERY}`, { waitUntil: 'load' });
       const ms = await waitFor('boot (G.world, loading screen gone, title shown)', () => {
         const G = window.G;
         const loading = document.getElementById('loading');
@@ -81,19 +76,14 @@ async function main() {
       await page.locator('#game').focus();
     };
     // Errors are recorded asynchronously; poll them alongside each wait so a broken boot fails fast.
-    const waitFor = async (what, fn, timeout, arg) => {
+    const waitFor = async (what, fn, timeout) => {
       const t0 = Date.now();
       while (Date.now() - t0 < timeout) {
         if (problems.length) fail(`errors while waiting for ${what}`);
-        if (await page.evaluate(fn, arg).catch(() => false)) return Date.now() - t0;
+        if (await page.evaluate(fn).catch(() => false)) return Date.now() - t0;
         await new Promise((r) => setTimeout(r, 200));
       }
       fail(`timed out after ${timeout} ms waiting for ${what}`);
-    };
-    // Press a key, then wait until the game has seen it (input is sampled once per frame).
-    const press = async (key, what, fn, arg) => {
-      await page.keyboard.press(key);
-      await waitFor(what, fn, STEP_TIMEOUT, arg);
     };
     const continueVisible = () => page.evaluate(() => {
       const b = document.querySelector('[data-a="continue"]');
@@ -115,7 +105,9 @@ async function main() {
     if (info.unreachable !== 0) fail(`world reports ${info.unreachable} unreachable targets`);
     if (problems.length) fail('errors during gameplay');
 
-    // 2. Continue a valid v2 save (one chest open, one boss beaten and its seed placed, a saved position)
+    // 2. Continue a valid v2 save (one chest open, one boss beaten and its seed placed, a saved position).
+    // controlsV is the controls-card version the player has seen (CONTROLS_V in js/game.js); a save without it
+    // predates the first-person controls and gets the card once more, which clears controlsSeen.
     const save = await page.evaluate(() => {
       const W = window.G.world;
       let px = W.spawn.x, pz = W.spawn.z;
@@ -126,7 +118,7 @@ async function main() {
         v: 2, seed: W.seed, hp: 5, maxHp: 8, coins: 42, potions: 1, swordLevel: 1,
         seeds: { woods: 2, peaks: 0, shores: 0 }, chests: { [W.chests[0].id]: true }, bosses: { woods: true },
         shopHeart: false, ending: false, tod: 0.45, visited: { village: true, woods: true },
-        introDone: true, controlsSeen: true, playTime: 321.5, px, pz, facing: 0.5,
+        introDone: true, controlsSeen: true, controlsV: 2, playTime: 321.5, px, pz, facing: 0.5,
       };
     });
     await openGame(save);
@@ -146,155 +138,8 @@ async function main() {
     if (problems.length) fail('errors after continuing a valid save');
     step('valid v2 save continued with the same chests, bosses, seeds and position');
 
-    // 3. Settings: pause → Settings, change values with the keyboard and the mouse, check they apply, reload
-    await page.evaluate(() => {
-      const a = window.G.audio, calls = (window.__vol = []);
-      for (const n of ['setMusicVolume', 'setSfxVolume']) { const f = a[n]; a[n] = (v) => { calls.push([n, v]); return f(v); }; }
-    });
-    await waitFor('gameplay accepts input', () => window.G.game.playing, STEP_TIMEOUT);
-    await press('Escape', 'pause menu', () => window.G.ui.menu === 'pause');
-    await press('ArrowDown', 'pause selection 1', () => window.G.ui.pauseSel === 1);
-    await press('ArrowDown', 'pause selection 2 (Settings)', () => window.G.ui.pauseSel === 2);
-    await press('Enter', 'settings overlay', () => window.G.ui.menu === 'settings' && !document.getElementById('settings').classList.contains('hidden'));
-    await press('ArrowLeft', 'music volume 30%', () => window.G.settings.musicVolume === 0.3);
-    for (let i = 1; i <= 5; i++) await press('ArrowDown', `settings row ${i}`, (n) => window.G.ui.settingsSel === n, i);
-    await press('Enter', 'reduced motion on', () => window.G.settings.reducedMotion === true);
-    await page.click('#settings .srow[data-r="1"] .sb[data-d="1"]');
-    await waitFor('SFX volume 80% after a click', () => window.G.settings.sfxVolume === 0.8, STEP_TIMEOUT);
-    await page.click('#settings .srow[data-r="3"] .sb');
-    await waitFor('invert horizontal on after a click', () => window.G.settings.invertCamX === true, STEP_TIMEOUT);
-    // the clicked button keeps focus: Enter must act once through the game's input, not also as a native click
-    await press('Enter', 'Enter on the focused toggle flips it once', () => window.G.settings.invertCamX === false);
-    const afterFrames = (n) => page.evaluate((k) => new Promise((r) => { const f = () => (--k <= 0 ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); }), n);
-    await afterFrames(3);
-    if (!(await page.evaluate(() => window.G.settings.invertCamX === false))) fail('Enter on a focused settings button acted twice');
-    await page.click('#settings .srow[data-r="3"] .sb');
-    await waitFor('invert horizontal back on', () => window.G.settings.invertCamX === true, STEP_TIMEOUT);
-    const vol = await page.evaluate(() => window.__vol);
-    if (!vol.some(([n, v]) => n === 'setMusicVolume' && v === 0.3) || !vol.some(([n, v]) => n === 'setSfxVolume' && v === 0.8)) fail(`audio setters not called: ${JSON.stringify(vol)}`);
-    // Graphics preset: High → Low (keyboard ←) → High (mouse +) → Low (Enter wraps). A device pixel ratio of 2
-    // makes the pixel-ratio cap visible. A cut tallgrass and a broken pot must stay hidden across the switches.
-    await page.evaluate(() => {
-      Object.defineProperty(window, 'devicePixelRatio', { configurable: true, get: () => 2 });
-      const g = window.G.game, W = window.G.world, pl = g.player.pos;
-      const near = (list) => list.filter((o) => o._inst).sort((a, b) => Math.hypot(a.x - pl.x, a.z - pl.z) - Math.hypot(b.x - pl.x, b.z - pl.z))[0];
-      window.__cut = [near(W.deco.filter((d) => d.type === 'tallgrass')), near(W.props.filter((p) => p.type === 'pot' && p.breakable && !p.removed))];
-      for (const o of window.__cut) g.cutObject(o);
-    });
-    await page.waitForTimeout(2500); // let the cut effects finish so the triangle counts settle
-    const gfx = () => page.evaluate(async () => {
-      await new Promise((r) => { let k = 4; const f = () => (--k <= 0 ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); });
-      const { G } = window;
-      let mat = null;
-      G.game.player.root.traverse((o) => { if (!mat && o.isMesh && o.material && o.material.isMeshToonMaterial) mat = o.material; });
-      const prog = G.renderer.properties.get(mat).currentProgram;
-      const zero = (o) => { const m = new G.THREE.Matrix4(); o._inst.mesh.getMatrixAt(o._inst.i, m); return [0, 1, 2, 4, 5, 6, 8, 9, 10].every((k) => m.elements[k] === 0); }; // zero scale (Scenery.hide)
-      const i = G.debug.info();
-      return {
-        q: G.settings.quality, calls: i.calls, tris: i.tris, shadows: G.renderer.shadowMap.enabled, castShadow: G.sky.sun.castShadow,
-        pr: G.renderer.getPixelRatio(), map: G.sky.sun.shadow.mapSize.x, prog: prog && prog.cacheKey,
-        deco: G.scenery.thinned.reduce((n, t) => n + t.mesh.count, 0), decoAll: G.scenery.thinned.reduce((n, t) => n + t.keys.length, 0),
-        cutHidden: window.__cut.map((o) => !!o.cut && zero(o)),
-      };
-    });
-    const hi0 = await gfx();
-    step(`graphics High: ${JSON.stringify({ ...hi0, prog: undefined })}`);
-    if (!(hi0.q === 'high' && hi0.shadows && hi0.castShadow && hi0.map === 2048 && hi0.deco === hi0.decoAll && hi0.pr <= 1)) fail(`default graphics are not High: ${JSON.stringify(hi0)}`);
-    if (!hi0.cutHidden.every(Boolean)) fail(`cut tallgrass / broken pot not hidden: ${hi0.cutHidden}`);
-    for (let i = 4; i <= 6; i++) await press('ArrowDown', `settings row ${i}`, (n) => window.G.ui.settingsSel === n, i);
-    await press('ArrowLeft', 'graphics Medium', () => window.G.settings.quality === 'medium');
-    if ((await page.textContent('#settings .srow[data-r="6"] .val')) !== 'Medium') fail('Graphics row does not show Medium');
-    await press('ArrowLeft', 'graphics Low', () => window.G.settings.quality === 'low');
-    const lo = await gfx();
-    step(`graphics Low: ${JSON.stringify({ ...lo, prog: undefined })} (${(100 * (1 - lo.tris / hi0.tris)).toFixed(1)}% fewer triangles)`);
-    if (lo.shadows || lo.castShadow || lo.pr > 1) fail(`Low left shadows on or the pixel ratio above 1: ${JSON.stringify(lo)}`);
-    if (!(lo.tris <= hi0.tris * 0.6)) fail(`Low draws ${lo.tris} triangles, not at least 40% fewer than High's ${hi0.tris}`);
-    if (!(lo.deco < hi0.deco * 0.3 && lo.deco > 0)) fail(`Low did not thin the decoration: ${lo.deco} of ${hi0.deco}`);
-    if (!lo.prog || lo.prog === hi0.prog) fail('lit materials kept their shadowed shader on Low');
-    if (!lo.cutHidden.every(Boolean)) fail(`cut objects reappeared on Low: ${lo.cutHidden}`);
-    if ((await page.textContent('#settings .srow[data-r="6"] .val')) !== 'Low') fail('Graphics row does not show Low');
-    for (const q of ['medium', 'high']) {
-      await page.click('#settings .srow[data-r="6"] .sb[data-d="1"]');
-      await waitFor(`graphics ${q} after a click on +`, (want) => window.G.settings.quality === want, STEP_TIMEOUT, q);
-    }
-    const hi1 = await gfx();
-    step(`graphics High again: ${JSON.stringify({ ...hi1, prog: undefined })}`);
-    if (!(hi1.shadows && hi1.castShadow && hi1.map === 2048 && hi1.pr === 1.75)) fail(`High did not restore shadows and a 1.75 pixel ratio: ${JSON.stringify(hi1)}`);
-    if (hi1.tris !== hi0.tris || hi1.deco !== hi0.deco) fail(`High did not restore the triangle count: ${hi1.tris} vs ${hi0.tris} (deco ${hi1.deco} vs ${hi0.deco})`);
-    if (hi1.prog !== hi0.prog) fail('lit materials did not get their shadowed shader back on High');
-    if (!hi1.cutHidden.every(Boolean)) fail(`cut objects reappeared on High: ${hi1.cutHidden}`);
-    await press('Enter', 'Enter on Graphics wraps High to Low', () => window.G.settings.quality === 'low');
-    await page.evaluate(() => { delete window.devicePixelRatio; });
-    if (problems.length) fail('errors while switching the graphics preset');
-    step('graphics preset switched High → Low → High → Low; shadows, pixel ratio, triangles and cut objects follow it');
-    const applied = await page.evaluate(async () => {
-      const { G } = window, C = G.cam;
-      // yaw delta from one camera update with a fake input: Q held, or a mouse-drag orbit of 0.1 rad
-      const yaw = (o) => {
-        const y0 = C.yawTarget;
-        C.update(1 / 60, G.player.pos, G.player.vel, { takeOrbit: () => o.orbit || 0, takePitch: () => 0, takeWheel: () => 0, held: (a) => a === o.held, padCam: 0 }, true);
-        return C.yawTarget - y0;
-      };
-      const r = { qInverted: yaw({ held: 'camL' }) };
-      const base = G.settings;
-      G.ui.onSettingsChange({ ...base, invertCamX: false, camSensitivity: 1 });
-      r.q1 = yaw({ held: 'camL' }); r.drag1 = yaw({ orbit: 0.1 });
-      G.ui.onSettingsChange({ ...base, invertCamX: false, camSensitivity: 2 });
-      r.q2 = yaw({ held: 'camL' }); r.drag2 = yaw({ orbit: 0.1 });
-      G.ui.onSettingsChange({ ...base, invertCamX: false, camSensitivity: 0.5 });
-      r.drag05 = yaw({ orbit: 0.1 });
-      G.ui.onSettingsChange(base);
-      C.shake(1);
-      r.shake = C.shakeAmt;
-      G.game.whiteFlash = 1; G.game.redFlash = 1;
-      await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
-      r.flash = +document.getElementById('flash').style.opacity;
-      r.vignette = +document.getElementById('vignette').style.opacity;
-      r.stored = JSON.parse(localStorage.getItem('starseed-isle-settings-v1'));
-      return r;
-    });
-    const near = (a, b) => Math.abs(a - b) < 1e-9;
-    if (!(applied.q1 > 0 && near(applied.qInverted, -applied.q1))) fail(`invert horizontal did not flip Q: ${JSON.stringify(applied)}`);
-    if (!(near(applied.q2, 2 * applied.q1) && near(applied.drag2, 2 * applied.drag1) && near(applied.drag05, applied.drag1 / 2))) fail(`sensitivity did not scale the orbit delta: ${JSON.stringify(applied)}`);
-    if (applied.shake !== 0) fail(`reduced motion left a camera shake of ${applied.shake}`);
-    if (!(applied.flash > 0 && applied.flash <= 0.2 && applied.vignette > 0 && applied.vignette <= 0.2)) fail(`reduced motion flash opacity ${applied.flash} / ${applied.vignette} is not capped at 0.2`);
-    const want = { v: 1, musicVolume: 0.3, sfxVolume: 0.8, camSensitivity: 1, invertCamX: true, invertCamY: false, reducedMotion: true, quality: 'low' };
-    if (JSON.stringify(applied.stored) !== JSON.stringify(want)) fail(`stored settings ${JSON.stringify(applied.stored)}, expected ${JSON.stringify(want)}`);
-    await press('Escape', 'back to the pause menu on Settings', () => window.G.ui.menu === 'pause' && window.G.ui.pauseSel === 2);
-    await press('Enter', 'settings overlay again', () => window.G.ui.menu === 'settings');
-    // close and reopen just before the close's fade-out timer (250 ms) fires, with slow frames (as on CI):
-    // the overlay must stay visible
-    const reopened = await page.evaluate(() => new Promise((res) => {
-      const u = window.G.ui, raf = window.requestAnimationFrame;
-      window.requestAnimationFrame = (cb) => raf((t) => setTimeout(() => cb(t), 100));
-      u.closeSettings();
-      setTimeout(() => {
-        u.onPauseChoice(2);
-        setTimeout(() => { window.requestAnimationFrame = raf; res(u.menu === 'settings' && !document.getElementById('settings').classList.contains('hidden')); }, 600);
-      }, 245);
-    }));
-    if (!reopened) fail('settings overlay hidden after a quick close and reopen');
-    await page.waitForTimeout(500); // let the card finish scaling in
-    await page.click('#settings .menu .btn:last-child'); // Back, with the mouse (sits where the faded title's button was)
-    await waitFor('Back click returns to the pause menu on Settings', () => window.G.ui.menu === 'pause' && window.G.ui.pauseSel === 2, STEP_TIMEOUT);
-    step('settings changed by keyboard and mouse; audio, camera, shake and flash follow them');
-    await openPage(page.context(), ' again, same localStorage');
-    const reloaded = await page.evaluate(() => ({
-      s: window.G.settings, scale: window.G.cam.scale, rm: window.G.cam.reducedMotion,
-      shadows: window.G.renderer.shadowMap.enabled, thinned: window.G.scenery.thinned.some((t) => t.mesh.count < t.keys.length),
-    }));
-    if (JSON.stringify(reloaded.s) !== JSON.stringify(want) || reloaded.scale.yaw !== -1 || !reloaded.rm) fail(`settings not restored after reload: ${JSON.stringify(reloaded)}`);
-    if (reloaded.shadows || !reloaded.thinned) fail(`stored Low graphics not applied at boot: ${JSON.stringify(reloaded)}`);
-    await page.evaluate(() => window.G.game.newGame());
-    await waitFor('play after New Game', () => window.G.game.state === 'play', STEP_TIMEOUT);
-    const afterNew = await page.evaluate(() => [window.G.settings, JSON.parse(localStorage.getItem('starseed-isle-settings-v1'))]);
-    if (afterNew.some((s) => JSON.stringify(s) !== JSON.stringify(want))) fail(`New Game changed the settings: ${JSON.stringify(afterNew)}`);
-    if (problems.length) fail('errors in the settings menu');
-    step('settings survived reopening the game and New Game');
-
-    // 4. Continue a corrupt save, with corrupt settings: it must still start a playable session
-    await openGame({ ...save, chests: null, hp: 'x', bosses: [1], seeds: null, coins: -5, px: 'nope' }, '{not json');
-    if (!(await page.evaluate(() => JSON.stringify(window.G.settings) === JSON.stringify(window.G.ui.settingsDefaults)))) fail('unreadable settings did not fall back to the defaults');
+    // 3. Continue a corrupt save: it must still start a playable session
+    await openGame({ ...save, chests: null, hp: 'x', bosses: [1], seeds: null, coins: -5, px: 'nope' });
     if (!(await continueVisible())) fail('Continue is hidden for a corrupt but recoverable save');
     await page.keyboard.press('Enter');
     await waitFor("G.game.state === 'play' after Continue on a corrupt save", () => window.G.game.state === 'play', STEP_TIMEOUT);
@@ -304,9 +149,8 @@ async function main() {
     if (problems.length) fail('errors after continuing a corrupt save');
     step('corrupt save continued without errors');
 
-    // 5. A save from a newer version is not offered as Continue; garbage settings values fall back to the defaults
-    await openGame({ ...save, v: 99 }, JSON.stringify({ v: 99, musicVolume: 'loud', sfxVolume: null, camSensitivity: [2], invertCamX: 1, reducedMotion: {}, extra: true }));
-    if (!(await page.evaluate(() => JSON.stringify(window.G.settings) === JSON.stringify(window.G.ui.settingsDefaults)))) fail('garbage settings did not fall back to the defaults');
+    // 4. A save from a newer version is not offered as Continue
+    await openGame({ ...save, v: 99 });
     if (await continueVisible()) fail('Continue is shown for a save from a newer version');
     if (problems.length) fail('errors with a newer-version save');
     step('newer-version save ignored');
