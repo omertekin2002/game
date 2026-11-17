@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { G, audioInit, store } from './core.js';
 import { CFG, SAVE_KEY } from './data.js';
+import { loadSave } from './save.js';
 import { loadAll, Assets } from './assets.js';
 import { generateWorld } from './world.js';
 import { buildTerrain, buildWater, buildMapCanvas } from './terrain.js';
@@ -52,7 +53,7 @@ async function boot() {
   ui.setLoading(0.6, 'Growing the island...');
   await nextFrame();
   const q = location.search.match(/[?&]seed=(\d+)/);
-  const saved = store.get(SAVE_KEY);
+  const saved = loadSave(store.get(SAVE_KEY), CFG.seed);
   const seed = q ? +q[1] : (saved && saved.seed) || CFG.seed;
   const world = generateWorld(seed);
   G.world = world;

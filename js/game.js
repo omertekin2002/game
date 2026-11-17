@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { G, music, audioInit, store } from './core.js';
 import { CFG, SAVE_KEY, REGIONS, NPCS, SEED_ORDER, SEEDS } from './data.js';
+import { freshState, loadSave } from './save.js';
 import { Player } from './player.js';
 import { NPC } from './npcs.js';
 import { Projectile, Pickup, Blobs } from './entities.js';
@@ -24,13 +25,6 @@ import { AmbientMixin } from './ambient.js';
 import { SpawnMixin } from './spawn.js';
 import { DebugMixin, frozenTick } from './debug/debug.js';
 
-function freshState(seed) {
-  return {
-    v: 2, seed, hp: CFG.startHp, maxHp: CFG.startHp, coins: 0, potions: 0, swordLevel: 1,
-    seeds: { woods: 0, peaks: 0, shores: 0 }, chests: {}, bosses: {}, shopHeart: false, ending: false,
-    tod: CFG.startTimeOfDay, visited: {}, introDone: false, controlsSeen: false, playTime: 0, px: null, pz: null, facing: Math.PI,
-  };
-}
 // controls-card version: saves from before the first-person controls (no controlsV) see the new card once
 export const CONTROLS_V = 2;
 
@@ -148,7 +142,8 @@ export class Game {
   }
 
   // ------------------------------------------------------------------ session
-  hasSave() { const s = store.get(SAVE_KEY); return !!(s && s.v === 2 && s.seed != null); }
+  // Saves are validated and migrated by js/save.js (keyed off their `v` field, not SAVE_KEY's name).
+  hasSave() { return !!loadSave(store.get(SAVE_KEY), this.world.seed); }
   newGame() {
     audioInit();
     this.S = freshState(this.world.seed);
@@ -156,11 +151,10 @@ export class Game {
   }
   continueGame() {
     audioInit();
-    const s = store.get(SAVE_KEY);
+    const s = loadSave(store.get(SAVE_KEY), this.world.seed);
     if (!s) return this.newGame();
-    this.S = Object.assign(freshState(this.world.seed), s);
-    this.S.seeds = Object.assign({ woods: 0, peaks: 0, shores: 0 }, s.seeds || {});
-    // migration: optional pitch (restored clamped in startSession); an older controls card → show the new one once
+    this.S = s; // validated, migrated and filled from freshState by loadSave (js/save.js)
+    // optional pitch is restored clamped in startSession; an older controls card → show the new one once
     if (!((s.controlsV || 1) >= CONTROLS_V)) this.S.controlsSeen = false;
     this.startSession(false);
   }

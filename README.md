@@ -5,6 +5,8 @@ A cute, cosy open-world adventure for the browser, played in first person with a
 a leaf-green fox-eared hood, explore Starseed Isle in any order, beat Grumble Shroom, Captain Pinch and Frostbun, and
 bring the seeds home so the tree can bloom again.
 
+**Play it:** https://omertekin2002.github.io/game/
+
 ## Run it
 
 The game uses native ES modules and must be served over HTTP (opening `index.html` from disk does not work):
@@ -18,6 +20,15 @@ python3 -m http.server 8080
 ```
 
 No build step and no runtime dependencies. It needs a browser with WebGL2.
+
+### Publishing (GitHub Pages)
+
+`.github/workflows/pages.yml` publishes the game to https://omertekin2002.github.io/game/ on every push to `main`
+(and on demand from the Actions tab via *Run workflow*). It runs `node tools/build-pages.mjs`, which copies only the
+runtime files (`index.html`, `styles.css`, `js/`, `assets/`, `vendor/three/`) into `_site/` and fails if a referenced
+file is missing or a path is root-absolute (`/assets/...`); the game is served from the `/game/` subpath, so every
+path must stay relative. Pull requests run the same build and checks without deploying. The repo's Pages source must
+be set to **GitHub Actions**.
 
 ## Two views
 
@@ -79,7 +90,20 @@ Open Settings from the pause menu or the title.
 
 Design: `docs/DESIGN.md`. Code contract: `docs/ARCHITECTURE.md`, with per-area detail in `docs/wp/`.
 
-## Debug and tests
+## Tests
+
+```sh
+bun install
+bun test             # unit tests: world generation, content tables, save schema (migration + validation)
+bun run test:smoke   # headless Chromium: New Game, then Continue a valid / corrupt / newer save; fails on any error
+```
+
+The smoke test needs Playwright's Chromium once: `bunx playwright install chromium`. On failure it saves a
+screenshot to `test-results/`. CI (`.github/workflows/ci.yml`) runs both on pushes and pull requests.
+
+The game also has in-page tests that need a real browser window; see the next section.
+
+## Debug and in-page tests
 
 Add `?debug=1` to the URL (for example `http://localhost:8080/?debug=1`). Then <kbd>`</kbd> toggles the overlay (FPS,
 draw calls, triangles, position, view), and while it is on: `1`–`5` teleport (village / woods / peaks / shores /

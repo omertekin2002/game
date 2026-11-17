@@ -292,3 +292,16 @@ One save slot in the browser (`starseed-isle-save-v2`): autosave every 30 s outs
 chests, purchases, defeats). It keeps the island seed, Pip's place and look, hearts, gems, potions, sword, Starseeds
 (found and placed), chests, defeated bosses, the shop heart, the ending, the time of day, visited regions and your map
 marker. Continue resumes there; Save & Quit returns to the title.
+
+The schema lives in `js/save.js` (pure, unit-tested in `tests/save.test.js`). Every save carries a `v` field,
+`SAVE_VERSION` (currently 2); the version comes from `v`, not from the storage key, which stays
+`starseed-isle-save-v2`. Loading runs `loadSave(raw, seed)`: `migrate` applies the `MIGRATIONS[n]` steps
+(version n → n + 1) up to `SAVE_VERSION` and rejects non-objects, saves without `seed`, saves newer than
+`SAVE_VERSION` or with no migration path; then `normalize` fills missing fields from `freshState` and
+clamps or coerces the rest (hp 1..maxHp, maxHp ≤ `CFG.maxHp`, potions ≤ `CFG.potionMax`, coins ≥ 0,
+swordLevel 1 or 2, map fields always plain objects, position finite or null). A rejected save is treated
+as no save. To change the layout: bump `SAVE_VERSION`, add a `MIGRATIONS[old]` step and a test for it.
+
+The first-person build adds two optional fields without a version bump (`normalize` keeps unknown fields): `pitch`,
+the look angle, which `Game.startSession` restores clamped; and `controlsV`, the version of the controls card the
+player has seen. A save whose `controlsV` is older than `CONTROLS_V` (`js/game.js`) shows the controls card once more.
