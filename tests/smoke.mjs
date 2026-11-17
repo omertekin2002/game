@@ -207,6 +207,18 @@ async function main() {
     if (JSON.stringify(applied.stored) !== JSON.stringify(want)) fail(`stored settings ${JSON.stringify(applied.stored)}, expected ${JSON.stringify(want)}`);
     await press('Escape', 'back to the pause menu on Settings', () => window.G.ui.menu === 'pause' && window.G.ui.pauseSel === 2);
     await press('Enter', 'settings overlay again', () => window.G.ui.menu === 'settings');
+    // close and reopen just before the close's fade-out timer (250 ms) fires, with slow frames (as on CI):
+    // the overlay must stay visible
+    const reopened = await page.evaluate(() => new Promise((res) => {
+      const u = window.G.ui, raf = window.requestAnimationFrame;
+      window.requestAnimationFrame = (cb) => raf((t) => setTimeout(() => cb(t), 100));
+      u.closeSettings();
+      setTimeout(() => {
+        u.onPauseChoice(2);
+        setTimeout(() => { window.requestAnimationFrame = raf; res(u.menu === 'settings' && !document.getElementById('settings').classList.contains('hidden')); }, 600);
+      }, 245);
+    }));
+    if (!reopened) fail('settings overlay hidden after a quick close and reopen');
     await page.waitForTimeout(500); // let the card finish scaling in
     await page.click('#settings .menu .btn:last-child'); // Back, with the mouse (sits where the faded title's button was)
     await waitFor('Back click returns to the pause menu on Settings', () => window.G.ui.menu === 'pause' && window.G.ui.pauseSel === 2, STEP_TIMEOUT);

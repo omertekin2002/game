@@ -113,9 +113,12 @@ export class UI {
     o.id = id;
     return o;
   }
+  // o._on is the latest request, so a pending fade-out can't hide an overlay reopened before it fires (and vice versa)
   showOverlay(o, on) {
-    if (on) { o.classList.remove('hidden'); requestAnimationFrame(() => o.classList.add('show')); }
-    else { o.classList.remove('show'); setTimeout(() => { if (!o.classList.contains('show')) o.classList.add('hidden'); }, 250); }
+    o._on = on;
+    clearTimeout(o._hideT);
+    if (on) { o.classList.remove('hidden'); requestAnimationFrame(() => { if (o._on) o.classList.add('show'); }); }
+    else { o.classList.remove('show'); o._hideT = setTimeout(() => { if (!o._on) o.classList.add('hidden'); }, 250); }
   }
 
   // ---------------------------------------------------------------- loading / title
