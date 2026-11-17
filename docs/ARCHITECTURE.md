@@ -530,7 +530,7 @@ from `META` (`js/hud/menus.js`); a key without `META` still gets a row.
 | `touchSens`, `touchLeftHanded` | 1 (0.5–2), false | view; touch, HUD, viewmodel |
 | `arrowLook` | false | input |
 | `headBob`, `shake`, `speedFx` | 1 (0–1 each) | view feel, viewmodel, HUD speed lines |
-| `cameraRoll`, `reduceMotion` | true, false | view feel, viewmodel, HUD (`#ui.calm`) |
+| `cameraRoll`, `reduceMotion` | true, false | view feel, viewmodel, HUD (`#ui.calm`; flashes capped at `TUNE.hud.flashCap`) |
 | `dialogueLookAt` | true | view feel (dialogue look assist) |
 | `crosshair`, `crosshairSize`, `crosshairColor` | `dot` (`dot`, `ring`, `off`), `m` (`s`, `m`, `l`), `cream` (`cream`, `yellow`) | HUD |
 | `aimAssist` | `auto` (`auto`, `off`, `low`, `high`) | combat (magnetism), targeting (friction, touch auto-face) |

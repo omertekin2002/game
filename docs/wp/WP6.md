@@ -143,7 +143,8 @@ holds `sprint`.
 - **Storage:** `starseed-isle-hud-v1` (through `store`): `{ sessions, sideways }` (key chips for the first 3 sessions,
   the one-time portrait tip). Separate from the save and the settings.
 - **Settings read live:** `crosshair`, `crosshairSize`, `crosshairColor`, `minimap`, `hudScale`, `reduceMotion` (+
-  `prefers-reduced-motion`: `#ui.calm` stops every bobbing animation), `textSpeed`, `touchLeftHanded`, `musicVol` /
+  `prefers-reduced-motion`: `#ui.calm` stops every bobbing animation and caps the full-screen hurt and white flashes at
+  `flashCap`), `textSpeed`, `touchLeftHanded`, `musicVol` /
   `sfxVol` (pushed to `G.audio.setMusicVolume / setSfxVolume` unless `G.audio.ownsVolumes` is true — WP5 sets that when
   its audio layer reads the settings itself). The settings card writes every key through `settings.set`.
 - **Wish (not added, C17):** a "Damage petals on/off" comfort key (art §12.4).
@@ -155,7 +156,7 @@ holds `sprint`.
 a camera), `bannerThreat` (round 2: 14 m), `reachCone`,
 `aimDeg pipDist pipHold pipLift pipPx pipMax`, `retMin retMax`, `hitMs killMs`, `speedAlpha`,
 `compassSpan compassW compassH landmarkRange`, `miniSize miniSpan`, `feedLife feedMax feedMerge`, `logMax`,
-`bannerT bossCardDelay`, `beat lowBase lowPulse`, `coachLook coachWalk coachHold hintT hintGap`, (`hitMs` 170 and
+`bannerT bossCardDelay`, `beat lowBase lowPulse flashCap`, `coachLook coachWalk coachHold hintT hintGap`, (`hitMs` 170 and
 `killMs` 380 since the fix round: the hit ticks and the kill star pop, hold and fade),
 `keyHintsT keyHintSessions`, `stickR stickDead stickHome`. Meanings are in the comments in `js/tune.js`.
 

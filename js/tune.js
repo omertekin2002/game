@@ -424,6 +424,7 @@ export const hud = {
   bannerT: 2.6, bossCardDelay: 0.5,     // region chapter card (s, +0.8 on a first visit), boss lower-third delay (s; the intro's own clock, fight.js shows and hides it)
   bannerThreat: 14,                     // the region card fades when an enemy within this (m) has noticed Pip (or on a telegraph / hurt)
   beat: 0.9, lowBase: 0.32, lowPulse: 0.08, // low-HP beat period (s), vignette base / pulse (hp ≤ 2)
+  flashCap: 0.2,                        // motion comfort: the full-screen hurt and white flashes stay at or under this opacity
   coachLook: 45, coachWalk: 4, coachHold: 0.9, hintT: 4.5, hintGap: 60, // coach marks: look (deg; r4 45, was 90), walk (m), done pause (s); hint life (s), repeat gap (s)
   keyHintsT: 10, keyHintSessions: 3,    // bottom-right key chips: seconds shown, first N sessions
   stickR: 55, stickDead: 8, stickHome: 1.0, // touch stick: full deflection (px), dead zone (px), return home after (s)

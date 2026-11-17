@@ -643,6 +643,19 @@ export default function register(suite) {
       t.ok(pics.length === 2 && pics.every((s) => !bad.includes(s)), 'touch tab: no mouse / keycap pictograms', pics);
       ui.closeMenu(true); t.frames(1);
     }],
+    ['motion comfort caps the full-screen hurt and white flashes (photosensitivity); the steady low-HP tint stays', (t) => {
+      const { game, ui } = t, hp = game.S.hp, rd = ui.reduced;
+      const frame = (calm, red, white, h) => { ui.reduced = calm; game.S.hp = h; game.redFlash = red; game.whiteFlash = white; ui.frame(game, 0); return { vig: ui.vigA, flash: ui.flA }; };
+      try {
+        const full = frame(false, 1, 0.9, 6), calm = frame(true, 1, 0.9, 6), tint = frame(true, 0, 0, 1), both = frame(true, 1, 0, 1), faint = frame(true, 0.1, 0.1, 6);
+        t.note('flashes', { full, calm, tint, both, faint, cap: TH.flashCap });
+        t.ok(Math.abs(full.vig - 0.9) < 2e-3 && Math.abs(full.flash - 0.9) < 2e-3, 'comfort off: the flashes as they were', full);
+        t.ok(Math.abs(calm.vig - TH.flashCap) < 2e-3 && Math.abs(calm.flash - TH.flashCap) < 2e-3, 'comfort on: both flashes at the cap', calm);
+        t.near(tint.vig, TH.lowBase, 2e-3, 'comfort on: the low-HP tint is steady and not capped');
+        t.near(both.vig, TH.flashCap + TH.lowBase, 2e-3, 'comfort on, low HP and hurt: the capped flash over the tint');
+        t.ok(Math.abs(faint.vig - 0.09) < 2e-3 && Math.abs(faint.flash - 0.1) < 2e-3, 'comfort on: a flash under the cap is left alone', faint);
+      } finally { ui.reduced = rd; game.S.hp = hp; game.redFlash = 0; game.whiteFlash = 0; ui.frame(game, 0); }
+    }],
     ['settings change live through the card and persist (FOV, sensitivity, invert, bob, shake)', (t) => {
       const { ui, D, view, game, settings, EV } = t;
       ui.openPause(); ui.onPauseChoice(1); t.frames(1);

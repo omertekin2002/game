@@ -403,7 +403,9 @@ export class UI {
     // hurt flash + low-HP beat (one 0.9 s clock for the heart, the vignette and the heartbeat)
     const low = S.hp > 0 && S.hp <= 2, crit = S.hp > 0 && S.hp <= 1;
     const ph = this.beatPhase(), pulse = Math.max(0, Math.sin(ph * Math.PI * 2)) ** 2;
-    this.setVignette(Math.min(1, g.redFlash * 0.9 + (low ? TH.lowBase + (this.reduced ? 0 : TH.lowPulse * (pulse * 2 - 1)) : 0)));
+    // motion comfort: a flash is capped (photosensitivity); the steady low-HP tint is no flash and stays as it is
+    const flash = (a) => (this.reduced ? Math.min(a, TH.flashCap) : a);
+    this.setVignette(Math.min(1, flash(g.redFlash * 0.9) + (low ? TH.lowBase + (this.reduced ? 0 : TH.lowPulse * (pulse * 2 - 1)) : 0)));
     if (this.lowOn !== low) { this.lowOn = low; this.vignette.classList.toggle('low', low); }
     if (this.critOn !== crit) { this.critOn = crit; if (G.renderer) G.renderer.domElement.classList.toggle('crit', crit); }
     if (low) { const b = (1 + (this.reduced ? 0 : 0.16 * pulse)).toFixed(3); if (b !== this.beatV) { this.beatV = b; this.hearts.style.setProperty('--beat', b); } }
@@ -411,7 +413,7 @@ export class UI {
     // An audio layer with its own heartbeat(k) (WP5's audio-bus drives it from hp) is the one source: no second beat here
     if (crit && !this.menu && !this.dlg && !(G.audio && typeof G.audio.heartbeat === 'function')) { const n = Math.floor(performance.now() / 1000 / TH.beat - 0.15); if (n !== this.beatN) { if (this.beatN != null) uiSfx('heartbeat'); this.beatN = n; } }
     else this.beatN = null;
-    this.setFlash(g.whiteFlash);
+    this.setFlash(flash(g.whiteFlash));
     if (g.fight && g.fight.phase === 'fight') this.bossBar(g.fight.boss);
     this.coach.frame(g, dt);
     this.notices.frame(g);
