@@ -772,8 +772,8 @@ Namespaces added by modules:
 ## 18. In-page tests (`js/debug/tests.js`, `js/debug/tests/wp1.js … wp9.js`)
 
 CI (`.github/workflows/ci.yml`) does not run these. It runs `bun test` (`tests/*.test.js`: world generation, content
-tables, save schema, the dynamic-resolution controller against simulated displays) and `tests/smoke.mjs` (headless Chromium with software WebGL: New Game, then Continue a valid, a
-corrupt and a newer-version save). `jsconfig.json` maps `three` to the vendored copy for `bun test`, as the import map
+tables, save schema, the settings store, the dynamic-resolution controller against simulated displays) and `tests/smoke.mjs` (headless Chromium with software WebGL: New Game, then Continue a valid, a
+corrupt and a newer-version save, each load with stored settings: valid, wrong-typed, unreadable). `jsconfig.json` maps `three` to the vendored copy for `bun test`, as the import map
 in `index.html` does for the browser, because `js/world.js` reaches `js/props.js` and so three.js. The Pages build
 (`tools/build-pages.mjs`) scans every `js/**/*.js` for `from '…'` with a regular expression, comments and strings
 included, so text such as `from 'dash'` in a comment fails it: keep that pattern out of comments and messages.

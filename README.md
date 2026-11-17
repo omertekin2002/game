@@ -95,8 +95,8 @@ Design: `docs/DESIGN.md`. Code contract: `docs/ARCHITECTURE.md`, with per-area d
 
 ```sh
 bun install
-bun test             # unit tests: world generation, content tables, save schema, dynamic resolution
-bun run test:smoke   # headless Chromium: New Game, then Continue a valid / corrupt / newer save; fails on any error
+bun test             # unit tests: world generation, content tables, save schema, settings, dynamic resolution
+bun run test:smoke   # headless Chromium: New Game, Continue a valid / corrupt / newer save, stored settings; fails on any error
 ```
 
 The smoke test needs Playwright's Chromium once: `bunx playwright install chromium`. On failure it saves a

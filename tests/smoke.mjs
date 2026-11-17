@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Headless-browser smoke test: serve the repo, boot the game in Chromium (software WebGL via SwiftShader),
-// start a New Game, then continue a valid, a corrupt and a newer-version save from localStorage. Fails on any
-// page error, console error or failed request.
+// start a New Game, then continue a valid, a corrupt and a newer-version save from localStorage. The same loads carry
+// stored settings (valid, wrong-typed, not JSON at all) and check that they are applied, repaired and saved. Fails on
+// any page error, console error or failed request.
 // Usage: node tests/smoke.mjs   (or `bun run test:smoke`). On failure a screenshot lands in test-results/.
 import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
@@ -9,6 +10,7 @@ import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 const SAVE_KEY = 'starseed-isle-save-v2'; // SAVE_KEY in js/data.js
+const SETTINGS_KEY = 'starseed-isle-settings-v1'; // SETTINGS_KEY in js/settings.js
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const BOOT_TIMEOUT = Number(process.env.SMOKE_BOOT_TIMEOUT || 120_000);
@@ -52,12 +54,15 @@ async function main() {
       args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
     });
     const fail = (msg) => { throw new Error(msg); };
-    // Open the game in a fresh context (its own localStorage). `save`, if given, is written to localStorage
-    // before any page script runs, so the game boots with exactly that save.
-    const openGame = async (save) => {
+    // Open the game in a fresh context (its own localStorage). `save` and `settings`, if given, are written to
+    // localStorage before any page script runs, so the game boots with exactly those (`settings` may be raw text).
+    const openGame = async (save, settings) => {
       const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
       if (save !== undefined) {
         await ctx.addInitScript(([k, v]) => localStorage.setItem(k, v), [SAVE_KEY, JSON.stringify(save)]);
+      }
+      if (settings !== undefined) {
+        await ctx.addInitScript(([k, v]) => localStorage.setItem(k, v), [SETTINGS_KEY, typeof settings === 'string' ? settings : JSON.stringify(settings)]);
       }
       if (page) await page.context().close();
       page = await ctx.newPage();
@@ -85,6 +90,13 @@ async function main() {
       }
       fail(`timed out after ${timeout} ms waiting for ${what}`);
     };
+    // the settings in effect, what the game made of two of them, and what is in storage right now
+    const settingsNow = () => page.evaluate((key) => {
+      const G = window.G, S = G.settings;
+      let stored = null;
+      try { stored = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { /* unreadable text: null */ }
+      return { all: S.all(), shadowMap: G.sky.sun.shadow.mapSize.x, calm: document.getElementById('ui').classList.contains('calm'), stored };
+    }, SETTINGS_KEY);
     const continueVisible = () => page.evaluate(() => {
       const b = document.querySelector('[data-a="continue"]');
       return !!b && b.style.display !== 'none';
@@ -121,7 +133,9 @@ async function main() {
         introDone: true, controlsSeen: true, controlsV: 2, playTime: 321.5, px, pz, facing: 0.5,
       };
     });
-    await openGame(save);
+    // ... with settings the player changed earlier, one of them from a newer build
+    const chosen = { v: 1, quality: 'low', reduceMotion: true, sens: 2, invertX: true, musicVol: 0.4, someFutureSetting: 'kept' };
+    await openGame(save, chosen);
     if (!(await continueVisible())) fail('Continue is hidden for a valid v2 save');
     await page.keyboard.press('Enter');
     await waitFor("G.game.state === 'play' after Continue", () => window.G.game.state === 'play', STEP_TIMEOUT);
@@ -138,22 +152,64 @@ async function main() {
     if (problems.length) fail('errors after continuing a valid save');
     step('valid v2 save continued with the same chests, bosses, seeds and position');
 
-    // 3. Continue a corrupt save: it must still start a playable session
-    await openGame({ ...save, chests: null, hp: 'x', bosses: [1], seeds: null, coins: -5, px: 'nope' });
+    // 2b. The stored settings are in effect (Low: the small shadow map; motion comfort: the calm HUD), and a change
+    // made now is written back next to the ones that were there, the unknown key included.
+    const kept = await settingsNow();
+    for (const k of ['quality', 'reduceMotion', 'sens', 'invertX', 'musicVol']) {
+      if (kept.all[k] !== chosen[k]) fail(`stored setting ${k} not in effect: ${JSON.stringify(kept.all[k])} vs ${JSON.stringify(chosen[k])}`);
+    }
+    if (kept.shadowMap !== 1024) fail(`graphics quality Low not applied: shadow map ${kept.shadowMap}`);
+    if (!kept.calm) fail('motion comfort not applied to the HUD');
+    // ... and two of them do what they say: motion comfort caps a full-screen flash at 20 %, and with left / right
+    // inverted a mouse move to the right turns the view to the left (yaw grows). Both are read without waiting on a frame.
+    const effect = await page.evaluate(() => {
+      const G = window.G, g = G.game, v = g.view;
+      g.redFlash = 1; g.whiteFlash = 1;
+      G.ui.frame(g, 0);
+      const flash = { hurt: G.ui.vigA, white: G.ui.flA };
+      g.redFlash = 0; g.whiteFlash = 0;
+      const y0 = v.yaw;
+      G.debug.lookDelta(40, 0);
+      v.applyLook(g.input, 1 / 60);
+      return { flash, turn: Math.atan2(Math.sin(v.yaw - y0), Math.cos(v.yaw - y0)), lookAllowed: v.lookAllowed };
+    });
+    if (!(effect.flash.hurt > 0.1 && effect.flash.hurt <= 0.2 && effect.flash.white > 0.1 && effect.flash.white <= 0.2)) fail(`motion comfort did not cap the flashes at 0.2: ${JSON.stringify(effect.flash)}`);
+    if (!(effect.turn > 0.05)) fail(`inverted left / right did not turn the view the other way: ${JSON.stringify(effect)}`);
+    await page.evaluate(() => { window.G.settings.set('hudScale', 1.1); window.G.settings.set('quality', 'high'); });
+    // the write is debounced (250 ms), and a software-rendered frame can hold the timer up
+    await waitFor('the changed settings to reach localStorage', () => {
+      try { return JSON.parse(localStorage.getItem('starseed-isle-settings-v1')).hudScale === 1.1; } catch (e) { return false; }
+    }, STEP_TIMEOUT);
+    const changed = await settingsNow();
+    const want = { ...chosen, hudScale: 1.1, quality: 'high' };
+    if (JSON.stringify(Object.entries(changed.stored).sort()) !== JSON.stringify(Object.entries(want).sort())) fail(`settings not saved as expected: ${JSON.stringify(changed.stored)}`);
+    if (changed.shadowMap !== 2048) fail(`graphics quality High not applied live: shadow map ${changed.shadowMap}`);
+    if (problems.length) fail('errors after changing settings');
+    step('stored settings applied (flash cap and inverted look included), changed live and saved');
+
+    // 3. Continue a corrupt save: it must still start a playable session. The stored settings are wrong-typed too.
+    await openGame({ ...save, chests: null, hp: 'x', bosses: [1], seeds: null, coins: -5, px: 'nope' },
+      { quality: 'ultra', sens: 'fast', fovFP: 9999, invertY: 'maybe', musicVol: -3, view: 7 });
     if (!(await continueVisible())) fail('Continue is hidden for a corrupt but recoverable save');
     await page.keyboard.press('Enter');
     await waitFor("G.game.state === 'play' after Continue on a corrupt save", () => window.G.game.state === 'play', STEP_TIMEOUT);
     await page.waitForTimeout(1000);
     const fixed = await page.evaluate(() => window.G.game.S);
     if (!(Number.isFinite(fixed.hp) && fixed.hp >= 1 && fixed.coins === 0 && JSON.stringify(fixed.chests) === '{}')) fail(`corrupt save not normalized: ${JSON.stringify(fixed)}`);
+    const repaired = (await settingsNow()).all;
+    if (!(repaired.quality === 'auto' && repaired.sens === 1 && repaired.fovFP === 115 && repaired.invertY === false && repaired.musicVol === 0 && repaired.view === 'fp')) {
+      fail(`wrong-typed settings not repaired: ${JSON.stringify(repaired)}`);
+    }
     if (problems.length) fail('errors after continuing a corrupt save');
-    step('corrupt save continued without errors');
+    step('corrupt save and wrong-typed settings continued without errors');
 
-    // 4. A save from a newer version is not offered as Continue
-    await openGame({ ...save, v: 99 });
+    // 4. A save from a newer version is not offered as Continue. Settings that are not JSON at all give the defaults.
+    await openGame({ ...save, v: 99 }, '{not json');
     if (await continueVisible()) fail('Continue is shown for a save from a newer version');
+    const fresh = (await settingsNow()).all;
+    if (!(fresh.quality === 'auto' && fresh.sens === 1 && fresh.invertX === false)) fail(`unreadable settings did not give the defaults: ${JSON.stringify(fresh)}`);
     if (problems.length) fail('errors with a newer-version save');
-    step('newer-version save ignored');
+    step('newer-version save ignored, unreadable settings replaced by the defaults');
   } catch (e) {
     for (const p of problems) console.error(`  - ${p}`);
     if (page) {
