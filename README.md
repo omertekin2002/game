@@ -33,7 +33,7 @@ be set to **GitHub Actions**.
 ```sh
 bun install
 bun test             # unit tests: world generation, content tables, save schema, settings sanitizing
-bun run test:smoke   # headless Chromium: New Game, Continue a valid / corrupt / newer save, Settings + reload; fails on any error
+bun run test:smoke   # headless Chromium: New Game, Continue a valid / corrupt / newer save, Settings (incl. Graphics Low ↔ High) + reload; fails on any error
 ```
 
 The smoke test needs Playwright's Chromium once: `bunx playwright install chromium`. On failure it saves a
@@ -56,11 +56,23 @@ Touch devices get a virtual stick, A/B buttons and drag-to-orbit.
 
 ### Settings
 
-Pause → **Settings**: music and SFX volume, camera sensitivity (0.5×–2×), invert camera horizontal / vertical, and
-**Reduced motion** (no screen shake, dimmer full-screen flashes; it starts on when the OS asks for reduced motion).
-Change a row with ←/→ (or click − / +), toggle with Enter. Settings apply immediately and are stored under their own
-`localStorage` key (`starseed-isle-settings-v1`), so New Game keeps them. **Sound: On/Off** in the pause menu still
-mutes everything.
+Pause → **Settings**: music and SFX volume, camera sensitivity (0.5×–2×), invert camera horizontal / vertical,
+**Reduced motion** (no screen shake, dimmer full-screen flashes; it starts on when the OS asks for reduced motion) and
+**Graphics** (Low / Medium / High, see below).
+Change a row with ←/→ (or click − / +), toggle with Enter (on Graphics, Enter cycles and wraps). Settings apply
+immediately and are stored under their own `localStorage` key (`starseed-isle-settings-v1`), so New Game keeps them.
+**Reset to defaults** puts Graphics back to High. **Sound: On/Off** in the pause menu still mutes everything.
+
+| Graphics | Pixel ratio cap | Sun shadows | Decoration drawn | Draw calls | Triangles |
+| --- | --- | --- | --- | --- | --- |
+| **High** (default, the original look) | 1.75 | on, 2048² map | all | 189 | 1,727,714 |
+| **Medium** | 1.25 | on, 1024² map | 65% | 189 | 1,561,934 |
+| **Low** | 1 | off | 15% | 133 | 1,009,082 (−42%) |
+
+"Decoration" is the non-interactive scatter: grass, flowers, ferns, pebbles, shells, glowshrooms and crystals. Cuttable
+tall grass, props, chests and anything you can bump into are always drawn. Draw calls and triangles are
+`G.debug.info()` at the spawn view right after New Game, in headless Chromium (SwiftShader, 1280×720); they include
+the shadow pass.
 
 ## What's in the box
 

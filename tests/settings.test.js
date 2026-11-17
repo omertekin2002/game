@@ -1,11 +1,11 @@
 // Player settings: defaults, sanitizing, stepping and the camera / flash helpers (js/settings.js). Run with `bun test`.
 import { describe, expect, test } from 'bun:test';
 import {
-  BOOLS, DEFAULT_SETTINGS, FLASH_CAP, RANGES, SETTINGS_VERSION,
-  camScale, capFlash, defaultSettings, sanitizeSettings, stepSetting,
+  BOOLS, DEFAULT_SETTINGS, ENUMS, FLASH_CAP, RANGES, SETTINGS_VERSION,
+  camScale, capFlash, defaultSettings, qualityProfile, sanitizeSettings, stepSetting,
 } from '../js/settings.js';
 
-const KEYS = ['v', ...Object.keys(RANGES), ...BOOLS].sort();
+const KEYS = ['v', ...Object.keys(RANGES), ...BOOLS, ...Object.keys(ENUMS)].sort();
 const roundTrip = (s) => JSON.parse(JSON.stringify(s));
 
 function expectValid(s) {
@@ -17,13 +17,14 @@ function expectValid(s) {
     expect(s[k]).toBeLessThanOrEqual(r.max);
   }
   for (const k of BOOLS) expect(typeof s[k]).toBe('boolean');
+  for (const [k, vals] of Object.entries(ENUMS)) expect(vals).toContain(s[k]);
 }
 
 describe('defaults', () => {
   test('match the audio defaults, sensitivity 1, no invert', () => {
     expect(defaultSettings()).toEqual({
       v: SETTINGS_VERSION, musicVolume: 0.35, sfxVolume: 0.7, camSensitivity: 1,
-      invertCamX: false, invertCamY: false, reducedMotion: false,
+      invertCamX: false, invertCamY: false, reducedMotion: false, quality: 'high',
     });
     expect(DEFAULT_SETTINGS).toEqual(defaultSettings(false));
     expectValid(DEFAULT_SETTINGS);
@@ -37,7 +38,7 @@ describe('defaults', () => {
 
 describe('sanitizeSettings', () => {
   test('valid settings pass through unchanged', () => {
-    const s = { v: 1, musicVolume: 0.2, sfxVolume: 1, camSensitivity: 1.75, invertCamX: true, invertCamY: false, reducedMotion: true };
+    const s = { v: 1, musicVolume: 0.2, sfxVolume: 1, camSensitivity: 1.75, invertCamX: true, invertCamY: false, reducedMotion: true, quality: 'medium' };
     expect(sanitizeSettings(s)).toEqual(s);
   });
   test('garbage, null, arrays and primitives give the defaults without throwing', () => {
@@ -54,7 +55,7 @@ describe('sanitizeSettings', () => {
   test('NaN, strings, null, arrays and objects in every field fall back to the default', () => {
     for (const bad of [NaN, '0.5', 'true', null, [], [1], {}, { a: 1 }, undefined]) {
       const raw = {};
-      for (const k of [...Object.keys(RANGES), ...BOOLS]) raw[k] = bad;
+      for (const k of [...Object.keys(RANGES), ...BOOLS, ...Object.keys(ENUMS)]) raw[k] = bad;
       expect(sanitizeSettings(raw)).toEqual(defaultSettings());
     }
   });
@@ -113,9 +114,68 @@ describe('stepSetting', () => {
     expect(s.invertCamX).toBe(false);
     expect(stepSetting(t, 'invertCamX', -1).invertCamX).toBe(false);
   });
+  test('graphics quality moves one preset at a time, clamped at the ends', () => {
+    const at = (quality) => ({ ...DEFAULT_SETTINGS, quality });
+    expect(stepSetting(at('high'), 'quality', -1).quality).toBe('medium');
+    expect(stepSetting(at('medium'), 'quality', -1).quality).toBe('low');
+    expect(stepSetting(at('low'), 'quality', -1).quality).toBe('low');
+    expect(stepSetting(at('low'), 'quality', 1).quality).toBe('medium');
+    expect(stepSetting(at('medium'), 'quality', 1).quality).toBe('high');
+    expect(stepSetting(at('high'), 'quality', 1).quality).toBe('high');
+  });
+  test('graphics quality wraps when activated (Enter), and the input is not mutated', () => {
+    const s = { ...DEFAULT_SETTINGS };
+    const a = stepSetting(s, 'quality', 1, true);
+    expect(a.quality).toBe('low');
+    expect(s.quality).toBe('high');
+    const b = stepSetting(a, 'quality', 1, true);
+    expect(b.quality).toBe('medium');
+    expect(stepSetting(b, 'quality', 1, true).quality).toBe('high');
+    expect(stepSetting({ ...s, quality: 'low' }, 'quality', -1, true).quality).toBe('high');
+  });
   test('every stepped value is still valid', () => {
     let s = defaultSettings();
-    for (const k of [...Object.keys(RANGES), ...BOOLS]) for (const d of [1, 1, -1, 1, -1, -1, -1]) { s = stepSetting(s, k, d); expectValid(s); }
+    for (const k of [...Object.keys(RANGES), ...BOOLS, ...Object.keys(ENUMS)]) for (const d of [1, 1, -1, 1, -1, -1, -1]) { s = stepSetting(s, k, d); expectValid(s); }
+  });
+});
+
+describe('graphics quality', () => {
+  test('defaults to High, which keeps the original renderer settings', () => {
+    expect(DEFAULT_SETTINGS.quality).toBe('high');
+    expect(defaultSettings(true).quality).toBe('high');
+    expect(qualityProfile('high')).toEqual({ pixelRatioCap: 1.75, shadows: true, shadowMapSize: 2048, decoDensity: 1 });
+  });
+  test('sanitizing keeps the three presets and defaults anything else', () => {
+    for (const q of ENUMS.quality) expect(sanitizeSettings({ quality: q }).quality).toBe(q);
+    for (const bad of [undefined, null, '', 'ultra', 'HIGH', 'Low', ' low', 0, 1, true, [], ['low'], {}, { low: 1 }, NaN]) {
+      expect(sanitizeSettings({ musicVolume: 0.5, quality: bad })).toEqual({ ...defaultSettings(), musicVolume: 0.5 });
+    }
+    expect(sanitizeSettings({}).quality).toBe('high');
+    expect(sanitizeSettings('garbage').quality).toBe('high');
+    expect(sanitizeSettings({ quality: 'ultra' }, { ...DEFAULT_SETTINGS, quality: 'low' }).quality).toBe('low');
+    expect(sanitizeSettings({ quality: 'ultra' }, { ...DEFAULT_SETTINGS, quality: 'bogus' }).quality).toBe('high');
+  });
+  test('a stored v1 settings object from before the Graphics row loads with quality High', () => {
+    const old = { v: 1, musicVolume: 0.3, sfxVolume: 0.8, camSensitivity: 1, invertCamX: true, invertCamY: false, reducedMotion: true };
+    expect(sanitizeSettings(roundTrip(old))).toEqual({ ...old, quality: 'high' });
+  });
+  test('profiles grow monotonically from low to medium to high', () => {
+    const [lo, md, hi] = ENUMS.quality.map(qualityProfile);
+    for (const k of ['pixelRatioCap', 'shadowMapSize', 'decoDensity']) {
+      expect(lo[k]).toBeLessThanOrEqual(md[k]);
+      expect(md[k]).toBeLessThanOrEqual(hi[k]);
+    }
+    expect(Number(lo.shadows)).toBeLessThanOrEqual(Number(md.shadows));
+    expect(Number(md.shadows)).toBeLessThanOrEqual(Number(hi.shadows));
+    expect(lo).toMatchObject({ pixelRatioCap: 1, shadows: false });
+    expect(lo.decoDensity).toBeGreaterThan(0);
+    expect(hi.decoDensity).toBe(1);
+  });
+  test('an unknown preset gets the High profile, and profiles are copies', () => {
+    expect(qualityProfile('ultra')).toEqual(qualityProfile('high'));
+    expect(qualityProfile(undefined)).toEqual(qualityProfile('high'));
+    qualityProfile('low').decoDensity = 5;
+    expect(qualityProfile('low').decoDensity).toBeLessThan(1);
   });
 });
 

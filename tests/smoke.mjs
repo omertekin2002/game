@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Headless-browser smoke test: serve the repo, boot the game in Chromium (software WebGL via SwiftShader),
-// start a New Game, change settings from the pause menu and reload, then continue a valid, a corrupt and a
+// start a New Game, change settings (incl. the graphics preset) from the pause menu and reload, then continue a valid, a corrupt and a
 // newer-version save from localStorage (with corrupt settings). Fails on any page error, console error or failed request.
 // Usage: node tests/smoke.mjs   (or `bun run test:smoke`). On failure a screenshot lands in test-results/.
 import { spawn } from 'node:child_process';
@@ -172,6 +172,61 @@ async function main() {
     await waitFor('invert horizontal back on', () => window.G.settings.invertCamX === true, STEP_TIMEOUT);
     const vol = await page.evaluate(() => window.__vol);
     if (!vol.some(([n, v]) => n === 'setMusicVolume' && v === 0.3) || !vol.some(([n, v]) => n === 'setSfxVolume' && v === 0.8)) fail(`audio setters not called: ${JSON.stringify(vol)}`);
+    // Graphics preset: High → Low (keyboard ←) → High (mouse +) → Low (Enter wraps). A device pixel ratio of 2
+    // makes the pixel-ratio cap visible. A cut tallgrass and a broken pot must stay hidden across the switches.
+    await page.evaluate(() => {
+      Object.defineProperty(window, 'devicePixelRatio', { configurable: true, get: () => 2 });
+      const g = window.G.game, W = window.G.world, pl = g.player.pos;
+      const near = (list) => list.filter((o) => o._inst).sort((a, b) => Math.hypot(a.x - pl.x, a.z - pl.z) - Math.hypot(b.x - pl.x, b.z - pl.z))[0];
+      window.__cut = [near(W.deco.filter((d) => d.type === 'tallgrass')), near(W.props.filter((p) => p.type === 'pot' && p.breakable && !p.removed))];
+      for (const o of window.__cut) g.cutObject(o);
+    });
+    await page.waitForTimeout(2500); // let the cut effects finish so the triangle counts settle
+    const gfx = () => page.evaluate(async () => {
+      await new Promise((r) => { let k = 4; const f = () => (--k <= 0 ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); });
+      const { G } = window;
+      let mat = null;
+      G.game.player.root.traverse((o) => { if (!mat && o.isMesh && o.material && o.material.isMeshToonMaterial) mat = o.material; });
+      const prog = G.renderer.properties.get(mat).currentProgram;
+      const zero = (o) => { const m = new G.THREE.Matrix4(); o._inst.mesh.getMatrixAt(o._inst.i, m); return [0, 1, 2, 4, 5, 6, 8, 9, 10].every((k) => m.elements[k] === 0); }; // zero scale (Scenery.hide)
+      const i = G.debug.info();
+      return {
+        q: G.settings.quality, calls: i.calls, tris: i.tris, shadows: G.renderer.shadowMap.enabled, castShadow: G.sky.sun.castShadow,
+        pr: G.renderer.getPixelRatio(), map: G.sky.sun.shadow.mapSize.x, prog: prog && prog.cacheKey,
+        deco: G.scenery.thinned.reduce((n, t) => n + t.mesh.count, 0), decoAll: G.scenery.thinned.reduce((n, t) => n + t.keys.length, 0),
+        cutHidden: window.__cut.map((o) => !!o.cut && zero(o)),
+      };
+    });
+    const hi0 = await gfx();
+    step(`graphics High: ${JSON.stringify({ ...hi0, prog: undefined })}`);
+    if (!(hi0.q === 'high' && hi0.shadows && hi0.castShadow && hi0.map === 2048 && hi0.deco === hi0.decoAll && hi0.pr <= 1)) fail(`default graphics are not High: ${JSON.stringify(hi0)}`);
+    if (!hi0.cutHidden.every(Boolean)) fail(`cut tallgrass / broken pot not hidden: ${hi0.cutHidden}`);
+    for (let i = 4; i <= 6; i++) await press('ArrowDown', `settings row ${i}`, (n) => window.G.ui.settingsSel === n, i);
+    await press('ArrowLeft', 'graphics Medium', () => window.G.settings.quality === 'medium');
+    if ((await page.textContent('#settings .srow[data-r="6"] .val')) !== 'Medium') fail('Graphics row does not show Medium');
+    await press('ArrowLeft', 'graphics Low', () => window.G.settings.quality === 'low');
+    const lo = await gfx();
+    step(`graphics Low: ${JSON.stringify({ ...lo, prog: undefined })} (${(100 * (1 - lo.tris / hi0.tris)).toFixed(1)}% fewer triangles)`);
+    if (lo.shadows || lo.castShadow || lo.pr > 1) fail(`Low left shadows on or the pixel ratio above 1: ${JSON.stringify(lo)}`);
+    if (!(lo.tris <= hi0.tris * 0.6)) fail(`Low draws ${lo.tris} triangles, not at least 40% fewer than High's ${hi0.tris}`);
+    if (!(lo.deco < hi0.deco * 0.3 && lo.deco > 0)) fail(`Low did not thin the decoration: ${lo.deco} of ${hi0.deco}`);
+    if (!lo.prog || lo.prog === hi0.prog) fail('lit materials kept their shadowed shader on Low');
+    if (!lo.cutHidden.every(Boolean)) fail(`cut objects reappeared on Low: ${lo.cutHidden}`);
+    if ((await page.textContent('#settings .srow[data-r="6"] .val')) !== 'Low') fail('Graphics row does not show Low');
+    for (const q of ['medium', 'high']) {
+      await page.click('#settings .srow[data-r="6"] .sb[data-d="1"]');
+      await waitFor(`graphics ${q} after a click on +`, (want) => window.G.settings.quality === want, STEP_TIMEOUT, q);
+    }
+    const hi1 = await gfx();
+    step(`graphics High again: ${JSON.stringify({ ...hi1, prog: undefined })}`);
+    if (!(hi1.shadows && hi1.castShadow && hi1.map === 2048 && hi1.pr === 1.75)) fail(`High did not restore shadows and a 1.75 pixel ratio: ${JSON.stringify(hi1)}`);
+    if (hi1.tris !== hi0.tris || hi1.deco !== hi0.deco) fail(`High did not restore the triangle count: ${hi1.tris} vs ${hi0.tris} (deco ${hi1.deco} vs ${hi0.deco})`);
+    if (hi1.prog !== hi0.prog) fail('lit materials did not get their shadowed shader back on High');
+    if (!hi1.cutHidden.every(Boolean)) fail(`cut objects reappeared on High: ${hi1.cutHidden}`);
+    await press('Enter', 'Enter on Graphics wraps High to Low', () => window.G.settings.quality === 'low');
+    await page.evaluate(() => { delete window.devicePixelRatio; });
+    if (problems.length) fail('errors while switching the graphics preset');
+    step('graphics preset switched High → Low → High → Low; shadows, pixel ratio, triangles and cut objects follow it');
     const applied = await page.evaluate(async () => {
       const { G } = window, C = G.cam;
       // yaw delta from one camera update with a fake input: Q held, or a mouse-drag orbit of 0.1 rad
@@ -203,7 +258,7 @@ async function main() {
     if (!(near(applied.q2, 2 * applied.q1) && near(applied.drag2, 2 * applied.drag1) && near(applied.drag05, applied.drag1 / 2))) fail(`sensitivity did not scale the orbit delta: ${JSON.stringify(applied)}`);
     if (applied.shake !== 0) fail(`reduced motion left a camera shake of ${applied.shake}`);
     if (!(applied.flash > 0 && applied.flash <= 0.2 && applied.vignette > 0 && applied.vignette <= 0.2)) fail(`reduced motion flash opacity ${applied.flash} / ${applied.vignette} is not capped at 0.2`);
-    const want = { v: 1, musicVolume: 0.3, sfxVolume: 0.8, camSensitivity: 1, invertCamX: true, invertCamY: false, reducedMotion: true };
+    const want = { v: 1, musicVolume: 0.3, sfxVolume: 0.8, camSensitivity: 1, invertCamX: true, invertCamY: false, reducedMotion: true, quality: 'low' };
     if (JSON.stringify(applied.stored) !== JSON.stringify(want)) fail(`stored settings ${JSON.stringify(applied.stored)}, expected ${JSON.stringify(want)}`);
     await press('Escape', 'back to the pause menu on Settings', () => window.G.ui.menu === 'pause' && window.G.ui.pauseSel === 2);
     await press('Enter', 'settings overlay again', () => window.G.ui.menu === 'settings');
@@ -224,8 +279,12 @@ async function main() {
     await waitFor('Back click returns to the pause menu on Settings', () => window.G.ui.menu === 'pause' && window.G.ui.pauseSel === 2, STEP_TIMEOUT);
     step('settings changed by keyboard and mouse; audio, camera, shake and flash follow them');
     await openPage(page.context(), ' again, same localStorage');
-    const reloaded = await page.evaluate(() => ({ s: window.G.settings, scale: window.G.cam.scale, rm: window.G.cam.reducedMotion }));
+    const reloaded = await page.evaluate(() => ({
+      s: window.G.settings, scale: window.G.cam.scale, rm: window.G.cam.reducedMotion,
+      shadows: window.G.renderer.shadowMap.enabled, thinned: window.G.scenery.thinned.some((t) => t.mesh.count < t.keys.length),
+    }));
     if (JSON.stringify(reloaded.s) !== JSON.stringify(want) || reloaded.scale.yaw !== -1 || !reloaded.rm) fail(`settings not restored after reload: ${JSON.stringify(reloaded)}`);
+    if (reloaded.shadows || !reloaded.thinned) fail(`stored Low graphics not applied at boot: ${JSON.stringify(reloaded)}`);
     await page.evaluate(() => window.G.game.newGame());
     await waitFor('play after New Game', () => window.G.game.state === 'play', STEP_TIMEOUT);
     const afterNew = await page.evaluate(() => [window.G.settings, JSON.parse(localStorage.getItem('starseed-isle-settings-v1'))]);

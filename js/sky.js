@@ -96,6 +96,20 @@ export class Sky {
     this.buildClouds();
     this.night = 0;
   }
+  /** Sun shadows on or off, at a `size`² shadow map. The old map is freed when the size changes or shadows
+   *  go off (Three.js allocates a new one on the next shadow render). Turning `castShadow` off also changes
+   *  the lights' state, so every lit material picks a matching shader on its next render. */
+  setShadows(on, size) {
+    const sh = this.sun.shadow;
+    const resized = sh.mapSize.x !== size || sh.mapSize.y !== size;
+    if (resized) sh.mapSize.set(size, size);
+    if ((resized || !on) && sh.map) {
+      if (sh.map.depthTexture) sh.map.depthTexture.dispose();
+      sh.map.dispose();
+      sh.map = null;
+    }
+    this.sun.castShadow = !!on;
+  }
   buildClouds() {
     const b = new GB();
     const puffs = [[0, 0, 0, 3.2], [3.4, -0.4, 0.5, 2.4], [-3.2, -0.5, -0.3, 2.5], [1.5, 1.3, -0.4, 2.2], [-1.4, 1.1, 0.4, 2.0], [5.6, -0.9, 0, 1.6], [-5.4, -0.9, 0.2, 1.5]];
