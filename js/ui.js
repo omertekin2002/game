@@ -97,8 +97,10 @@ export class UI {
     this.debugEl = el('div', 'hidden', '', R); this.debugEl.id = 'debug';
     // pointer handlers for menus
     this.pauseBtns = [...this.pauseEl.querySelectorAll('button')];
-    this.pauseBtns.forEach((b, i) => b.addEventListener('click', () => this.onPauseChoice(i)));
-    this.settingsEl.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
+    // Pointer clicks only: Enter / Space on a focused button (e.detail === 0) already reach menuInput as actions.
+    this.pauseBtns.forEach((b, i) => b.addEventListener('click', (e) => { if (e.detail) this.onPauseChoice(i); }));
+    this.settingsEl.querySelectorAll('button').forEach((b) => b.addEventListener('click', (e) => {
+      if (!e.detail) return;
       this.settingsSel = +b.dataset.r;
       this.settingsActivate(b.dataset.d ? +b.dataset.d : 0);
     }));

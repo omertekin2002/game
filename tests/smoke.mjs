@@ -56,13 +56,19 @@ async function main() {
       }
       if (settings !== undefined) await ctx.addInitScript(([k, v]) => localStorage.setItem(k, v), [SETTINGS_KEY, settings]);
       if (page) await page.context().close();
+      page = null;
+      await openPage(ctx, save !== undefined ? ' with a save in localStorage' : '');
+    };
+    // Open the game in a new page of `ctx`, which shares its localStorage (closing the previous page first).
+    const openPage = async (ctx, note = '') => {
+      if (page) await page.close();
       page = await ctx.newPage();
       page.on('pageerror', (e) => problems.push(`pageerror: ${e.stack || e.message}`));
       page.on('console', (m) => { if (m.type() === 'error') problems.push(`console.error: ${m.text()}`); });
       page.on('requestfailed', (r) => problems.push(`request failed: ${r.url()} (${r.failure()?.errorText})`));
       page.on('response', (r) => { if (r.status() >= 400) problems.push(`HTTP ${r.status()}: ${r.url()}`); });
-      step(`open ${server.url}?debug=1${save !== undefined ? ' with a save in localStorage' : ''}`);
-      await page.goto(`${server.url}?debug=1`, { waitUntil: 'load' });
+      step(`open ${server.url}?debug=1${note}`);
+      await page.goto(`${server.url}?debug=1`, { waitUntil: 'load', timeout: BOOT_TIMEOUT });
       await waitBoot();
     };
     const waitBoot = async () => {
@@ -157,6 +163,13 @@ async function main() {
     await waitFor('SFX volume 80% after a click', () => window.G.settings.sfxVolume === 0.8, STEP_TIMEOUT);
     await page.click('#settings .srow[data-r="3"] .sb');
     await waitFor('invert horizontal on after a click', () => window.G.settings.invertCamX === true, STEP_TIMEOUT);
+    // the clicked button keeps focus: Enter must act once through the game's input, not also as a native click
+    await press('Enter', 'Enter on the focused toggle flips it once', () => window.G.settings.invertCamX === false);
+    const afterFrames = (n) => page.evaluate((k) => new Promise((r) => { const f = () => (--k <= 0 ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); }), n);
+    await afterFrames(3);
+    if (!(await page.evaluate(() => window.G.settings.invertCamX === false))) fail('Enter on a focused settings button acted twice');
+    await page.click('#settings .srow[data-r="3"] .sb');
+    await waitFor('invert horizontal back on', () => window.G.settings.invertCamX === true, STEP_TIMEOUT);
     const vol = await page.evaluate(() => window.__vol);
     if (!vol.some(([n, v]) => n === 'setMusicVolume' && v === 0.3) || !vol.some(([n, v]) => n === 'setSfxVolume' && v === 0.8)) fail(`audio setters not called: ${JSON.stringify(vol)}`);
     const applied = await page.evaluate(async () => {
@@ -194,8 +207,7 @@ async function main() {
     if (JSON.stringify(applied.stored) !== JSON.stringify(want)) fail(`stored settings ${JSON.stringify(applied.stored)}, expected ${JSON.stringify(want)}`);
     await press('Escape', 'back to the pause menu on Settings', () => window.G.ui.menu === 'pause' && window.G.ui.pauseSel === 2);
     step('settings changed by keyboard and mouse; audio, camera, shake and flash follow them');
-    await page.reload({ waitUntil: 'load' });
-    await waitBoot();
+    await openPage(page.context(), ' again, same localStorage');
     const reloaded = await page.evaluate(() => ({ s: window.G.settings, scale: window.G.cam.scale, rm: window.G.cam.reducedMotion }));
     if (JSON.stringify(reloaded.s) !== JSON.stringify(want) || reloaded.scale.yaw !== -1 || !reloaded.rm) fail(`settings not restored after reload: ${JSON.stringify(reloaded)}`);
     await page.evaluate(() => window.G.game.newGame());
@@ -203,7 +215,7 @@ async function main() {
     const afterNew = await page.evaluate(() => [window.G.settings, JSON.parse(localStorage.getItem('starseed-isle-settings-v1'))]);
     if (afterNew.some((s) => JSON.stringify(s) !== JSON.stringify(want))) fail(`New Game changed the settings: ${JSON.stringify(afterNew)}`);
     if (problems.length) fail('errors in the settings menu');
-    step('settings survived a reload and New Game');
+    step('settings survived reopening the game and New Game');
 
     // 4. Continue a corrupt save, with corrupt settings: it must still start a playable session
     await openGame({ ...save, chests: null, hp: 'x', bosses: [1], seeds: null, coins: -5, px: 'nope' }, '{not json');
