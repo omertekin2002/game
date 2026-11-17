@@ -13,6 +13,8 @@ export const sfx = (n) => A('sfx', n);
 export const music = (t) => A('music', t);
 export const audioInit = () => A('init');
 export const toggleMute = () => A('toggleMute');
+export const setMusicVolume = (v) => A('setMusicVolume', v);
+export const setSfxVolume = (v) => A('setSfxVolume', v);
 export function isMuted() { try { return !!(G.audio && G.audio.muted); } catch (e) { return false; } }
 
 export function spriteUrl(key) {

@@ -5,6 +5,7 @@ import { G, sfx, spriteUrl, isMuted, toggleMute } from './core.js';
 import { SEED_ORDER, SEEDS, SHOP, REGIONS, CFG } from './data.js';
 import { HALF, SIZE, N } from './world.js';
 import { TAU, clamp } from './util.js';
+import { RANGES, stepSetting } from './settings.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 function el(tag, cls, html, parent) {
@@ -16,6 +17,13 @@ function el(tag, cls, html, parent) {
 }
 const img = (key, cls = '') => { const u = spriteUrl(key); return u ? `<img class="${cls}" src="${u}" alt="" draggable="false">` : ''; };
 const _v = new THREE.Vector3();
+// Settings overlay rows (keys of js/settings.js), then the Reset and Back buttons.
+const SETTING_ROWS = [
+  ['musicVolume', 'Music volume'], ['sfxVolume', 'SFX volume'], ['camSensitivity', 'Camera sensitivity'],
+  ['invertCamX', 'Invert camera ↔'], ['invertCamY', 'Invert camera ↕'], ['reducedMotion', 'Reduced motion'],
+];
+const SETTINGS_N = SETTING_ROWS.length + 2;
+const fmtSetting = (k, v) => (k === 'camSensitivity' ? `${v}×` : k in RANGES ? `${Math.round(v * 100)}%` : v ? 'On' : 'Off');
 
 export class UI {
   constructor(root) {
@@ -23,7 +31,7 @@ export class UI {
     this.floaters = [];
     this.dlg = null;
     this.shop = null;
-    this.menu = null; // 'pause' | 'controls' | 'map' | 'ending' | null
+    this.menu = null; // 'pause' | 'controls' | 'settings' | 'map' | 'ending' | null
     this.shown = { hp: -1, maxHp: -1, coins: -1, potions: -1, seeds: '' };
     this.build();
   }
@@ -53,8 +61,15 @@ export class UI {
     this.shopEl = el('div', 'panel interactive', '', R); this.shopEl.id = 'shop';
     // overlay cards
     this.pauseEl = this.overlay('pause', `<div class="card panel"><h2>Paused</h2><div class="menu">
-      <button class="btn" data-i="0">Resume</button><button class="btn" data-i="1">Controls</button>
-      <button class="btn" data-i="2">Sound: On</button><button class="btn" data-i="3">Save &amp; Quit</button></div></div>`);
+      <button class="btn" data-a="resume">Resume</button><button class="btn" data-a="controls">Controls</button>
+      <button class="btn" data-a="settings">Settings</button><button class="btn" data-a="sound">Sound: On</button>
+      <button class="btn" data-a="quit">Save &amp; Quit</button></div></div>`);
+    this.settingsEl = this.overlay('settings', `<div class="card panel"><h2>Settings</h2><div class="settings-rows">${SETTING_ROWS.map(([k, label], i) =>
+      `<div class="srow" data-r="${i}"><div class="sl">${label}</div><div class="sv">${k in RANGES
+        ? `<button class="sb" data-r="${i}" data-d="-1" aria-label="${label} down">−</button><span class="val"></span><button class="sb" data-r="${i}" data-d="1" aria-label="${label} up">+</button>`
+        : `<button class="sb tog" data-r="${i}" data-d="1"><span class="val"></span></button>`}</div></div>`).join('')}</div>
+      <div class="menu"><button class="btn" data-r="${SETTING_ROWS.length}">Reset to defaults</button><button class="btn" data-r="${SETTING_ROWS.length + 1}">Back</button></div>
+      <div class="small">↑↓ choose · ←→ change · Esc back</div></div>`);
     this.controlsEl = this.overlay('controls', `<div class="card panel"><h2>How to play</h2>
       <div class="controls-grid">
         <div class="k">Move</div><div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / arrows / left stick</div>
@@ -81,7 +96,12 @@ export class UI {
     this.loadingEl.id = 'loading';
     this.debugEl = el('div', 'hidden', '', R); this.debugEl.id = 'debug';
     // pointer handlers for menus
-    this.pauseEl.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => this.onPauseChoice(+b.dataset.i)));
+    this.pauseBtns = [...this.pauseEl.querySelectorAll('button')];
+    this.pauseBtns.forEach((b, i) => b.addEventListener('click', () => this.onPauseChoice(i)));
+    this.settingsEl.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
+      this.settingsSel = +b.dataset.r;
+      this.settingsActivate(b.dataset.d ? +b.dataset.d : 0);
+    }));
     this.controlsEl.querySelector('[data-close]').addEventListener('click', () => this.closeControls());
     this.mapEl.addEventListener('click', () => this.closeMenu());
     this.endingEl.addEventListener('click', () => this.closeEnding());
@@ -451,16 +471,51 @@ export class UI {
     sfx('menu');
   }
   syncPause() {
-    const bs = [...this.pauseEl.querySelectorAll('button')];
-    bs[2].textContent = 'Sound: ' + (isMuted() ? 'Off' : 'On');
+    const bs = this.pauseBtns;
+    bs.find((b) => b.dataset.a === 'sound').textContent = 'Sound: ' + (isMuted() ? 'Off' : 'On');
     bs.forEach((b, i) => b.classList.toggle('sel', i === this.pauseSel));
   }
   onPauseChoice(i) {
     this.pauseSel = i;
-    if (i === 0) { this.closeMenu(); return; }
-    if (i === 1) { this.showOverlay(this.pauseEl, false); this.openControls(true); return; }
-    if (i === 2) { toggleMute(); sfx('select'); this.syncPause(); return; }
-    if (i === 3) { this.closeMenu(true); this.onSaveQuit && this.onSaveQuit(); }
+    const a = this.pauseBtns[i].dataset.a;
+    if (a === 'resume') { this.closeMenu(); return; }
+    if (a === 'controls') { this.showOverlay(this.pauseEl, false); this.openControls(true); return; }
+    if (a === 'settings') { this.showOverlay(this.pauseEl, false); this.openSettings(); return; }
+    if (a === 'sound') { toggleMute(); sfx('select'); this.syncPause(); return; }
+    if (a === 'quit') { this.closeMenu(true); this.onSaveQuit && this.onSaveQuit(); }
+  }
+  openSettings() {
+    this.menu = 'settings';
+    this.settingsSel = 0;
+    this.syncSettings();
+    this.showOverlay(this.settingsEl, true);
+    sfx('select');
+  }
+  syncSettings() {
+    const s = G.settings || this.settingsDefaults;
+    this.settingsEl.querySelectorAll('.srow').forEach((r, i) => {
+      $('.val', r).textContent = fmtSetting(SETTING_ROWS[i][0], s[SETTING_ROWS[i][0]]);
+      r.classList.toggle('sel', i === this.settingsSel);
+    });
+    this.settingsEl.querySelectorAll('.menu .btn').forEach((b) => b.classList.toggle('sel', +b.dataset.r === this.settingsSel));
+  }
+  // dir: -1 / +1 from ← → or the − + buttons; 0 is Enter / attack / a click (toggle, step up with wrap, or press)
+  settingsActivate(dir) {
+    const i = this.settingsSel, n = SETTING_ROWS.length;
+    if (i === n + 1) { this.closeSettings(); return; }
+    if (i === n) { this.onSettingsChange && this.onSettingsChange({ ...this.settingsDefaults }); sfx('select'); this.syncSettings(); return; }
+    if (i > n) return;
+    const s = G.settings || this.settingsDefaults;
+    this.onSettingsChange && this.onSettingsChange(stepSetting(s, SETTING_ROWS[i][0], dir || 1, !dir));
+    sfx('menu');
+    this.syncSettings();
+  }
+  closeSettings() {
+    this.showOverlay(this.settingsEl, false);
+    sfx('select');
+    this.menu = 'pause';
+    this.showOverlay(this.pauseEl, true);
+    this.syncPause();
   }
   openControls(fromPause) {
     this.menu = 'controls';
@@ -484,6 +539,7 @@ export class UI {
     const m = this.menu;
     this.menu = null;
     if (m === 'pause') this.showOverlay(this.pauseEl, false);
+    if (m === 'settings') this.showOverlay(this.settingsEl, false);
     if (m === 'map') this.showOverlay(this.mapEl, false);
     if (!silent) sfx('cancel');
   }
@@ -491,9 +547,17 @@ export class UI {
     const m = this.menu;
     if (m === 'pause') {
       const nav = input.menuNav();
-      if (nav) { this.pauseSel = (this.pauseSel + nav + 4) % 4; this.syncPause(); sfx('menu'); }
+      const n = this.pauseBtns.length;
+      if (nav) { this.pauseSel = (this.pauseSel + nav + n) % n; this.syncPause(); sfx('menu'); }
       if (input.pressed('attack') || input.pressed('interact')) this.onPauseChoice(this.pauseSel);
       else if (input.pressed('pause') || input.pressed('dash')) this.closeMenu();
+    } else if (m === 'settings') {
+      const nav = input.menuNav();
+      if (nav) { this.settingsSel = (this.settingsSel + nav + SETTINGS_N) % SETTINGS_N; this.syncSettings(); sfx('menu'); }
+      const lr = input.pressed('left') ? -1 : input.pressed('right') ? 1 : 0;
+      if (lr && this.settingsSel < SETTING_ROWS.length) this.settingsActivate(lr);
+      else if (input.pressed('attack') || input.pressed('interact')) this.settingsActivate(0);
+      else if (input.pressed('pause') || input.pressed('dash')) this.closeSettings();
     } else if (m === 'controls') {
       if (performance.now() - this.controlsT > 300 && (input.anyPressed)) this.closeControls();
     } else if (m === 'map') {
