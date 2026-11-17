@@ -212,6 +212,21 @@ button.btn:disabled { opacity: 0.55; cursor: default; }
 kbd { display: inline-block; min-width: 26px; padding: 1px 7px; margin: 0 2px; border: 2px solid var(--brown); border-bottom-width: 4px; border-radius: 8px; background: #fffaf0; font-family: var(--font); font-size: 14px; font-weight: 700; text-align: center; }
 .small { font-size: 14px; color: #a07a5a; }
 
+/* settings */
+#settings .card { padding: 22px 30px; max-height: calc(100vh - 16px); max-height: calc(100dvh - 16px); overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; }
+.settings-rows { display: flex; flex-direction: column; gap: 6px; margin: 0 0 6px; min-width: min(420px, 100%); }
+.srow { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 4px 10px; border-radius: 14px; font-size: 18px; border: 3px solid transparent; }
+.srow.sel { background: #e6f5d2; border-color: var(--green-d); }
+.srow .sl { font-weight: 600; text-align: left; }
+.srow .sv { display: flex; align-items: center; gap: 6px; }
+.srow .val { display: inline-block; min-width: 56px; text-align: center; font-weight: 700; }
+button.sb { font-family: var(--font); font-size: 20px; font-weight: 700; color: var(--ink); width: 38px; height: 38px; padding: 0; cursor: pointer;
+  background: linear-gradient(#fffaf0, #fbe5bb); border: 3px solid var(--brown); border-radius: 12px; box-shadow: 0 3px 0 var(--brown-d); }
+button.sb.tog { width: auto; min-width: 82px; font-size: 17px; }
+button.sb:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--brown-d); }
+#settings.show ~ #touch { visibility: hidden; } /* the virtual stick / buttons would cover the card and catch its drags */
+#settings .menu .btn { min-width: 200px; font-size: 18px; padding: 7px 20px; margin: 4px; }
+
 /* full map */
 #mapview .card { padding: 16px; }
 #mapview canvas { width: min(78vh, 86vw); height: min(78vh, 86vw); border-radius: 18px; border: 4px solid #c79a64; display: block; }
@@ -225,6 +240,7 @@ kbd { display: inline-block; min-width: 26px; padding: 1px 7px; margin: 0 2px; b
 /* ---------- title ---------- */
 #title { position: absolute; inset: 0; pointer-events: auto; overflow: hidden; background: #2a1a12; transition: opacity 0.6s; }
 #title.gone { opacity: 0; pointer-events: none; }
+#title.gone button { pointer-events: none; } /* beats `#ui button`: the faded title must not catch clicks */
 #title .bg { position: absolute; inset: -4%; background: center / cover no-repeat; animation: kenburns 40s ease-in-out infinite alternate; }
 @keyframes kenburns { 0% { transform: scale(1.0) translate(0, 0); } 100% { transform: scale(1.08) translate(-1.5%, 1%); } }
 #title .shade { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(42,26,18,0.0) 30%, rgba(42,26,18,0.0) 60%), linear-gradient(0deg, rgba(42,26,18,0.55), rgba(42,26,18,0) 45%); }
@@ -277,4 +293,20 @@ kbd { display: inline-block; min-width: 26px; padding: 1px 7px; margin: 0 2px; b
   #dialogue .portrait img { max-width: 66px; max-height: 70px; }
   #dialogue .text { font-size: 17px; }
   #bosscard .bt { font-size: 34px; }
+  #settings .card { padding: 16px 12px; }
+  #settings h2 { font-size: 28px; margin-bottom: 8px; }
+  .srow { font-size: 15px; gap: 8px; padding: 3px 6px; }
+  .srow .val { min-width: 46px; }
+  button.sb { width: 34px; height: 34px; }
+  button.sb.tog { min-width: 64px; }
+}
+@media (max-height: 520px) {
+  #settings .card { padding: 10px 16px; }
+  #settings h2 { font-size: 24px; margin-bottom: 4px; }
+  .settings-rows { gap: 2px; }
+  .srow { padding: 1px 8px; }
+  button.sb { width: 30px; height: 30px; }
+  #settings .small { display: none; }
+  #settings .menu { flex-direction: row; flex-wrap: wrap; justify-content: center; }
+  #settings .menu .btn { min-width: 160px; font-size: 16px; padding: 5px 14px; }
 }

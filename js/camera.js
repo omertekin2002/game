@@ -20,6 +20,8 @@ export class CameraRig {
     this.look = new THREE.Vector3();
     this.lookAhead = new THREE.Vector3();
     this.shakeAmt = 0;
+    this.scale = { yaw: 1, pitch: 1 }; // sensitivity × invert, from settings (camScale)
+    this.reducedMotion = false;        // settings: no shake
     this.shot = null;      // { pos, look, dur, t, hold }
     this.shotW = 0;
     this.bias = null;      // { x, z, w, dist } — extra framing (boss fights)
@@ -27,7 +29,7 @@ export class CameraRig {
   }
   forward() { return { x: -Math.sin(this.yaw), z: -Math.cos(this.yaw) }; }
   right() { return { x: Math.cos(this.yaw), z: -Math.sin(this.yaw) }; }
-  shake(a) { this.shakeAmt = Math.min(1.2, Math.max(this.shakeAmt, a)); }
+  shake(a) { if (this.reducedMotion) return; this.shakeAmt = Math.min(1.2, Math.max(this.shakeAmt, a)); }
   snap(target) {
     this.focus.copy(target);
     this.lookAhead.set(0, 0, 0);
@@ -40,15 +42,15 @@ export class CameraRig {
   clearShot() { this.shot = null; }
   update(dt, target, vel, input, allowControl) {
     if (input && allowControl) {
-      const o = input.takeOrbit();
-      this.yawTarget += o;
-      if (input.held('camL')) this.yawTarget += dt * 2.2;
-      if (input.held('camR')) this.yawTarget -= dt * 2.2;
-      if (input.padCam) this.yawTarget -= input.padCam * dt * 2.6;
+      const ky = this.scale.yaw, kp = this.scale.pitch;
+      this.yawTarget += input.takeOrbit() * ky;
+      if (input.held('camL')) this.yawTarget += dt * 2.2 * ky;
+      if (input.held('camR')) this.yawTarget -= dt * 2.2 * ky;
+      if (input.padCam) this.yawTarget -= input.padCam * dt * 2.6 * ky;
       const w = input.takeWheel();
       if (w) this.distTarget = clamp(this.distTarget + w * 1.2, 6.5, 24);
       const p = input.takePitch();
-      if (p) this.pitchTarget = clamp(this.pitchTarget + p, 0.5, 1.2);
+      if (p) this.pitchTarget = clamp(this.pitchTarget + p * kp, 0.5, 1.2);
     } else if (input) { input.takeOrbit(); input.takeWheel(); input.takePitch(); }
     this.yaw = damp(this.yaw, this.yawTarget, 10, dt);
     this.pitch = damp(this.pitch, this.bias && this.bias.pitch ? Math.max(this.pitchTarget, this.bias.pitch) : this.pitchTarget, this.bias ? 3 : 8, dt);

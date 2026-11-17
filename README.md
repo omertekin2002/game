@@ -32,8 +32,8 @@ be set to **GitHub Actions**.
 
 ```sh
 bun install
-bun test             # unit tests: world generation, content tables, save schema (migration + validation)
-bun run test:smoke   # headless Chromium: New Game, then Continue a valid / corrupt / newer save; fails on any error
+bun test             # unit tests: world generation, content tables, save schema, settings sanitizing
+bun run test:smoke   # headless Chromium: New Game, Continue a valid / corrupt / newer save, Settings + reload; fails on any error
 ```
 
 The smoke test needs Playwright's Chromium once: `bunx playwright install chromium`. On failure it saves a
@@ -53,6 +53,14 @@ screenshot to `test-results/`. CI (`.github/workflows/ci.yml`) runs both on push
 | Pause | Esc / P | Start |
 
 Touch devices get a virtual stick, A/B buttons and drag-to-orbit.
+
+### Settings
+
+Pause → **Settings**: music and SFX volume, camera sensitivity (0.5×–2×), invert camera horizontal / vertical, and
+**Reduced motion** (no screen shake, dimmer full-screen flashes; it starts on when the OS asks for reduced motion).
+Change a row with ←/→ (or click − / +), toggle with Enter. Settings apply immediately and are stored under their own
+`localStorage` key (`starseed-isle-settings-v1`), so New Game keeps them. **Sound: On/Off** in the pause menu still
+mutes everything.
 
 ## What's in the box
 

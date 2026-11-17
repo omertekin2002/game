@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { G, sfx, music, audioInit, store } from './core.js';
 import { CFG, SAVE_KEY, REGIONS, REGION, NPCS, SEED_ORDER, SEEDS, BOSSES, progress } from './data.js';
 import { freshState, loadSave } from './save.js';
+import { capFlash } from './settings.js';
 import { Player } from './player.js';
 import { NPC } from './npcs.js';
 import { Enemy, Projectile, Pickup, Blobs, trySpawnEnemy } from './entities.js';
@@ -979,8 +980,8 @@ export class Game {
     this.ui.updateHud(this.S);
     this.ui.updateFloaters(dt, this.camera);
     if ((this._mmT = (this._mmT || 0) + 1) % 2 === 0) this.ui.drawMinimap(pl.root.position, pl.facing, this.cam.yaw, this.S);
-    this.ui.setVignette(this.redFlash * 0.9 + (this.S.hp <= 2 && this.S.hp > 0 ? 0.25 + Math.sin(t * 5) * 0.1 : 0));
-    this.ui.setFlash(this.whiteFlash);
+    this.ui.setVignette(capFlash(this.redFlash * 0.9, G.settings) + (this.S.hp <= 2 && this.S.hp > 0 ? 0.25 + Math.sin(t * 5) * 0.1 : 0));
+    this.ui.setFlash(capFlash(this.whiteFlash, G.settings));
     if (this.fight && this.fight.phase === 'fight') this.ui.bossBar(this.fight.boss);
     this.updateDebug(dt);
   }

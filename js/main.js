@@ -1,8 +1,9 @@
 // Boot: renderer, asset loading (with progress), world generation, scene assembly, title, fixed-step loop.
 import * as THREE from 'three';
-import { G, music, audioInit, store } from './core.js';
+import { G, music, audioInit, store, setMusicVolume, setSfxVolume } from './core.js';
 import { CFG, SAVE_KEY } from './data.js';
 import { loadSave } from './save.js';
+import { SETTINGS_KEY, camScale, defaultSettings, sanitizeSettings } from './settings.js';
 import { loadAll } from './assets.js';
 import { generateWorld } from './world.js';
 import { buildTerrain, buildWater, buildMapCanvas } from './terrain.js';
@@ -72,6 +73,20 @@ async function boot() {
   const input = new Input(canvas, uiRoot);
   G.input = input;
   ui.setMap(buildMapCanvas(world), world);
+  // settings: own storage key (New Game never resets them), sanitized, applied before the first frame
+  let prefersRM = false;
+  try { prefersRM = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch (e) { /* ignore */ }
+  const applySettings = (s) => {
+    G.settings = s;
+    setMusicVolume(s.musicVolume);
+    setSfxVolume(s.sfxVolume);
+    cam.scale = camScale(s);
+    cam.reducedMotion = s.reducedMotion;
+    if (s.reducedMotion) cam.shakeAmt = 0;
+  };
+  ui.settingsDefaults = defaultSettings(prefersRM);
+  applySettings(sanitizeSettings(store.get(SETTINGS_KEY), ui.settingsDefaults));
+  ui.onSettingsChange = (s) => { applySettings(s); store.set(SETTINGS_KEY, s); };
   const game = new Game({ renderer, scene, camera, cam, input, ui, fx, sky, world, scenery, terrain, waterMat: water.material });
 
   // warm shader programs (incl. enemy variants) so the first encounter doesn't hitch

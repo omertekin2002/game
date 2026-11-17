@@ -173,7 +173,8 @@ Fredoka font; use the 2D sprites for icons)
 - Region banner on entering a region. Floating "!" prompt over interactables.
 - Dialogue box: bottom, typewriter text, name tag, sprite portrait, bounce arrow; `talk` blip every few chars.
 - Title screen: `ui.title` art, logo "Starseed Isle", "New Adventure" / "Continue" (if save), gentle
-  particles. Pause menu: Resume, Controls, Sound on/off, Save & Quit. Controls card on first start.
+  particles. Pause menu: Resume, Controls, Settings (volumes, camera sensitivity /
+  invert, reduced motion), Sound on/off, Save & Quit. Controls card on first start.
 - Loading screen with a progress bar while GLBs/textures load.
 
 ## Atmosphere
