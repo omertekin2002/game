@@ -1,7 +1,7 @@
 // Tunables + content tables: regions, enemies, bosses, NPC dialogue, shop, signs.
 export const CFG = {
   seed: 7151,
-  playerSpeed: 5.0,
+  playerSpeed: 4.4,            // base run (RULINGS); the movement numbers live in TUNE.move (WP3)
   playerAccel: 38,
   playerDecel: 30,
   playerR: 0.32,
@@ -41,13 +41,14 @@ export const REGIONS = [
   { id: 'meadow', name: 'Bloom Meadow', sub: 'Flowers, ponds and secrets', music: 'meadow', ambient: 'butterflies', enemies: [['bee', 3], ['slime', 4]], max: 6 },
 ];
 
+// name: the HUD's display name (C5); emerge: how a visible spawn appears (C16, 'spawn' → this)
 export const ENEMY = {
-  slime: { hp: 2, r: 0.42, flying: false },
-  mushroom: { hp: 3, r: 0.42, flying: false },
-  bat: { hp: 1, r: 0.38, flying: true },
-  bee: { hp: 2, r: 0.36, flying: true },
-  crab: { hp: 3, r: 0.48, flying: false },
-  snowpuff: { hp: 2, r: 0.45, flying: true },
+  slime: { hp: 2, r: 0.42, flying: false, name: 'Jelly Slime', emerge: 'ground' },
+  mushroom: { hp: 3, r: 0.42, flying: false, name: 'Grumpy Shroomlet', emerge: 'ground' },
+  bat: { hp: 1, r: 0.38, flying: true, name: 'Dozy Bat', emerge: 'sky' },
+  bee: { hp: 2, r: 0.36, flying: true, name: 'Buzzy Bee', emerge: 'bush' },
+  crab: { hp: 3, r: 0.48, flying: false, name: 'Snippy Crab', emerge: 'ground' },
+  snowpuff: { hp: 2, r: 0.45, flying: true, name: 'Snowpuff', emerge: 'sky' },
 };
 
 export const SEED_ORDER = ['woods', 'peaks', 'shores'];
@@ -58,9 +59,9 @@ export const SEEDS = {
 };
 
 export const BOSSES = {
-  woods: { name: 'Grumble Shroom', title: 'Grumpy Guardian of the Whispering Woods', key: 'boss_shroom', hp: 24 },
-  shores: { name: 'Captain Pinch', title: 'Snippy Skipper of the Sunny Shores', key: 'boss_crab', hp: 24 },
-  peaks: { name: 'Frostbun', title: 'Chilly Champion of Frostcap Peaks', key: 'boss_frost', hp: 26 },
+  woods: { name: 'Grumble Shroom', title: 'Grumpy Guardian of the Whispering Woods', key: 'boss_shroom', hp: 48 },
+  shores: { name: 'Captain Pinch', title: 'Snippy Skipper of the Sunny Shores', key: 'boss_crab', hp: 48 },
+  peaks: { name: 'Frostbun', title: 'Chilly Champion of Frostcap Peaks', key: 'boss_frost', hp: 50 },
 };
 
 export const SHOP = [
@@ -74,6 +75,9 @@ const found = (S) => SEED_ORDER.filter((k) => S.seeds[k] > 0).length;
 const placed = (S) => SEED_ORDER.filter((k) => S.seeds[k] === 2).length;
 export const progress = { found, placed, carried: (S) => found(S) - placed(S) };
 
+// WP9: lines rewritten for an eye-level game (art §14): no screen directions, compass words, landmarks you can see
+// over the trees, and boss tips that match the new moves. {tokens} name controls (C7: WP6 swaps in the glyph of the
+// current device at display time; a copy without WP6 shows the raw token).
 export const NPCS = [
   {
     id: 'shellby', name: 'Elder Shellby', key: 'npc_turtle', wander: 0.6,
@@ -82,15 +86,17 @@ export const NPCS = [
       'Last night the Great Tree sneezed. A big, sad, leafy sneeze... and its three Starseeds went flying!',
       'Three grumpy guardians scooped them up. Grumble Shroom in the Whispering Woods, up north...',
       '...Frostbun in the Frostcap Peaks to the east, and Captain Pinch down on the Sunny Shores to the south.',
-      'Without its Starseeds the Tree is wilting. Bring them home and set them on this pedestal, would you?',
-      'Go in any order you like. Follow the dirt paths, and if you get bonked, Miso sells potions. Off you sprout!',
+      'If you ever lose your way, just look up for the Great Tree. It is the tallest thing on the whole isle! Your compass up top knows the way home too.',
+      'Without its Starseeds the Tree is wilting. Bring them home and set them in the star sockets of this old pedestal, would you?',
+      'Go in any order you like. The signpost at the edge of the plaza points the way, and if you get bonked, Miso sells potions. Off you sprout!',
     ],
     lines(S) {
       if (S.ending) return ['Look at her bloom... Thank you, Pip. You are the bravest little sprout on the whole isle.', 'Take your time and explore. The isle is yours to enjoy now.'];
-      if (progress.carried(S) > 0) return ['Ooh, I can feel a Starseed humming in your pocket! Set it on the pedestal, dear.'];
-      if (placed(S) > 0) return [(3 - placed(S)) + ' more to go! The Great Tree already looks a little perkier.', 'Remember: Woods to the north, Peaks to the east, Shores to the south.'];
+      if (progress.carried(S) > 0) return ['Ooh, I can feel a Starseed humming in your pocket! Set it in a socket on the pedestal, dear. Just walk up and press {interact}.'];
+      if (placed(S) > 0) return [(3 - placed(S)) + ' more to go! The Great Tree already looks a little perkier.', 'Remember: Woods to the north, Peaks to the east, Shores to the south. Just follow the letters on your compass, dear.'];
       return [
-        'The Woods are north, the Peaks are east past the river, and the Shores are south. Follow the dirt paths.',
+        'The Woods are north, the Peaks are east past the river, and the Shores are south. Follow the dirt paths and the little arrow posts.',
+        'Lost? Turn around until you see the Great Tree over the treetops, and walk toward it. It always brings you home.',
         'If you ever get dizzy out there, you will wake up right here by the Tree. No harm done.',
       ];
     },
@@ -102,8 +108,9 @@ export const NPCS = [
       if (S.ending) return ['A blooming Great Tree! This calls for a parade. You lead, I will hop behind.'];
       if (n === 0) return [
         'Ribbit! Welcome, welcome! Mayor Ribbit, at your service. Best lily pad in town, ask anyone.',
-        'North: the Whispering Woods. East, over the river bridge: Frostcap Peaks. South: the Sunny Shores.',
-        'And west is Bloom Meadow. No guardian there, just flowers and secrets. Lots of secrets. Croak.',
+        'Every corner of our isle has something tall to aim for. North, a giant purple mushroom pokes over the Whispering Woods.',
+        'East, over the river bridge, a frosty crystal twinkles on top of Frostcap Peaks. South, a striped lighthouse watches the Sunny Shores.',
+        'And west, a windmill turns over Bloom Meadow. No guardian there, just flowers and secrets. Lots of secrets. Croak.',
       ];
       if (n === 1) return ['One Starseed back already? I hereby declare a holiday! ...Right after the other two.'];
       if (n === 2) return ['Two down! I have been practising my victory croak. RIBBIT! ...It needs work.'];
@@ -114,7 +121,7 @@ export const NPCS = [
     id: 'miso', name: 'Miso', key: 'npc_cat', wander: 0, shop: true,
     lines(S) {
       if (S.ending) return ['Mrrow~ The whole isle smells like blossoms now. Business is blooming too!'];
-      return ['Mrrow~ Welcome to Miso\'s! Everything is shiny and nothing is refundable.'];
+      return ['Mrrow~ Welcome to Miso\'s! Everything on the counter is shiny and nothing is refundable.'];
     },
   },
   {
@@ -125,9 +132,9 @@ export const NPCS = [
         'The beach is so peaceful now. Want to collect shells with me later?',
       ];
       return [
-        'Going to the Sunny Shores? Watch out for Captain Pinch. He charges in a straight line like a runaway cart!',
-        'Hop aside when he charges and he will bonk right into the arena wall. Then he is dizzy. Free hits!',
-        'Little crabs raise their claws when they charge. Poke them from the side or from behind!',
+        'Going to the Sunny Shores? Follow this path south to the sea. Captain Pinch\'s cove is at its very end, just past the striped lighthouse on the beach, and he charges in a straight line like a runaway cart!',
+        'When a glowing stripe runs across the sand in front of him, that is where he will charge. Sidestep out of it, or {dash} sideways, and he bonks the arena wall. Dizzy crab, free hits!',
+        'Little crabs raise their claws before they charge. Step aside, then bonk them while they catch their breath. A big third swing knocks their claws right open!',
       ];
     },
   },
@@ -136,9 +143,9 @@ export const NPCS = [
     lines(S) {
       if (S.bosses.woods) return ['Remarkable! Simply remarkable! I shall write a paper: "On the Gentle Defeat of Grumble Shroom", by Pip.'];
       return [
-        'Hoo-hoo! Professor Hoot, scholar of the Whispering Woods. Grumble Shroom lurks at the north end.',
-        'When he stomps, a shockwave ring rolls outward. Do not run from it. DASH right through it! Hoo!',
-        'Mushrooms puff slow spores. Your sword can pop them, if you are quick about it.',
+        'Hoo-hoo! Professor Hoot, scholar of the Whispering Woods. Grumble Shroom lurks at the north end, under that giant purple mushroom.',
+        'When he stomps, a glowing ring rolls outward along the ground. Do not run from it. HOP right over it with {jump}, or roll straight through with {dash}! Hoo!',
+        'Mushrooms puff slow, wobbly spores. Swing with {attack} when one floats up to your nose and POP! Hoo-hoo.',
       ];
     },
   },
@@ -147,9 +154,10 @@ export const NPCS = [
     lines(S) {
       const hc = ['hc_meadow', 'hc_shores', 'hc_peaks', 'hc_woods'].filter((k) => S.chests[k]).length;
       const out = ['Oh! Did not see you there. Did not see much of anything, honestly. Digby\'s the name, digging\'s the game.'];
-      if (!S.bosses.peaks) out.push('Frostbun up in the Peaks loves to hop. Watch the shadow on the ground. That is where the big bun lands!');
-      if (hc < 4) out.push('Psst... my tunnels rumble near four heart-shaped treasures: a flower ring here in the Meadow, an islet off the Shores, a nook behind the Peaks boulders, and a hidden glade in the Woods.');
+      if (!S.bosses.peaks) out.push('Frostbun loves to hop. When a pillar of light shoots up around you and something whistles overhead, LOOK UP! Then roll out of the glowing circle with {dash}, quick!');
+      if (hc < 4) out.push('Psst... my tunnels rumble near four heart-shaped treasures: a ring of tall sunflowers here in the Meadow, the little islet off the western beach, a nook behind the Peaks boulders, and a hidden glade in the Woods.');
       else out.push('You found all four heart treasures? My tunnels feel so empty now. In a good way!');
+      out.push('Little treasure chests like to hide where the paths cannot see them. Behind houses, behind boulders... I would look there. If I could see.');
       out.push('Bushes hide gems sometimes. And sometimes they just hide more bushes.');
       return out;
     },
@@ -157,20 +165,22 @@ export const NPCS = [
 ];
 
 export const DOOR_LINES = [
-  'The door is locked. Someone inside is snoring very softly.',
+  'The door is locked. Someone inside is snoring very softly. Through the window you can see a cozy fire.',
   'A note on the door: "Gone fishing. Back... eventually."',
   'Mmm, it smells like cinnamon buns in there. The door is locked, sadly.',
-  'Knock knock! ...Nobody answers. A cat yawns in the window.',
+  'Knock knock! ...Nobody answers. A cat yawns at you through the window.',
   'A tiny sign: "Please wipe your paws." The door is locked.',
 ];
 
+// Region signs: [board title, line]. The first line of the four region entries is painted on the signpost arms
+// (world-mod.js); reading the signpost gives every line. Arena and village signs show their first line on the board.
 export const SIGNS = {
-  woods: ['↑ Whispering Woods', 'Grumble Shroom\'s Hollow is at the far north end.'],
-  peaks: ['→ Frostcap Peaks', 'Cross the river bridge. Bring a scarf!'],
-  shores: ['↓ Sunny Shores', 'Mind the crabs. They mind you too.'],
-  meadow: ['← Bloom Meadow', 'Flowers, ponds, and a mole who knows things.'],
-  arena_woods: ['Grumble Shroom\'s Hollow.', 'NO VISITORS. This means you. (And you.)'],
-  arena_peaks: ['Frostbun\'s Summit.', 'Beware of bun.'],
-  arena_shores: ['Captain Pinch\'s Cove.', 'Trespassers will be pinched!'],
+  woods: ['Whispering Woods', 'North along this path. Grumble Shroom\'s Hollow is at the very end, under the giant purple mushroom.'],
+  peaks: ['Frostcap Peaks', 'East over the river bridge, toward the crystal twinkling on the summit. Bring a scarf!'],
+  shores: ['Sunny Shores', 'South to the sea and the striped lighthouse. Mind the crabs. They mind you too.'],
+  meadow: ['Bloom Meadow', 'West through the flowers to the windmill. Ponds, sunflowers, and a mole who knows things.'],
+  arena_woods: ['Grumble Shroom\'s Hollow', 'NO VISITORS. This means you. (And you.)'],
+  arena_peaks: ['Frostbun\'s Summit', 'Beware of bun.'],
+  arena_shores: ['Captain Pinch\'s Cove', 'Trespassers will be pinched!'],
   village: ['Sprout Village', 'Home of the Great Tree. Population: cozy.'],
 };

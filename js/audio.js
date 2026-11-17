@@ -1,12 +1,25 @@
-/* Starseed Isle — procedural audio (Web Audio API, zero assets).
+/* Starseed Isle — procedural audio (Web Audio API, zero assets). Classic script → G.audio. Nothing here ever throws.
  *
- *   G.audio.init()            unlock/resume (call on a user gesture; idempotent)
- *   G.audio.sfx(name)         fire-and-forget sound effect
- *   G.audio.music(track)      crossfade (~1 s) to a looping track; same = no-op; null = fade out
- *   G.audio.setMuted(bool) / G.audio.muted
- *   G.audio.setMusicVolume(0..1) / G.audio.setSfxVolume(0..1)
- *
- * Everything is wrapped so that a missing/blocked AudioContext simply makes every call a silent no-op.
+ *   G.audio.init()                      unlock / resume (user gesture; idempotent)
+ *   G.audio.sfx(name, o?)               a sound; o = { x, y, z (world point: pan, distance gain, behind-you low-pass from
+ *                                       the listener), vol, rate (pitch ×), pan (−1..1 without a position), dur, bus,
+ *                                       at (start on the audio clock, ≤ 1 s ahead; default now) }.
+ *                                       Unknown names are silent. A name the event layer claimed this frame or the
+ *                                       next is dropped (so an old direct call never doubles an event-driven sound)
+ *   G.audio.play(name, o?)              the same without the claim filter (the event layer, js/audio-bus.js)
+ *   G.audio.listener(x, y, z, yaw)      the ear (WP5 module, every render frame): Pip's eye + the look yaw
+ *   G.audio.place(x, y, z)              → { pan, gain, lp, dist, front, behind } (the positional maths; tests)
+ *   G.audio.emitter(name, o)            → { set(x, y, z), stop(), alive } a moving / long sound (≤ 6 live)
+ *   G.audio.ambience(id | null, o?)     region bed crossfade (village / woods / peaks / shores / meadow); o.night 0..1
+ *   G.audio.heartbeat(k, o?)            low-health beat (0 = off; 0..1 = how urgent, still soft) on the HUD's wall-clock
+ *                                       beat: o = { period (s, TUNE.hud.beat), lead (fraction of a period) }
+ *   G.audio.duck(k)                     music gain multiplier, eased (dialogue ducking)
+ *   G.audio.claim(names) / defer(names) event layer: claimed names drop direct calls; deferred ones wait for this task
+ *   G.audio.config(o) / setVolumes({ music, sfx, amb })   TUNE.actors.audio / settings multipliers (0..1)
+ *   G.audio.music(track), setMuted, toggleMute, setMusicVolume, setSfxVolume, muted, current, ready, tracks, sfxNames
+ *   G.audio.render(name | [[name, o], …] | null, o, { sec, sr, listener, bed }) → Promise<{ peak, rmsL, rmsR, hf, … }> offline
+ *   G.audio.info()                      → { state, listener, voices, emitters, bed, duck, heart, volumes }
+ * ?noaudio=1: G.audio is a stub (every call a no-op, no AudioContext).
  */
 (function () {
   'use strict';
@@ -14,23 +27,43 @@
   var root = (typeof window !== 'undefined') ? window : (typeof globalThis !== 'undefined' ? globalThis : {});
   root.G = root.G || {};
 
+  var noop = function () {};
+  var DEAD = { set: noop, stop: noop, alive: false };
+  if (/[?&]noaudio=1/.test((root.location && root.location.search) || '')) {
+    root.G.audio = {
+      init: function () { return false; }, sfx: noop, play: noop, music: noop, listener: noop, place: function () { return null; },
+      emitter: function () { return DEAD; }, ambience: noop, heartbeat: noop, duck: noop, claim: noop, defer: noop, config: noop,
+      setVolumes: noop, setMuted: function (m) { return !!m; }, toggleMute: function () { return false; }, setMusicVolume: noop,
+      setSfxVolume: noop, muted: false, current: null, ready: false, tracks: [], sfxNames: [], stub: true,
+      render: function () { return Promise.resolve(null); }, info: function () { return { stub: true }; }
+    };
+    return;
+  }
+
   var MUTE_KEY = 'starseed-isle-muted';
   var FADE = 1.0;            // music crossfade seconds
   var LOOKAHEAD = 0.18;      // seconds scheduled ahead of the audio clock
   var TICK_MS = 25;
 
   /* ------------------------------------------------------------------ state */
-  var ctx = null;
-  var master = null, comp = null, musicBus = null, sfxBus = null;
+  var ctx = null, offline = false;
+  var master = null, comp = null, lim = null, musicBus = null, duckG = null, sfxBus = null, ambBus = null;
   var mRevIn = null, sRevIn = null;
   var noiseBuf = null;
   var timer = null;
   var cur = null;                 // current music instance
   var wanted = null;              // last requested track (so music() before init() works)
   var muted = false;
-  var musicVol = 0.35, sfxVol = 0.7;
+  var musicVol = 0.35, sfxVol = 0.7, AMB_VOL = 0.6;
+  var volK = { music: 1, sfx: 1, amb: 1 }, duckK = 1;
   var visHooked = false, gestureHooked = false;
   var live = {}, lastT = {}, liveAll = [];
+  // positional: the ear (game convention: yaw = atan2(dx, dz), right = (−cos, sin)) and the TUNE.actors.audio numbers
+  var lis = { x: 0, y: 0, z: 0, yaw: 0, set: false };
+  var CFG = { ref: 2.5, max: 45, minGain: 0.03, lpFront: 18000, lpBehind: 1400, panK: 0.9 };
+  var outNode = null, curRate = 1, curRev = 1, EMPTY = {}, curOpts = EMPTY;
+  var emitters = [];
+  var bed = null, bedId = null, night = 0, hbK = 0, hbN = null, hbPer = 0.9, hbLead = 0.15, hbLog = [];
 
   try { muted = root.localStorage && root.localStorage.getItem(MUTE_KEY) === '1'; } catch (e) { muted = false; }
 
@@ -38,13 +71,16 @@
   function rv(a) { return 1 + (rnd() * 2 - 1) * a; }          // random multiplier 1±a
   function mtof(m) { return 440 * Math.pow(2, (m - 69) / 12); }
   function clamp01(x) { x = +x; return x !== x ? 0 : Math.max(0, Math.min(1, x)); }
+  function clamp(x, a, b) { return x < a ? a : x > b ? b : x; }
+  function smooth(a, b, x) { var t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }
+  function fin(v) { return typeof v === 'number' && isFinite(v); }
 
   /* --------------------------------------------------------------- primitives */
   function wire(node, o) {
-    node.connect(o.dest || sfxBus);
+    node.connect(o.dest || outNode || sfxBus);
     if (o.rev && !o.dest) {
       var s = ctx.createGain();
-      s.gain.value = o.rev;
+      s.gain.value = o.rev * curRev;
       node.connect(s);
       s.connect(sRevIn);
     }
@@ -59,19 +95,19 @@
     return d;
   }
 
-  // oscillator voice. o: t,d,f,f1,fd,type,v,a,h,lp,lp1,q,vib[hz,depthHz],detune,dest,rev
+  // oscillator voice. o: t,d,f,f1,fd,type,v,a,h,lp,lp1,q,vib[hz,depthHz],detune,dest,rev (sfx pitch × curRate)
   function T(o) {
-    var t = o.t, v = o.v == null ? 0.3 : o.v, a = o.a == null ? 0.006 : o.a;
+    var t = o.t, v = o.v == null ? 0.3 : o.v, a = o.a == null ? 0.006 : o.a, k = o.dest ? 1 : curRate;
     var osc = ctx.createOscillator(), g = ctx.createGain(), last = osc;
     osc.type = o.type || 'sine';
-    osc.frequency.setValueAtTime(Math.min(o.f, 18000), t);
+    osc.frequency.setValueAtTime(Math.min(o.f * k, 18000), t);
     var d = Math.max(o.d, a + 0.01);
-    if (o.f1 && o.f1 !== o.f) osc.frequency.exponentialRampToValueAtTime(Math.min(18000, Math.max(20, o.f1)), t + (o.fd || d));
+    if (o.f1 && o.f1 !== o.f) osc.frequency.exponentialRampToValueAtTime(Math.min(18000, Math.max(20, o.f1 * k)), t + (o.fd || d));
     if (o.detune) osc.detune.value = o.detune;
     if (o.vib) {
       var lfo = ctx.createOscillator(), lg = ctx.createGain();
       lfo.frequency.value = o.vib[0];
-      lg.gain.value = o.vib[1];
+      lg.gain.value = o.vib[1] * k;
       lfo.connect(lg); lg.connect(osc.frequency);
       lfo.start(t); lfo.stop(t + d + 0.1);
     }
@@ -92,14 +128,14 @@
 
   // filtered noise burst. o: t,d,f,f1,q,type,v,a,dest,rev
   function N(o) {
-    var t = o.t, v = o.v == null ? 0.2 : o.v, a = o.a == null ? 0.004 : o.a;
+    var t = o.t, v = o.v == null ? 0.2 : o.v, a = o.a == null ? 0.004 : o.a, k = o.dest ? 1 : curRate;
     var d = Math.max(o.d, a + 0.01);
     var src = ctx.createBufferSource(), fl = ctx.createBiquadFilter(), g = ctx.createGain();
     src.buffer = noiseBuf; src.loop = true;
     fl.type = o.type || 'bandpass';
     fl.Q.value = o.q || 0.8;
-    fl.frequency.setValueAtTime(o.f || 1000, t);
-    if (o.f1) fl.frequency.exponentialRampToValueAtTime(o.f1, t + d);
+    fl.frequency.setValueAtTime(Math.min(18000, (o.f || 1000) * k), t);
+    if (o.f1) fl.frequency.exponentialRampToValueAtTime(Math.min(18000, o.f1 * k), t + d);
     envelope(g.gain, t, v, a, null, d);
     src.connect(fl); fl.connect(g);
     wire(g, o);
@@ -117,11 +153,11 @@
   }
 
   /* ------------------------------------------------------------------- graph */
-  function makeIR(sec) {
-    var sr = ctx.sampleRate, len = Math.floor(sr * sec);
-    var buf = ctx.createBuffer(2, len, sr);
-    for (var c = 0; c < 2; c++) {
-      var d = buf.getChannelData(c), lp = 0;
+  function makeIR(c, sec) {
+    var sr = c.sampleRate, len = Math.floor(sr * sec);
+    var buf = c.createBuffer(2, len, sr);
+    for (var ch = 0; ch < 2; ch++) {
+      var d = buf.getChannelData(ch), lp = 0;
       for (var i = 0; i < len; i++) {
         var p = i / len;
         var k = 0.62 - 0.5 * p;                       // tail gets darker
@@ -133,40 +169,82 @@
     return buf;
   }
 
+  /** the whole bus graph on context c: music → duck → comp, sfx → comp, ambience → comp, comp → master → limiter */
+  function makeGraph(c, live) {
+    var g = {};
+    g.master = c.createGain(); g.master.gain.value = live && muted ? 0 : 1;
+    g.comp = c.createDynamicsCompressor();
+    g.comp.threshold.value = -14; g.comp.knee.value = 18; g.comp.ratio.value = 5;
+    g.comp.attack.value = 0.004; g.comp.release.value = 0.22;
+    g.lim = c.createDynamicsCompressor();           // a brick-wall-ish limiter: stacked sounds never clip
+    g.lim.threshold.value = -3; g.lim.knee.value = 0; g.lim.ratio.value = 20;
+    g.lim.attack.value = 0.002; g.lim.release.value = 0.12;
+    g.musicBus = c.createGain(); g.musicBus.gain.value = musicVol * volK.music;
+    g.duckG = c.createGain(); g.duckG.gain.value = duckK;
+    g.sfxBus = c.createGain(); g.sfxBus.gain.value = sfxVol * volK.sfx;
+    g.ambBus = c.createGain(); g.ambBus.gain.value = AMB_VOL * volK.amb;
+    g.musicBus.connect(g.duckG); g.duckG.connect(g.comp); g.sfxBus.connect(g.comp); g.ambBus.connect(g.comp);
+    g.comp.connect(g.master); g.master.connect(g.lim); g.lim.connect(c.destination);
+    var sr = c.sampleRate;
+    g.noiseBuf = c.createBuffer(1, sr * 2, sr);
+    var nd = g.noiseBuf.getChannelData(0);
+    for (var i = 0; i < nd.length; i++) nd[i] = rnd() * 2 - 1;
+    // two reverbs sharing one generated impulse (music return / sfx return)
+    var ir = makeIR(c, 2.2);
+    g.mRevIn = c.createBiquadFilter(); g.mRevIn.type = 'highpass'; g.mRevIn.frequency.value = 260;
+    var mConv = c.createConvolver(); mConv.buffer = ir;
+    var mRet = c.createGain(); mRet.gain.value = 0.7;
+    g.mRevIn.connect(mConv); mConv.connect(mRet); mRet.connect(g.musicBus);
+    g.sRevIn = c.createBiquadFilter(); g.sRevIn.type = 'highpass'; g.sRevIn.frequency.value = 300;
+    var sConv = c.createConvolver(); sConv.buffer = ir;
+    var sRet = c.createGain(); sRet.gain.value = 0.55;
+    g.sRevIn.connect(sConv); sConv.connect(sRet); sRet.connect(g.sfxBus);
+    return g;
+  }
+  function useGraph(c, g) {
+    ctx = c; master = g.master; comp = g.comp; lim = g.lim; musicBus = g.musicBus; duckG = g.duckG; sfxBus = g.sfxBus;
+    ambBus = g.ambBus; mRevIn = g.mRevIn; sRevIn = g.sRevIn; noiseBuf = g.noiseBuf;
+  }
+  function graphNow() {
+    return { ctx: ctx, g: { master: master, comp: comp, lim: lim, musicBus: musicBus, duckG: duckG, sfxBus: sfxBus, ambBus: ambBus, mRevIn: mRevIn, sRevIn: sRevIn, noiseBuf: noiseBuf } };
+  }
+
   function build() {
     var AC = root.AudioContext || root.webkitAudioContext;
     if (!AC) return false;
-    try { ctx = new AC({ latencyHint: 'interactive' }); } catch (e) { ctx = new AC(); }
-
-    master = ctx.createGain();
-    master.gain.value = muted ? 0 : 1;
-    comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -14; comp.knee.value = 18; comp.ratio.value = 5;
-    comp.attack.value = 0.004; comp.release.value = 0.22;
-    musicBus = ctx.createGain(); musicBus.gain.value = musicVol;
-    sfxBus = ctx.createGain(); sfxBus.gain.value = sfxVol;
-    musicBus.connect(comp); sfxBus.connect(comp);
-    comp.connect(master); master.connect(ctx.destination);
-
-    // noise buffer
-    var sr = ctx.sampleRate;
-    noiseBuf = ctx.createBuffer(1, sr * 2, sr);
-    var nd = noiseBuf.getChannelData(0);
-    for (var i = 0; i < nd.length; i++) nd[i] = rnd() * 2 - 1;
-
-    // two reverbs sharing one generated impulse (music return / sfx return)
-    var ir = makeIR(2.2);
-    mRevIn = ctx.createBiquadFilter(); mRevIn.type = 'highpass'; mRevIn.frequency.value = 260;
-    var mConv = ctx.createConvolver(); mConv.buffer = ir;
-    var mRet = ctx.createGain(); mRet.gain.value = 0.7;
-    mRevIn.connect(mConv); mConv.connect(mRet); mRet.connect(musicBus);
-
-    sRevIn = ctx.createBiquadFilter(); sRevIn.type = 'highpass'; sRevIn.frequency.value = 300;
-    var sConv = ctx.createConvolver(); sConv.buffer = ir;
-    var sRet = ctx.createGain(); sRet.gain.value = 0.55;
-    sRevIn.connect(sConv); sConv.connect(sRet); sRet.connect(sfxBus);
+    var c;
+    try { c = new AC({ latencyHint: 'interactive' }); } catch (e) { c = new AC(); }
+    useGraph(c, makeGraph(c, true));
     return true;
   }
+
+  /* -------------------------------------------------------------- positional */
+  /** where a world point sits for the ear: pan (−1 left … +1 right of the view), distance gain (inverse from ref,
+   *  smoothly 0 at max), a low-pass that closes as the source goes behind (and a little with distance) */
+  function place(x, y, z) {
+    var dx = x - lis.x, dy = (fin(y) ? y : lis.y) - lis.y, dz = z - lis.z;
+    var dh = Math.sqrt(dx * dx + dz * dz), dist = Math.sqrt(dh * dh + dy * dy);
+    var fx = Math.sin(lis.yaw), fz = Math.cos(lis.yaw), rx = -Math.cos(lis.yaw), rz = Math.sin(lis.yaw);
+    var side = dx * rx + dz * rz, front = dx * fx + dz * fz;
+    var pan = dh > 0.05 ? clamp(side / Math.max(dh, 1), -1, 1) * CFG.panK : 0;
+    var gain = (CFG.ref / Math.max(CFG.ref, dist)) * (1 - smooth(CFG.max * 0.7, CFG.max, dist));
+    var behind = dh > 0.3 ? clamp(-front / dh, 0, 1) : 0;
+    var lp = CFG.lpFront * Math.pow(CFG.lpBehind / CFG.lpFront, behind) * clamp(1 - dist / 120, 0.45, 1);
+    gain *= 1 - 0.15 * behind;
+    return { pan: pan, gain: gain, lp: lp, dist: dist, front: dh > 0.05 ? front / dh : 1, behind: behind };
+  }
+  function chain(c, P, bus) {
+    var inG = c.createGain(), lp = c.createBiquadFilter(), out = c.createGain();
+    var pn = c.createStereoPanner ? c.createStereoPanner() : null;
+    lp.type = 'lowpass'; lp.Q.value = 0.5; lp.frequency.value = clamp(P.lp, 60, 20000);
+    out.gain.value = P.gain;
+    inG.connect(lp);
+    if (pn) { pn.pan.value = clamp(P.pan, -1, 1); lp.connect(pn); pn.connect(out); } else lp.connect(out);
+    out.connect(bus || sfxBus);
+    return { input: inG, lp: lp, pan: pn, out: out };
+  }
+  function unchain(ch) { if (!ch) return; for (var k in ch) { try { if (ch[k] && ch[k].disconnect) ch[k].disconnect(); } catch (e) { /* ignore */ } } }
+
 
   /* ---------------------------------------------------------------- SFX bank */
   var SFX = {
@@ -397,36 +475,351 @@
     }
   };
 
+  /* ------------------------------------------------- SFX bank: WP5 additions */
+  // All soft and round (triangle / sine bodies, filtered noise, no harsh square leads); cues for danger are short and
+  // readable rather than scary. o = the call's options (o.dur stretches the timed ones).
+  function chirp(t, f0, f1, d, v, type) { T({ t: t, f: f0, f1: f1, d: d, v: v, type: type || 'sine', a: 0.004 }); }
+  var MORE = {
+    // ---- footsteps per surface (EV.STEP; every step, quiet, panned ±0.15 by foot)
+    step_grass: function (t) { var p = rv(0.15); N({ t: t, d: 0.06, v: 0.225, a: 0.004, type: 'bandpass', f: 2400 * p, f1: 1400 * p, q: 0.7 }); T({ t: t, f: 90 * p, f1: 60, d: 0.05, v: 0.105 }); return 0.08; },
+    step_dirt: function (t) { var p = rv(0.15); N({ t: t, d: 0.05, v: 0.24, a: 0.003, type: 'lowpass', f: 950 * p, f1: 420 }); T({ t: t, f: 85 * p, f1: 55, d: 0.06, v: 0.15 }); return 0.08; },
+    step_sand: function (t) { var p = rv(0.15); N({ t: t, d: 0.07, v: 0.21, a: 0.006, type: 'bandpass', f: 3600 * p, q: 1.4 }); N({ t: t + 0.022, d: 0.05, v: 0.135, type: 'bandpass', f: 2700 * p, q: 1.6 }); return 0.1; },
+    step_snow: function (t) { var p = rv(0.12); for (var i = 0; i < 3; i++) N({ t: t + i * 0.018, d: 0.03, v: 0.18, a: 0.002, type: 'bandpass', f: (1500 + i * 500) * p, q: 2.5 }); T({ t: t, f: 120 * p, f1: 70, d: 0.05, v: 0.09 }); return 0.1; },
+    step_wood: function (t) { var p = rv(0.1); T({ t: t, f: 200 * p, f1: 150 * p, d: 0.07, v: 0.3, type: 'triangle' }); N({ t: t, d: 0.03, v: 0.135, type: 'bandpass', f: 750 * p, q: 1.2 }); return 0.09; },
+    step_stone: function (t) { var p = rv(0.1); T({ t: t, f: 950 * p, f1: 700 * p, d: 0.025, v: 0.135, type: 'triangle' }); N({ t: t, d: 0.03, v: 0.18, type: 'highpass', f: 2500 }); T({ t: t, f: 80, f1: 60, d: 0.04, v: 0.105 }); return 0.06; },
+    step_wade: function (t) { var p = rv(0.15); N({ t: t, d: 0.16, v: 0.33, a: 0.01, type: 'bandpass', f: 1300 * p, f1: 600 * p, q: 0.9 }); T({ t: t + 0.03, f: 380 * p, f1: 700 * p, d: 0.06, v: 0.135 }); return 0.2; },
+    // ---- jump / land (C2)
+    jump: function (t) { var p = rv(0.06); T({ t: t, f: 330 * p, f1: 560 * p, d: 0.09, v: 0.11, type: 'triangle', a: 0.01 }); N({ t: t, d: 0.12, v: 0.06, a: 0.02, type: 'bandpass', f: 900, f1: 2200, q: 0.8 }); return 0.14; },
+    land: function (t) { var p = rv(0.08); T({ t: t, f: 120 * p, f1: 60, d: 0.1, v: 0.24 }); N({ t: t, d: 0.09, v: 0.1, type: 'lowpass', f: 900, f1: 300 }); return 0.14; },
+    landHeavy: function (t) { T({ t: t, f: 100, f1: 45, d: 0.2, v: 0.34 }); N({ t: t, d: 0.18, v: 0.2, type: 'lowpass', f: 700, f1: 160 }); T({ t: t + 0.02, f: 300, f1: 200, d: 0.06, v: 0.05, type: 'triangle' }); return 0.24; },
+    // ---- sword: three whooshes (A forehand sweeps up, B backhand sweeps down, C overhead: wind-up hiss, then the chop)
+    swingA: function (t) { var p = rv(0.06); N({ t: t, d: 0.17, v: 0.26, a: 0.025, type: 'bandpass', f: 520 * p, f1: 2800 * p, q: 1.1 }); T({ t: t, f: 260 * p, f1: 640 * p, d: 0.13, v: 0.06, type: 'triangle', a: 0.02 }); return 0.2; },
+    swingB: function (t) { var p = rv(0.06); N({ t: t, d: 0.17, v: 0.19, a: 0.02, type: 'bandpass', f: 2600 * p, f1: 700 * p, q: 1.1 }); T({ t: t, f: 600 * p, f1: 300 * p, d: 0.13, v: 0.055, type: 'triangle', a: 0.02 }); return 0.2; },
+    swingC: function (t) { var p = rv(0.05); N({ t: t, d: 0.11, v: 0.1, a: 0.05, type: 'bandpass', f: 400 * p, f1: 1200 * p, q: 1.0 }); N({ t: t + 0.09, d: 0.16, v: 0.13, a: 0.01, type: 'bandpass', f: 2400 * p, f1: 500 * p, q: 1.0 }); T({ t: t + 0.09, f: 380 * p, f1: 150 * p, d: 0.16, v: 0.05, type: 'triangle' }); return 0.27; },
+    swingSparkle: function (t) { for (var i = 0; i < 3; i++) T({ t: t + 0.03 + i * 0.035, f: [2637, 3136, 3951][i], d: 0.12, v: 0.035, a: 0.002 }); return 0.2; },
+    clink: function (t) { var p = rv(0.04); T({ t: t, f: 2093 * p, d: 0.3, v: 0.13, a: 0.002, rev: 0.15 }); T({ t: t, f: 3140 * p, d: 0.18, v: 0.07, a: 0.002 }); T({ t: t, f: 5770 * p, d: 0.08, v: 0.03, a: 0.001 }); N({ t: t, d: 0.02, v: 0.12, type: 'highpass', f: 5000 }); return 0.32; },
+    squish: function (t) { var p = rv(0.1); T({ t: t, f: 320 * p, f1: 160 * p, d: 0.1, v: 0.12, vib: [30, 30] }); return 0.12; },
+    pop: function (t) { var p = rv(0.1); T({ t: t, f: 600 * p, f1: 1300 * p, d: 0.07, v: 0.3, a: 0.003 }); N({ t: t, d: 0.05, v: 0.16, type: 'bandpass', f: 2200, q: 1 }); return 0.1; },
+    tink: function (t) { var p = rv(0.08); T({ t: t, f: 2600 * p, d: 0.05, v: 0.06, type: 'triangle', a: 0.001 }); return 0.07; },
+    // ---- enemies: the notice chirp, the off-view announce, one wind-up cue each, the attack releases
+    alert: function (t) { var p = rv(0.05); chirp(t, 880 * p, 1240 * p, 0.07, 0.13, 'triangle'); chirp(t + 0.08, 1180 * p, 1760 * p, 0.09, 0.13, 'triangle'); return 0.2; },
+    announce: function (t) { var p = rv(0.03); chirp(t, 1320 * p, 1250 * p, 0.09, 0.12, 'triangle'); chirp(t + 0.12, 990 * p, 930 * p, 0.13, 0.12, 'triangle'); return 0.28; },
+    windup_slime: function (t, o) { var d = o.dur || 0.4; T({ t: t, f: 260, f1: 120, fd: d, d: d + 0.04, v: 0.14, type: 'triangle', vib: [16, 24] }); return d + 0.06; },
+    boing: function (t) { var p = rv(0.08); T({ t: t, f: 170 * p, f1: 430 * p, d: 0.18, v: 0.14, vib: [22, 18] }); return 0.2; },
+    windup_mushroom: function (t, o) { var d = o.dur || 0.55; N({ t: t, d: d, v: 0.12, a: d * 0.75, type: 'bandpass', f: 650, f1: 2200, q: 1.2 }); T({ t: t, f: 300, f1: 430, d: d, v: 0.045, a: d * 0.6, type: 'triangle' }); return d + 0.05; },
+    windup_bat: function (t) { var p = rv(0.06); chirp(t, 2300 * p, 2950 * p, 0.05, 0.08); chirp(t + 0.11, 2450 * p, 3100 * p, 0.05, 0.08); N({ t: t, d: 0.3, v: 0.05, a: 0.02, type: 'bandpass', f: 600, q: 0.8 }); return 0.32; },
+    swoop: function (t) { N({ t: t, d: 0.35, v: 0.12, a: 0.04, type: 'bandpass', f: 1900, f1: 550, q: 1.1 }); return 0.38; },
+    windup_bee: function (t, o) { var d = o.dur || 0.7; T({ t: t, f: 175, f1: 330, d: d, v: 0.07, a: 0.06, type: 'sawtooth', lp: 1100, vib: [28, 14] }); return d + 0.05; },
+    zip: function (t) { T({ t: t, f: 330, f1: 520, d: 0.3, v: 0.07, type: 'sawtooth', lp: 1600, vib: [34, 16] }); N({ t: t, d: 0.25, v: 0.05, type: 'bandpass', f: 1400, f1: 2400 }); return 0.32; },
+    windup_crab: function (t) { for (var i = 0; i < 4; i++) { var tt = t + i * 0.14; N({ t: tt, d: 0.02, v: 0.14, a: 0.001, type: 'bandpass', f: 2600, q: 2 }); T({ t: tt, f: 1300, d: 0.025, v: 0.06, type: 'triangle', a: 0.001 }); } return 0.5; },
+    scuttle: function (t) { for (var i = 0; i < 6; i++) N({ t: t + i * 0.06, d: 0.02, v: 0.06, a: 0.001, type: 'bandpass', f: 3000 * rv(0.1), q: 2 }); return 0.4; },
+    windup_snowpuff: function (t, o) { var d = o.dur || 0.6; N({ t: t, d: d, v: 0.1, a: d * 0.7, type: 'lowpass', f: 400, f1: 2600, q: 0.7 }); for (var i = 0; i < 3; i++) T({ t: t + d * (0.35 + i * 0.2), f: [2093, 2637, 3136][i], d: 0.2, v: 0.03, a: 0.003 }); return d + 0.1; },
+    throw: function (t) { N({ t: t, d: 0.12, v: 0.12, a: 0.01, type: 'bandpass', f: 900, f1: 2400, q: 1 }); T({ t: t, f: 300, f1: 620, d: 0.1, v: 0.05, type: 'triangle' }); return 0.14; },
+    whistle: function (t, o) { var d = Math.max(0.3, o.dur || 0.9); T({ t: t, f: 1700, f1: 760, d: d, v: 0.06, a: 0.05, vib: [6, 10] }); return d + 0.05; },
+    emerge_ground: function (t) { T({ t: t, f: 180, f1: 460, d: 0.35, v: 0.09, vib: [18, 30] }); for (var i = 0; i < 3; i++) T({ t: t + 0.1 + i * 0.12, f: 500 + i * 160, f1: 900 + i * 160, d: 0.05, v: 0.04 }); return 0.5; },
+    emerge_sky: function (t) { N({ t: t, d: 0.5, v: 0.07, a: 0.05, type: 'bandpass', f: 2200, f1: 700, q: 1 }); T({ t: t + 0.3, f: 1200, f1: 900, d: 0.15, v: 0.04, type: 'triangle' }); return 0.55; },
+    emerge_bush: function (t) { N({ t: t, d: 0.12, v: 0.1, a: 0.01, type: 'bandpass', f: 3200, f1: 5000, q: 0.8 }); N({ t: t + 0.08, d: 0.14, v: 0.08, a: 0.01, type: 'bandpass', f: 2800, f1: 4400, q: 0.8 }); return 0.25; },
+    emerge_water: function (t) { N({ t: t, d: 0.3, v: 0.14, a: 0.02, type: 'bandpass', f: 1400, f1: 500, q: 0.8 }); T({ t: t + 0.08, f: 350, f1: 800, d: 0.1, v: 0.06 }); return 0.35; },
+    // ---- bosses: wind-up cues by attack kind (cute grumbles, never roars), releases, impacts
+    windSlam: function (t, o) { var d = o.dur || 0.55; T({ t: t, f: 150, f1: 96, fd: d, d: d + 0.05, v: 0.2, type: 'triangle', vib: [9, 7] }); N({ t: t, d: d, v: 0.06, a: d * 0.5, type: 'lowpass', f: 320 }); return d + 0.1; },
+    windShot: function (t, o) { var d = o.dur || 0.6; N({ t: t, d: d, v: 0.14, a: d * 0.7, type: 'bandpass', f: 500, f1: 1700, q: 1.1 }); T({ t: t, f: 220, f1: 330, d: d, v: 0.05, a: d * 0.5, type: 'triangle' }); return d + 0.05; },
+    windCharge: function (t, o) { var d = o.dur || 0.8; for (var i = 0; i < 3; i++) N({ t: t + i * d * 0.3, d: d * 0.22, v: 0.11, a: 0.03, type: 'bandpass', f: 1500 * rv(0.1), q: 1.5 }); T({ t: t, f: 120, f1: 105, d: d, v: 0.1, type: 'triangle', vib: [11, 5] }); return d + 0.05; },
+    chargeLock: function (t) { T({ t: t, f: 1400, f1: 1100, d: 0.04, v: 0.12, type: 'triangle', a: 0.001 }); N({ t: t, d: 0.02, v: 0.1, type: 'highpass', f: 3500 }); return 0.06; },
+    windLunge: function (t) { for (var i = 0; i < 4; i++) { var tt = t + [0, 0.13, 0.34, 0.47][i]; N({ t: tt, d: 0.03, v: 0.17, a: 0.001, type: 'bandpass', f: 1800, q: 2 }); T({ t: tt, f: 900, d: 0.04, v: 0.08, type: 'triangle', a: 0.001 }); } return 0.55; },
+    snap: function (t) { T({ t: t, f: 700, f1: 300, d: 0.08, v: 0.13, type: 'sawtooth', lp: 1600 }); N({ t: t, d: 0.04, v: 0.12, type: 'highpass', f: 3000 }); return 0.1; },
+    windLeap: function (t, o) { var d = o.dur || 0.45; T({ t: t, f: 200, f1: 150, d: d, v: 0.12, type: 'triangle' }); N({ t: t, d: d, v: 0.08, a: d * 0.6, type: 'bandpass', f: 600, f1: 1500 }); return d + 0.05; },
+    hup: function (t) { T({ t: t, f: 260, f1: 540, d: 0.14, v: 0.16, type: 'triangle' }); return 0.16; },
+    leapWhistle: function (t, o) { var d = Math.max(0.5, o.dur || 1.15), h = d * 0.45; T({ t: t, f: 640, f1: 1500, d: h, h: h * 0.8, v: 0.09, a: 0.08, vib: [5, 12] }); T({ t: t + h, f: 1500, f1: 520, d: d - h, v: 0.1, a: 0.02, vib: [5, 12] }); return d + 0.05; },
+    windSummon: function (t) { for (var i = 0; i < 4; i++) bell(t + i * 0.12, [784, 988, 1175, 1568][i], 0.5, 0.45, null, 0.2); return 0.9; },
+    summon: function (t) { N({ t: t, d: 0.3, v: 0.1, type: 'lowpass', f: 1800, f1: 300 }); T({ t: t, f: 520, f1: 1040, d: 0.2, v: 0.06 }); return 0.35; },
+    windRing: function (t) { T({ t: t, f: 300, f1: 210, d: 0.16, v: 0.13, type: 'triangle' }); return 0.18; },
+    rumble: function (t, o) { var d = Math.max(0.5, o.dur || 2.2); N({ t: t, d: d, v: 0.22, a: 0.05, type: 'lowpass', f: 220, f1: 120, q: 0.7 }); T({ t: t, f: 58, f1: 46, d: d, v: 0.14, vib: [7, 4] }); return d + 0.05; },
+    slide: function (t) { N({ t: t, d: 0.5, v: 0.12, a: 0.03, type: 'bandpass', f: 3200, f1: 1400, q: 0.9 }); return 0.55; },
+    bonk: function (t) { T({ t: t, f: 170, f1: 85, d: 0.2, v: 0.3 }); T({ t: t, f: 560, f1: 920, d: 0.09, v: 0.07, vib: [25, 30] }); return 0.25; },
+    bossPop: function (t) { var p = rv(0.1); T({ t: t, f: 520 * p, f1: 150, d: 0.26, v: 0.18 }); N({ t: t, d: 0.2, v: 0.16, type: 'lowpass', f: 1600, f1: 280 }); return 0.3; },
+    bossIntro: function (t) { T({ t: t, f: 98, f1: 60, d: 0.3, v: 0.32 }); T({ t: t + 0.05, f: 196, d: 0.4, h: 0.3, v: 0.08, type: 'triangle', lp: 900 }); T({ t: t + 0.5, f: 262, d: 0.7, h: 0.5, v: 0.09, type: 'triangle', lp: 1200, rev: 0.3 }); T({ t: t + 0.5, f: 392, d: 0.7, h: 0.5, v: 0.05, type: 'triangle', rev: 0.3 }); return 1.3; },
+    // ---- player / pickups / UI names other packages may call (C8)
+    pickupGem: function (t, o) { var p = rv(0.03); T({ t: t, f: 1318.5 * p, d: 0.09, v: 0.2, type: 'triangle', a: 0.002 }); T({ t: t + 0.06, f: 1975.5 * p, d: 0.26, v: 0.2, type: 'triangle', a: 0.002, rev: 0.12 }); if ((o.value || 1) > 1) T({ t: t + 0.12, f: 2637 * p, d: 0.3, v: 0.12, type: 'triangle', a: 0.002, rev: 0.15 }); return 0.4; },
+    lockOn: function (t) { chirp(t, 1320, 1760, 0.07, 0.1, 'triangle'); T({ t: t + 0.06, f: 2637, d: 0.06, v: 0.04 }); return 0.14; },
+    lockOff: function (t) { chirp(t, 1760, 1320, 0.08, 0.08, 'triangle'); return 0.1; },
+    viewSwitch: function (t) { N({ t: t, d: 0.12, v: 0.06, a: 0.02, type: 'bandpass', f: 1200, f1: 2600, q: 0.9 }); T({ t: t + 0.08, f: 1800, d: 0.025, v: 0.04, type: 'triangle', a: 0.001 }); return 0.14; },
+    uiMove: function (t) { T({ t: t, f: 1500, d: 0.03, v: 0.06, type: 'triangle', a: 0.002 }); return 0.04; },
+    uiTick: function (t) { T({ t: t, f: 2200, d: 0.015, v: 0.05, type: 'triangle', a: 0.001 }); return 0.03; },
+    uiOpen: function (t) { N({ t: t, d: 0.1, v: 0.05, a: 0.02, type: 'bandpass', f: 2600, q: 0.7 }); T({ t: t, f: 660, d: 0.1, v: 0.12, type: 'triangle' }); T({ t: t + 0.07, f: 990, d: 0.16, v: 0.12, type: 'triangle', rev: 0.1 }); return 0.25; },
+    uiClose: function (t) { T({ t: t, f: 990, d: 0.08, v: 0.1, type: 'triangle' }); T({ t: t + 0.06, f: 660, d: 0.14, v: 0.1, type: 'triangle' }); return 0.22; },
+    uiTab: function (t) { T({ t: t, f: 1100, d: 0.03, v: 0.08, type: 'triangle', a: 0.001 }); N({ t: t, d: 0.02, v: 0.04, type: 'bandpass', f: 2000, q: 1 }); return 0.05; },
+    uiSlider: function (t) { T({ t: t, f: 1800, d: 0.02, v: 0.05, type: 'triangle', a: 0.001 }); return 0.03; },
+    coach: function (t) { bell(t, 1568, 0.7, 0.6, null, 0.2); return 0.75; },
+    waypoint: function (t) { bell(t, 2093, 0.5, 0.5, null, 0.2); bell(t + 0.08, 2637, 0.6, 0.45, null, 0.2); return 0.7; },
+    shoulder: function (t) { N({ t: t, d: 0.1, v: 0.05, a: 0.02, type: 'bandpass', f: 1500, f1: 2200, q: 0.8 }); return 0.12; },
+    eyelid: function (t) { N({ t: t, d: 0.4, v: 0.05, a: 0.15, type: 'lowpass', f: 800, f1: 2000 }); T({ t: t, f: 520, d: 0.5, v: 0.05, a: 0.2, type: 'triangle', rev: 0.3 }); return 0.55; },
+    whoosh: function (t) { N({ t: t, d: 0.25, v: 0.12, a: 0.04, type: 'bandpass', f: 600, f1: 2400, q: 1 }); return 0.28; },
+    sparkle: function (t) { for (var i = 0; i < 4; i++) T({ t: t + i * 0.05, f: [2093, 2637, 3136, 4186][i], d: 0.25, v: 0.05, a: 0.002, rev: 0.25 }); return 0.5; },
+    creak: function (t) { T({ t: t, f: 180, f1: 245, d: 0.45, v: 0.07, type: 'sawtooth', lp: 700, vib: [11, 9] }); return 0.5; },
+    splashBig: function (t) { N({ t: t, d: 0.6, v: 0.36, a: 0.02, type: 'bandpass', f: 1200, f1: 380, q: 0.6, rev: 0.2 }); T({ t: t + 0.06, f: 300, f1: 760, d: 0.12, v: 0.12 }); T({ t: t + 0.16, f: 420, f1: 980, d: 0.1, v: 0.1 }); return 0.65; },
+    leaves: function (t) { var p = rv(0.1); N({ t: t, d: 0.14, v: 0.1, a: 0.02, type: 'bandpass', f: 3200 * p, f1: 4800 * p, q: 0.7 }); N({ t: t + 0.07, d: 0.14, v: 0.08, a: 0.02, type: 'bandpass', f: 2800 * p, f1: 4200 * p, q: 0.7 }); return 0.25; },
+    bell: function (t) { bell(t, 1046.5, 1.2, 0.8, null, 0.3); return 1.2; },
+    hello: function (t) { var p = rv(0.12); chirp(t, 700 * p, 980 * p, 0.08, 0.07, 'triangle'); chirp(t + 0.1, 880 * p, 1180 * p, 0.1, 0.07, 'triangle'); return 0.22; },
+    // ---- low health (soft "bum-bum", gentle and low, never a siren)
+    heartbeat: function (t) { T({ t: t, f: 64, f1: 48, d: 0.12, v: 0.11 }); T({ t: t + 0.2, f: 56, f1: 42, d: 0.14, v: 0.08 }); N({ t: t, d: 0.06, v: 0.03, type: 'lowpass', f: 300 }); return 0.36; },
+    // ---- ambience one-shots (the beds schedule them; o.vol / o.pan from the bed)
+    ambBird: function (t) { var p = rv(0.12), n = 2 + ((rnd() * 3) | 0); for (var i = 0; i < n; i++) chirp(t + i * 0.09, 2700 * p, 3500 * p * rv(0.05), 0.06, 0.05); return 0.4; },
+    ambCricket: function (t) { T({ t: t, f: 4200 * rv(0.04), d: 0.28, h: 0.24, v: 0.025, a: 0.01, vib: [32, 400] }); return 0.3; },
+    ambGull: function (t) { var p = rv(0.08); T({ t: t, f: 900 * p, f1: 1350 * p, fd: 0.12, d: 0.36, v: 0.04, type: 'sawtooth', lp: 1900 }); T({ t: t + 0.42, f: 1000 * p, f1: 1250 * p, fd: 0.1, d: 0.28, v: 0.03, type: 'sawtooth', lp: 1800 }); return 0.75; },
+    ambOwl: function (t) { T({ t: t, f: 430, f1: 380, d: 0.32, v: 0.06, a: 0.04 }); T({ t: t + 0.45, f: 410, f1: 360, d: 0.42, v: 0.055, a: 0.04 }); return 0.9; },
+    ambChime: function (t) { var n = [1568, 1760, 2093, 2349, 2637]; for (var i = 0; i < 3; i++) bell(t + i * 0.18 * rv(0.3), n[(rnd() * n.length) | 0], 1.0, 0.25, null, 0.3); return 1.2; },
+    ambTinkle: function (t) { for (var i = 0; i < 3; i++) T({ t: t + i * 0.07, f: 3500 + rnd() * 2000, d: 0.18, v: 0.02, a: 0.002, rev: 0.3 }); return 0.4; }
+  };
+  for (var mk in MORE) SFX[mk] = MORE[mk];
+  // aliases other packages may use (WP-BRIEFS / C1 / C8 names)
+  var ALIAS = { lock: 'lockOn', unlock: 'lockOff', uiHover: 'uiMove', uiSelect: 'select', uiBack: 'cancel', itemGet: 'fanfare', landSoft: 'land' };
+  for (var ak in ALIAS) if (!SFX[ak]) SFX[ak] = SFX[ALIAS[ak]];
+
   // [max simultaneous voices, min gap seconds]
   var LIM = {
     coin: [3, 0.04], step: [2, 0.09], talk: [2, 0.035], hit: [4, 0.03], swing: [3, 0.06],
     menu: [2, 0.04], bubble: [4, 0.05], shoot: [4, 0.05], bush: [3, 0.05], pot: [3, 0.06],
     snow: [3, 0.05], enemyDie: [4, 0.05], heart: [2, 0.1], splash: [2, 0.1], error: [2, 0.12],
-    select: [2, 0.05], cancel: [2, 0.05], dash: [2, 0.08], stomp: [2, 0.1], hurt: [2, 0.1]
+    select: [2, 0.05], cancel: [2, 0.05], dash: [2, 0.08], stomp: [2, 0.1], hurt: [2, 0.1],
+    step_grass: [2, 0.07], step_dirt: [2, 0.07], step_sand: [2, 0.07], step_snow: [2, 0.07], step_wood: [2, 0.07], step_stone: [2, 0.07], step_wade: [2, 0.07],
+    swingA: [2, 0.05], swingB: [2, 0.05], swingC: [2, 0.05], clink: [2, 0.05], squish: [3, 0.04], pop: [4, 0.03], tink: [3, 0.05],
+    alert: [3, 0.08], announce: [2, 0.12], heartbeat: [1, 0.3], uiMove: [2, 0.03], uiTick: [2, 0.02], uiSlider: [2, 0.03],
+    ambBird: [3, 0.2], ambCricket: [4, 0.05], ambGull: [2, 0.5], ambOwl: [1, 1], ambChime: [1, 2], ambTinkle: [2, 0.4], rumble: [3, 0.1], whistle: [3, 0.05]
   };
   var DEF_LIM = [6, 0.02];
-  var LOW_PRI = { step: 1, talk: 1, swing: 1, menu: 1, bubble: 1, snow: 1, bush: 1 };
+  var LOW_PRI = { step: 1, talk: 1, swing: 1, menu: 1, bubble: 1, snow: 1, bush: 1, tink: 1, ambBird: 1, ambCricket: 1, ambGull: 1, ambTinkle: 1, ambChime: 1, ambOwl: 1,
+    step_grass: 1, step_dirt: 1, step_sand: 1, step_snow: 1, step_wood: 1, step_stone: 1, step_wade: 1 };
 
-  function sfx(name) {
+  /** one sound now. o.x/z → positional chain (cut below CFG.minGain); o.vol / o.pan / o.rate / o.dur / o.bus */
+  function play(name, o) {
     try {
-      if (!ctx || muted) return;
+      if (!ctx || (muted && !offline)) return false;
       var def = SFX[name];
-      if (typeof def !== 'function') return;
-      if (ctx.state !== 'running') { tryResume(); return; }
-      var now = ctx.currentTime, lim = LIM[name] || DEF_LIM, i;
+      if (typeof def !== 'function') return false;
+      if (!offline && ctx.state !== 'running') { tryResume(); return false; }
+      var now = ctx.currentTime, lm = LIM[name] || DEF_LIM, i;
       var arr = live[name] || (live[name] = []);
       for (i = arr.length - 1; i >= 0; i--) if (arr[i] <= now) arr.splice(i, 1);
       for (i = liveAll.length - 1; i >= 0; i--) if (liveAll[i] <= now) liveAll.splice(i, 1);
-      if (arr.length >= lim[0]) return;
-      if (now - (lastT[name] || -1) < lim[1]) return;
-      if (liveAll.length >= 24 && LOW_PRI[name]) return;
-      if (liveAll.length >= 40) return;
+      if (arr.length >= lm[0]) return false;
+      if (now - (lastT[name] == null ? -9 : lastT[name]) < lm[1]) return false;
+      if (liveAll.length >= 24 && LOW_PRI[name]) return false;
+      if (liveAll.length >= 40) return false;
+      o = o && typeof o === 'object' ? o : null;
+      var P = null, vol = o && fin(o.vol) ? Math.max(0, o.vol) : 1;
+      if (o && fin(o.x) && fin(o.z)) { P = place(o.x, o.y, o.z); if (P.gain * vol < CFG.minGain) return false; }
+      var bus = o && o.bus === 'amb' ? ambBus : sfxBus, ch = null;
+      if (P) ch = chain(ctx, { pan: P.pan, gain: P.gain * vol, lp: P.lp }, bus);
+      else if (vol !== 1 || (o && fin(o.pan)) || bus !== sfxBus) ch = chain(ctx, { pan: o && fin(o.pan) ? o.pan : 0, gain: vol, lp: 20000 }, bus);
       lastT[name] = now;
-      var t = now + 0.005;
-      var len = def(t) || 0.3;
+      var t = o && fin(o.at) && o.at > now + 0.005 && o.at < now + 1 ? +o.at : now + 0.005, len;
+      outNode = ch ? ch.input : null; curRate = o && o.rate > 0 ? +o.rate : 1; curRev = ch ? ch.out.gain.value : 1; curOpts = o || EMPTY;
+      try { len = def(t, curOpts) || 0.3; } finally { outNode = null; curRate = 1; curRev = 1; curOpts = EMPTY; }
       arr.push(t + len);
       liveAll.push(t + len);
-    } catch (e) { /* never throw */ }
+      if (ch && !offline) setTimeout(function () { unchain(ch); }, (t - now + len + 0.8) * 1000);
+      return true;
+    } catch (e) { return false; }
+  }
+
+  /* -------------------------------------------- event claims (js/audio-bus.js) */
+  // A gameplay event that drives a sound claims the old direct-call names for that frame: sfx('swing') next to
+  // EV.SWING is dropped, so a package that still calls the old name never doubles the event-driven sound. Names some
+  // event may claim later in the same task wait for the end of the task (a microtask) before they play.
+  var claims = {}, deferSet = {}, pending = [], flushQ = false;
+  function stamp() { var c = root.G && root.G.clock; return c && typeof c.frames === 'number' ? c.frames : Math.floor(Date.now() / 16.7); }
+  function claim(names) { var s = stamp(); for (var i = 0; i < names.length; i++) claims[names[i]] = s; }
+  function claimedAt(n, s) { var c = claims[n]; return c != null && Math.abs(s - c) <= 1; }
+  function defer(names) { for (var i = 0; i < names.length; i++) deferSet[names[i]] = 1; }
+  var qm = typeof root.queueMicrotask === 'function' ? function (f) { root.queueMicrotask(f); } : function (f) { Promise.resolve().then(f); };
+  function flush() {
+    flushQ = false;
+    var p = pending; pending = [];
+    for (var i = 0; i < p.length; i++) if (!claimedAt(p[i][0], p[i][2])) play(p[i][0], p[i][1]);
+  }
+  function sfx(name, o) {
+    try {
+      if (!ctx || muted) return false;
+      var s = stamp();
+      if (claimedAt(name, s)) return false;
+      if (deferSet[name]) { pending.push([name, o, s]); if (!flushQ) { flushQ = true; qm(flush); } return true; }
+      return play(name, o);
+    } catch (e) { return false; }
+  }
+
+  /* --------------------------------------------------------------- emitters */
+  /** a long / moving positional sound: set(x, y, z) every frame moves it (pan, gain, low-pass eased) */
+  function emitter(name, o) {
+    var h = { alive: false, set: noop, stop: noop };
+    try {
+      o = o || {};
+      if (!ctx || muted || ctx.state !== 'running' || !lis.set) return h;
+      var def = SFX[name];
+      if (typeof def !== 'function') return h;
+      while (emitters.length >= 6) emitters[0].stop();
+      var vol = fin(o.vol) ? o.vol : 1, P = place(fin(o.x) ? o.x : lis.x, o.y, fin(o.z) ? o.z : lis.z);
+      var ch = chain(ctx, { pan: P.pan, gain: P.gain * vol, lp: P.lp });
+      var len;
+      outNode = ch.input; curOpts = o;
+      try { len = def(ctx.currentTime + 0.005, o) || 1; } finally { outNode = null; curOpts = EMPTY; }
+      h.alive = true;
+      h.set = function (x, y, z) {
+        if (!h.alive || !fin(x) || !fin(z)) return;
+        try { var Q = place(x, y, z), t = ctx.currentTime; ch.out.gain.setTargetAtTime(Q.gain * vol, t, 0.04); if (ch.pan) ch.pan.pan.setTargetAtTime(clamp(Q.pan, -1, 1), t, 0.04); ch.lp.frequency.setTargetAtTime(clamp(Q.lp, 60, 20000), t, 0.05); } catch (e) { /* ignore */ }
+      };
+      h.stop = function () {
+        if (!h.alive) return;
+        h.alive = false;
+        var i = emitters.indexOf(h); if (i >= 0) emitters.splice(i, 1);
+        try { ch.out.gain.setTargetAtTime(0, ctx.currentTime, 0.05); } catch (e) { /* ignore */ }
+        setTimeout(function () { unchain(ch); }, 500);
+      };
+      setTimeout(function () { h.stop(); }, (len + 0.2) * 1000);
+      emitters.push(h);
+      return h;
+    } catch (e) { return h; }
+  }
+
+  /* --------------------------------------------------------------- ambience */
+  // region beds: a filtered-noise wind (slow gusts), waves on the shore, and soft one-shots scheduled by tick()
+  // (birds by day, crickets / an owl at night, chimes, gulls, ice tinkles), all on the ambience bus (ambVol)
+  var BEDS = {
+    village: { wind: [520, 0.6, 0.05, 0.035], ev: [['ambBird', 0.3, 0], ['ambCricket', 0.6, 1], ['ambChime', 0.04, -1]] },
+    woods: { wind: [900, 0.8, 0.065, 0.045], ev: [['ambBird', 0.22, 0], ['ambOwl', 0.06, 1], ['ambCricket', 0.35, 1]] },
+    peaks: { wind: [650, 1.2, 0.1, 0.07], ev: [['ambTinkle', 0.12, -1]] },
+    shores: { wind: [420, 0.6, 0.03, 0.02], waves: [520, 0.1], ev: [['ambGull', 0.1, 0], ['ambCricket', 0.2, 1]] },
+    meadow: { wind: [700, 0.7, 0.045, 0.03], ev: [['ambBird', 0.4, 0], ['ambCricket', 0.7, 1]] }
+  };
+  function startBed(id) {
+    var B = BEDS[id];
+    if (!B) return null;
+    var t = ctx.currentTime, out = ctx.createGain(), nodes = [out];
+    out.gain.setValueAtTime(0.0001, t); out.gain.linearRampToValueAtTime(1, t + 2.0);
+    out.connect(ambBus);
+    function lfo(hz, depth, param, phase) {
+      var o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.value = hz; g.gain.value = depth; o.connect(g); g.connect(param); o.start(t + (phase || 0)); nodes.push(o, g);
+    }
+    function noise(type, f, q, gain) {
+      var s = ctx.createBufferSource(), fl = ctx.createBiquadFilter(), g = ctx.createGain();
+      s.buffer = noiseBuf; s.loop = true; fl.type = type; fl.frequency.value = f; fl.Q.value = q; g.gain.value = gain;
+      s.connect(fl); fl.connect(g); g.connect(out); s.start(t, rnd() * 1.5); nodes.push(s, fl, g);
+      return { f: fl, g: g };
+    }
+    if (B.wind) { var w = noise('bandpass', B.wind[0], B.wind[1], B.wind[2]); lfo(0.07 + rnd() * 0.04, B.wind[3], w.g.gain); lfo(0.043, B.wind[0] * 0.3, w.f.frequency, 1.3); }
+    if (B.waves) { var v = noise('lowpass', B.waves[0], 0.5, B.waves[1]); lfo(0.11, B.waves[1] * 0.9, v.g.gain); lfo(0.11, 260, v.f.frequency, 0.4); }
+    return { id: id, out: out, nodes: nodes, ev: B.ev || [] };
+  }
+  function stopBed(b) {
+    if (!b) return;
+    try { var t = ctx.currentTime; b.out.gain.cancelScheduledValues(t); b.out.gain.setValueAtTime(b.out.gain.value, t); b.out.gain.linearRampToValueAtTime(0.0001, t + 2.0); } catch (e) { /* ignore */ }
+    setTimeout(function () { for (var i = 0; i < b.nodes.length; i++) { try { if (b.nodes[i].stop) b.nodes[i].stop(); } catch (e) { /* ignore */ } try { b.nodes[i].disconnect(); } catch (e) { /* ignore */ } } }, 2600);
+  }
+  function ambience(id, o) {
+    try {
+      if (o && fin(o.night)) night = clamp01(o.night);
+      if (id === undefined) return bedId;
+      if (id === bedId) return bedId;
+      bedId = id || null;
+      if (!ctx) return bedId;
+      stopBed(bed); bed = null;
+      if (bedId) bed = startBed(bedId);
+      return bedId;
+    } catch (e) { return null; }
+  }
+  function tickAmb(dt) {
+    if (!bed || muted || ctx.state !== 'running') return;
+    for (var i = 0; i < bed.ev.length; i++) {
+      var e = bed.ev[i], when = e[2];
+      if ((when === 0 && night > 0.5) || (when === 1 && night <= 0.5)) continue;
+      if (rnd() < e[1] * dt) play(e[0], { bus: 'amb', pan: (rnd() * 2 - 1) * 0.8, vol: 0.5 + rnd() * 0.5 });
+    }
+  }
+  // The low-health beat runs on the HUD's wall clock (ui.beatPhase(): performance.now() / TUNE.hud.beat), so each
+  // "bum-bum" lands on the pulse of the hearts and the red vignette whatever the urgency: beat n starts at
+  // (n + hbLead) · hbPer s of performance time (just before the pulse peaks, where ui.js put its own beat), mapped onto
+  // the audio clock and scheduled up to LOOKAHEAD ahead. k only sets how loud it is.
+  function perfSec() { var p = root.performance; return p && p.now ? p.now() / 1000 : Date.now() / 1000; }
+  function tickHeart() {
+    if (hbK <= 0 || muted || ctx.state !== 'running') return;
+    var now = ctx.currentTime, off = now - perfSec(), n = Math.ceil((now - off) / hbPer - hbLead);
+    if (hbN != null && n <= hbN) n = hbN + 1;
+    var at = (n + hbLead) * hbPer + off;
+    if (at - now > LOOKAHEAD) return;
+    hbN = n;
+    if (play('heartbeat', { vol: 0.55 + 0.45 * hbK, at: at })) { hbLog.push({ n: n, perf: +(at - off).toFixed(4), at: +at.toFixed(4), ahead: +(at - now).toFixed(4) }); if (hbLog.length > 6) hbLog.shift(); }
+  }
+  function heartbeat(k, o) {
+    k = clamp01(k);
+    if (o && typeof o === 'object') { if (fin(o.period) && o.period >= 0.3 && o.period <= 3) hbPer = +o.period; if (fin(o.lead) && o.lead >= 0 && o.lead < 1) hbLead = +o.lead; }
+    if (k > 0 && hbK <= 0) { hbN = null; hbLog.length = 0; }
+    hbK = k; return hbK;
+  }
+  function duck(k) {
+    duckK = clamp(fin(k) ? k : 1, 0, 1);
+    try { if (ctx) duckG.gain.setTargetAtTime(duckK, ctx.currentTime, 0.25); } catch (e) { /* ignore */ }
+    return duckK;
+  }
+  function listener(x, y, z, yaw) {
+    if (!fin(x) || !fin(z)) return;
+    lis.x = x; lis.y = fin(y) ? y : lis.y; lis.z = z; if (fin(yaw)) lis.yaw = yaw; lis.set = true;
+  }
+  function config(o) { if (o) for (var k in CFG) if (fin(o[k])) CFG[k] = o[k]; return CFG; }
+  function setVolumes(o) {
+    if (!o) return volK;
+    if (fin(o.music)) volK.music = clamp01(o.music);
+    if (fin(o.sfx)) volK.sfx = clamp01(o.sfx);
+    if (fin(o.amb)) volK.amb = clamp01(o.amb);
+    try {
+      if (ctx) {
+        var t = ctx.currentTime;
+        musicBus.gain.setTargetAtTime(musicVol * volK.music, t, 0.05);
+        sfxBus.gain.setTargetAtTime(sfxVol * volK.sfx, t, 0.05);
+        ambBus.gain.setTargetAtTime(AMB_VOL * volK.amb, t, 0.05);
+      }
+    } catch (e) { /* ignore */ }
+    return volK;
+  }
+
+  /* --------------------------------------------- offline render (tests: levels) */
+  function analyze(buf) {
+    var L = buf.getChannelData(0), R = buf.numberOfChannels > 1 ? buf.getChannelData(1) : L;
+    var peak = 0, sl = 0, sr = 0, hp = 0, prev = 0, eHi = 0, eAll = 0, n = L.length;
+    var a = Math.exp(-2 * Math.PI * 3000 / buf.sampleRate);   // one-pole high-pass at 3 kHz
+    for (var i = 0; i < n; i++) {
+      var l = L[i], r = R[i], m = (l + r) * 0.5;
+      var al = l < 0 ? -l : l, ar = r < 0 ? -r : r;
+      if (al > peak) peak = al; if (ar > peak) peak = ar;
+      sl += l * l; sr += r * r;
+      hp = a * (hp + m - prev); prev = m;
+      eHi += hp * hp; eAll += m * m;
+    }
+    var f6 = function (v) { return +v.toFixed(6); };
+    return { peak: f6(peak), peakDb: +(20 * Math.log10(Math.max(1e-9, peak))).toFixed(2), rmsL: f6(Math.sqrt(sl / n)), rmsR: f6(Math.sqrt(sr / n)), hf: eAll > 0 ? f6(eHi / eAll) : 0, sec: +(n / buf.sampleRate).toFixed(3) };
+  }
+  /** render sounds into an OfflineAudioContext through the real bus graph (compressor + limiter): what = name or
+   *  [[name, o], …] played together; R = { sec = 1.5, sr = 44100, listener: { x, y, z, yaw } } */
+  function render(what, o, R) {
+    R = R || {};
+    var OAC = root.OfflineAudioContext || root.webkitOfflineAudioContext;
+    if (!OAC) return Promise.resolve(null);
+    var saved = graphNow(), sLis = lis, sLive = live, sLast = lastT, sAll = liveAll, sOff = offline, sCfg = {}, k;
+    for (k in CFG) sCfg[k] = CFG[k];
+    var oc, ok = 0;
+    try {
+      oc = new OAC(2, Math.ceil((R.sr || 44100) * (R.sec || 1.5)), R.sr || 44100);
+      useGraph(oc, makeGraph(oc, false));
+      offline = true; live = {}; lastT = {}; liveAll = [];
+      if (R.listener) lis = { x: R.listener.x || 0, y: R.listener.y || 0, z: R.listener.z || 0, yaw: R.listener.yaw || 0, set: true };
+      if (R.bed) startBed(R.bed);                      // an ambience bed's noise layers (tests: its level)
+      var list = typeof what === 'string' ? [[what, o]] : (what || []);
+      for (var i = 0; i < list.length; i++) if (play(list[i][0], list[i][1] || null)) ok++;
+    } catch (e) { ok = -1; } finally {
+      useGraph(saved.ctx, saved.g); lis = sLis; live = sLive; lastT = sLast; liveAll = sAll; offline = sOff;
+      for (k in sCfg) CFG[k] = sCfg[k];
+    }
+    if (!oc || ok < 0) return Promise.resolve(null);
+    return oc.startRendering().then(function (buf) { var r = analyze(buf); r.played = ok; return r; }, function () { return null; });
   }
 
   /* ---------------------------------------------------------- music: voices */
@@ -784,7 +1177,7 @@
     }
   }
 
-  function tick() {
+  function tickMusic() {
     try {
       if (!ctx || !cur) return;
       var inst = cur, now = ctx.currentTime;
@@ -862,7 +1255,20 @@
     } catch (e) { /* never throw */ }
   }
 
+
   /* -------------------------------------------------------- lifecycle / API */
+  var lastTick = 0;
+  function tickAll() {
+    try {
+      tickMusic();
+      if (!ctx) return;
+      var now = ctx.currentTime, dt = lastTick ? Math.min(0.2, Math.max(0, now - lastTick)) : 0;
+      lastTick = now;
+      tickAmb(dt);
+      tickHeart();
+    } catch (e) { /* never throw out of the timer */ }
+  }
+
   function tryResume() {
     try {
       if (ctx && ctx.state !== 'running' && !(typeof document !== 'undefined' && document.hidden)) {
@@ -903,12 +1309,13 @@
     try {
       if (!ctx) {
         if (!build()) { ctx = null; return false; }
-        if (!timer) timer = setInterval(tick, TICK_MS);
+        if (!timer) timer = setInterval(tickAll, TICK_MS);
         if (!visHooked && typeof document !== 'undefined' && document.addEventListener) {
           visHooked = true;
           document.addEventListener('visibilitychange', onVisibility);
         }
         if (wanted && !cur) switchTo(wanted);
+        if (bedId && !bed) bed = startBed(bedId);
       }
       if (ctx.state !== 'running') {
         var p = ctx.resume();
@@ -928,21 +1335,43 @@
   }
   function setMusicVolume(v) {
     musicVol = clamp01(v);
-    try { if (ctx) musicBus.gain.setTargetAtTime(musicVol, ctx.currentTime, 0.05); } catch (e) { /* ignore */ }
+    try { if (ctx) musicBus.gain.setTargetAtTime(musicVol * volK.music, ctx.currentTime, 0.05); } catch (e) { /* ignore */ }
   }
   function setSfxVolume(v) {
     sfxVol = clamp01(v);
-    try { if (ctx) sfxBus.gain.setTargetAtTime(sfxVol, ctx.currentTime, 0.05); } catch (e) { /* ignore */ }
+    try { if (ctx) sfxBus.gain.setTargetAtTime(sfxVol * volK.sfx, ctx.currentTime, 0.05); } catch (e) { /* ignore */ }
+  }
+  function info() {
+    var lv = 0;
+    try { if (ctx) { var now = ctx.currentTime; for (var i = 0; i < liveAll.length; i++) if (liveAll[i] > now) lv++; } } catch (e) { /* ignore */ }
+    return {
+      state: ctx ? ctx.state : 'none', now: ctx ? ctx.currentTime : null, listener: { x: +lis.x.toFixed(3), y: +lis.y.toFixed(3), z: +lis.z.toFixed(3), yaw: +lis.yaw.toFixed(4), set: lis.set },
+      voices: lv, emitters: emitters.length, bed: bedId, night: night, duck: duckK, duckGain: duckG ? +duckG.gain.value.toFixed(3) : null,
+      heart: hbK, heartBeat: { period: hbPer, lead: hbLead, last: hbLog.slice() }, volumes: { music: volK.music, sfx: volK.sfx, amb: volK.amb }, muted: muted, music: cur ? cur.name : (wanted || null), cfg: CFG
+    };
   }
 
   var api = {
     init: init,
     sfx: sfx,
+    play: play,
     music: music,
+    listener: listener,
+    place: function (x, y, z) { try { return place(x, y, z); } catch (e) { return null; } },
+    emitter: emitter,
+    ambience: ambience,
+    heartbeat: heartbeat,
+    duck: duck,
+    claim: function (n) { try { claim([].concat(n)); } catch (e) { /* ignore */ } },
+    defer: function (n) { try { defer([].concat(n)); } catch (e) { /* ignore */ } },
+    config: config,
+    setVolumes: setVolumes,
     setMuted: setMuted,
     toggleMute: function () { return setMuted(!muted); },
     setMusicVolume: setMusicVolume,
     setSfxVolume: setSfxVolume,
+    render: function (w, o, R) { try { return render(w, o, R); } catch (e) { return Promise.resolve(null); } },
+    info: info,
     tracks: Object.keys(TRACKS),
     sfxNames: Object.keys(SFX),
     get current() { return cur ? cur.name : (wanted || null); },

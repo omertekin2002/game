@@ -1,7 +1,15 @@
-// Particles (two pooled Points systems: normal + additive), sword slash trails, ground rings/telegraphs, glows.
+// Particles (two pooled Points systems: normal + additive), glows, halos. Slash trail → fx-trail.js, ground rings → fx-ground.js.
+// WP7 (art §8, arch §9.2-9): the painted 16-cell `fx_atlas` (cells by name from its JSON; the procedural 2×2 canvas atlas
+// stays for SOFT / DOT and replaces every painted cell when the art is missing), near fade (alpha → 0 under ~0.35 m view
+// depth), screen-size cap (≤ 0.16 × buffer height within 2 m, ≤ 0.25 beyond), halos faded under 3 m and capped at 1.6 m.
 import * as THREE from 'three';
 import { U } from './toon.js';
 import { rand, TAU, clamp, pick } from './util.js';
+import { GroundFX } from './fx-ground.js';
+import { Assets } from './assets.js';
+import { perf as TP } from './tune.js';
+export { GroundFX } from './fx-ground.js';
+export { SlashTrail } from './fx-trail.js';
 
 function atlasTexture() {
   const c = document.createElement('canvas');
@@ -36,10 +44,29 @@ function atlasTexture() {
   return t;
 }
 
-export const SHAPE = { SOFT: 0, STAR: 1, LEAF: 2, DOT: 3 };
+// 0–3: procedural cells (SOFT glow, STAR sparkle, LEAF ellipse, DOT); 4–19: the painted fx_atlas cells by name
+export const SHAPE = {
+  SOFT: 0, STAR: 1, LEAF: 2, DOT: 3,
+  PUFF: 4, SPARKLE: 5, STAR5: 6, PETAL: 7, LEAFP: 8, SNOW: 9, DROP: 10, IMPACT: 11, SMOKE: 12, HEART: 13, ALERT: 14, CHIPS: 15,
+  SHARD: 16, CLIP: 17, RING: 18, STREAK: 19,
+};
+const FX_CELLS = ['soft_puff', 'sparkle_4', 'star_5', 'petal', 'leaf', 'snowflake', 'droplet', 'impact', 'smoke_curl', 'heart', 'alert', 'sand_chips', 'shard', 'grass_clipping', 'ring', 'speed_streak'];
+// without the painted atlas each painted cell falls back to the closest procedural one
+const FALLBACK = [0, 1, 1, 2, 2, 3, 3, 1, 0, 0, 0, 3, 3, 2, 0, 0];
+/** the fx_atlas texture + cell rects (u0, v0, u1, v1, flipY) or null */
+function paintedAtlas() {
+  const tex = Assets.textures.fx_atlas, at = (tex && tex.userData.atlas) || Assets.atlas.fx_atlas;
+  if (!tex || !at || !at.cells || !at.size) return null;
+  const [W, H] = at.size, inset = 1.5;
+  const rects = FX_CELLS.map((n) => { const c = at.cells[n]; return c ? new THREE.Vector4((c.x + inset) / W, 1 - (c.y + c.h - inset) / H, (c.x + c.w - inset) / W, 1 - (c.y + inset) / H) : null; });
+  if (rects.some((r) => !r)) return null;
+  return { tex, rects };
+}
 
 class Particles {
-  constructor(scene, max, additive, atlas) {
+  setPainted(p) { this.painted = true; this.mat.uniforms.tPaint.value = p.tex; this.mat.uniforms.uRects.value = p.rects; }
+  constructor(scene, max, additive, atlas, painted) {
+    this.painted = !!painted;
     this.max = max;
     this.list = [];
     this.free = [];
@@ -59,6 +86,10 @@ class Particles {
     this.uScale = { value: 800 };
     const uniforms = THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { tAtlas: { value: atlas } }]);
     uniforms.uScale = this.uScale;
+    Object.assign(uniforms, {
+      tPaint: { value: painted ? painted.tex : atlas }, uRects: { value: painted ? painted.rects : FX_CELLS.map(() => new THREE.Vector4()) },
+      uRes: U.uRes, uPassK: U.uPassK, uNearP: { value: new THREE.Vector2(...TP.pNear) }, uCap: { value: new THREE.Vector2(TP.pCapNear, TP.pCapFar) },
+    });
     this.mat = new THREE.ShaderMaterial({
       uniforms, transparent: true, depthWrite: false, fog: true,
       blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
@@ -66,30 +97,39 @@ class Particles {
         #include <common>
         #include <fog_pars_vertex>
         attribute vec4 pcolor; attribute float psize; attribute float pshape; attribute float prot;
-        uniform float uScale;
+        uniform float uScale; uniform vec2 uRes; uniform float uPassK; uniform vec2 uNearP; uniform vec2 uCap;
         varying vec4 vC; varying float vShape; varying float vRot;
         void main(){
           vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
           gl_Position = projectionMatrix * mvPosition;
-          gl_PointSize = psize * uScale / max(0.5, -mvPosition.z);
-          vC = pcolor; vShape = pshape; vRot = prot;
+          float dz = -mvPosition.z;
+          // WP7: never bigger than a slice of the screen (smaller still right at the eye), faded out right at the eye
+          gl_PointSize = min(psize * uScale * uPassK / max(0.05, dz), mix(uCap.x, uCap.y, smoothstep(1.0, 2.0, dz)) * uRes.y);   // uPassK: the scaled main pass
+          vC = pcolor; vC.a *= smoothstep(uNearP.x, uNearP.y, dz); vShape = pshape; vRot = prot;
           #include <fog_vertex>
         }`,
       fragmentShader: `
         #include <common>
         #include <fog_pars_fragment>
-        uniform sampler2D tAtlas;
+        uniform sampler2D tAtlas; uniform sampler2D tPaint; uniform vec4 uRects[16];
         varying vec4 vC; varying float vShape; varying float vRot;
         void main(){
+          if (vC.a < 0.004) discard;
           vec2 p = gl_PointCoord - 0.5;
           float c = cos(vRot), s = sin(vRot);
           p = vec2(c * p.x - s * p.y, s * p.x + c * p.y) + 0.5;
           if (p.x < 0.0 || p.y < 0.0 || p.x > 1.0 || p.y > 1.0) discard;
-          float col = mod(vShape, 2.0), row = floor(vShape / 2.0);
-          vec2 uv = vec2((col + p.x) * 0.5, 1.0 - (row + p.y) * 0.5);
-          float a = texture2D(tAtlas, uv).a * vC.a;
+          vec4 t;
+          if (vShape < 3.5) {
+            float col = mod(vShape, 2.0), row = floor(vShape / 2.0);
+            t = vec4(1.0, 1.0, 1.0, texture2D(tAtlas, vec2((col + p.x) * 0.5, 1.0 - (row + p.y) * 0.5)).a);
+          } else {
+            vec4 r = uRects[int(vShape - 3.5)];
+            t = texture2D(tPaint, vec2(mix(r.x, r.z, p.x), mix(r.w, r.y, p.y)));
+          }
+          float a = t.a * vC.a;
           if (a < 0.01) discard;
-          gl_FragColor = vec4(vC.rgb, a);
+          gl_FragColor = vec4(vC.rgb * t.rgb, a);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
           #include <fog_fragment>
@@ -113,7 +153,8 @@ class Particles {
     p.r = p.r ** 2.2; p.g = p.g ** 2.2; p.b = p.b ** 2.2;
     p.a = o.alpha ?? 1;
     p.fadeIn = o.fadeIn ?? 0.05;
-    p.shape = o.shape ?? 0;
+    const sh = o.shape ?? 0;
+    p.shape = sh >= 4 && !this.painted ? FALLBACK[sh - 4] : sh === SHAPE.STAR && this.painted ? SHAPE.SPARKLE : sh;
     p.rot = o.rot ?? rand(0, TAU); p.vr = o.vr ?? 0;
     p.grav = o.grav ?? 0; p.drag = o.drag ?? 0;
     p.sway = o.sway ?? 0; p.ph = rand(0, TAU);
@@ -167,149 +208,16 @@ class Particles {
   count(tag) { let c = 0; for (const p of this.list) if (p.tag === tag) c++; return c; }
 }
 
-// ---------------------------------------------------------------- slash trail
-function slashGeometry(r0, r1, arc, segs = 28) {
-  const pos = [], tt = [], rr = [], idx = [];
-  for (let i = 0; i <= segs; i++) {
-    const t = i / segs;
-    const a = -arc / 2 + arc * t; // from right (-) to left (+) around +Z
-    for (let j = 0; j < 2; j++) {
-      const r = j ? r1 : r0;
-      pos.push(Math.sin(a) * r, 0, Math.cos(a) * r);
-      tt.push(t); rr.push(j);
-    }
-    if (i < segs) { const b = i * 2; idx.push(b, b + 1, b + 2, b + 1, b + 3, b + 2); }
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('aT', new THREE.Float32BufferAttribute(tt, 1));
-  g.setAttribute('aR', new THREE.Float32BufferAttribute(rr, 1));
-  g.setIndex(idx);
-  return g;
-}
-export class SlashTrail {
-  constructor() {
-    this.uProg = { value: 0 };
-    this.uAlpha = { value: 0 };
-    this.uColor = { value: new THREE.Color(1, 1, 1) };
-    this.mat = new THREE.ShaderMaterial({
-      transparent: true, depthWrite: false, blending: THREE.NormalBlending, side: THREE.DoubleSide,
-      uniforms: { uProg: this.uProg, uAlpha: this.uAlpha, uColor: this.uColor },
-      vertexShader: `attribute float aT; attribute float aR; varying float vT; varying float vR; void main(){ vT = aT; vR = aR; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-      fragmentShader: `uniform float uProg, uAlpha; uniform vec3 uColor; varying float vT; varying float vR;
-        void main(){
-          if (vT > uProg) discard;
-          float tail = smoothstep(uProg - 0.75, uProg, vT);
-          float edge = smoothstep(0.0, 0.85, vR) * (1.0 - smoothstep(0.9, 1.0, vR) * 0.5);
-          float a = tail * edge * uAlpha * 0.9;
-          gl_FragColor = vec4(mix(uColor * 0.92, vec3(1.0), smoothstep(0.6, 0.95, vR)), a);
-          #include <colorspace_fragment>
-        }`,
-    });
-    this.mesh = new THREE.Mesh(slashGeometry(0.55, 1.6, (140 / 180) * Math.PI), this.mat);
-    this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = 7;
-    this.mesh.visible = false;
-    this.t = 1;
-    this.dur = 0.3;
-  }
-  setReach(r, shiny) {
-    this.mesh.geometry.dispose();
-    this.mesh.geometry = slashGeometry(Math.max(0.5, r - 1.1), r, (140 / 180) * Math.PI);
-    this.uColor.value.set(shiny ? 0xffd04a : 0xdff4ff);
-  }
-  start(dur) { this.t = 0; this.dur = dur; this.mesh.visible = true; }
-  update(dt) {
-    if (this.t >= 1) { this.mesh.visible = false; return; }
-    this.t = Math.min(1, this.t + dt / this.dur);
-    const k = this.t;
-    this.uProg.value = Math.min(1.15, k * 1.9);
-    this.uAlpha.value = k < 0.55 ? 1 : 1 - (k - 0.55) / 0.45;
-  }
-}
-
-// ---------------------------------------------------------------- ground rings / decals
-export class GroundFX {
-  constructor(scene) {
-    this.scene = scene;
-    this.items = [];
-    this.ringGeo = new THREE.RingGeometry(0.86, 1, 64, 1);
-    this.ringGeo.rotateX(-Math.PI / 2);
-    this.discGeo = new THREE.CircleGeometry(1, 40);
-    this.discGeo.rotateX(-Math.PI / 2);
-    this.planeGeo = new THREE.PlaneGeometry(1, 1);
-    this.planeGeo.rotateX(-Math.PI / 2);
-    this.planeGeo.translate(0, 0, 0.5);
-  }
-  mat(color, opacity, additive) {
-    return new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending, fog: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-  }
-  /** expanding shockwave ring. returns handle with .r (current radius) */
-  shockwave(x, y, z, o = {}) {
-    const m = new THREE.Mesh(this.ringGeo, this.mat(o.color ?? 0xfff2c0, 0.9, false));
-    m.position.set(x, y + 0.06, z);
-    m.renderOrder = 3;
-    const glow = new THREE.Mesh(this.ringGeo, this.mat(o.glow ?? 0xffc860, 0.6, true));
-    glow.position.copy(m.position); glow.position.y += 0.02;
-    glow.renderOrder = 4;
-    this.scene.add(m, glow);
-    const it = { kind: 'ring', m, glow, r: o.r0 ?? 0.8, speed: o.speed ?? 7, max: o.max ?? 13, width: o.width ?? 0.55, life: 0, active: true, cx: x, cz: z, cy: y };
-    m.scale.setScalar(it.r);
-    this.items.push(it);
-    return it;
-  }
-  /** shadow / target telegraph circle */
-  disc(x, y, z, r, color = 0x2a1a30, opacity = 0.35) {
-    const m = new THREE.Mesh(this.discGeo, this.mat(color, opacity, false));
-    m.position.set(x, y + 0.05, z);
-    m.scale.setScalar(r);
-    m.renderOrder = 2;
-    this.scene.add(m);
-    const it = { kind: 'disc', m, active: true, life: 0, manual: true };
-    this.items.push(it);
-    return it;
-  }
-  line(x, y, z, ang, len, width, color = 0xff6a4a, opacity = 0.35) {
-    const m = new THREE.Mesh(this.planeGeo, this.mat(color, opacity, false));
-    m.position.set(x, y + 0.06, z);
-    m.rotation.y = ang;
-    m.scale.set(width, 1, len);
-    m.renderOrder = 2;
-    this.scene.add(m);
-    const it = { kind: 'line', m, active: true, life: 0, manual: true };
-    this.items.push(it);
-    return it;
-  }
-  remove(it) {
-    if (!it || !it.active) return;
-    it.active = false;
-    for (const m of [it.m, it.glow]) if (m) { this.scene.remove(m); m.material.dispose(); }
-  }
-  update(dt) {
-    for (const it of this.items) {
-      if (!it.active) continue;
-      it.life += dt;
-      if (it.kind === 'ring') {
-        it.r += it.speed * dt;
-        const k = it.r / it.max;
-        it.m.scale.set(it.r, 1, it.r);
-        it.glow.scale.set(it.r * 1.02, 1, it.r * 1.02);
-        it.m.material.opacity = 0.9 * (1 - k * k);
-        it.glow.material.opacity = 0.7 * (1 - k);
-        if (it.r >= it.max) this.remove(it);
-      }
-    }
-    this.items = this.items.filter((i) => i.active);
-  }
-  clear() { for (const it of this.items) this.remove(it); this.items = []; }
-}
 
 // ---------------------------------------------------------------- facade
 export class FX {
   constructor(scene) {
     this.atlas = atlasTexture();
-    this.norm = new Particles(scene, 2600, false, this.atlas);
-    this.add = new Particles(scene, 2200, true, this.atlas);
+    this.painted = paintedAtlas();   // WP7: null → every painted cell falls back to its procedural neighbour
+    this.norm = new Particles(scene, 2600, false, this.atlas, this.painted);
+    this.add = new Particles(scene, 2200, true, this.atlas, this.painted);
+    // a later fx_atlas (quality raised: the full file replaces the lo one; or the art arrived late) is swapped in
+    if (Assets.onTex) Assets.onTex((key) => { if (key !== 'fx_atlas') return; const p = paintedAtlas(); if (p) { this.painted = p; this.norm.setPainted(p); this.add.setPainted(p); } });
     this.ground = new GroundFX(scene);
   }
   setScale(px) { this.norm.uScale.value = px; this.add.uScale.value = px; }
@@ -317,7 +225,7 @@ export class FX {
   dust(x, y, z, n = 4, color = 0xe8d6b8) {
     for (let i = 0; i < n; i++) {
       const a = rand(0, TAU), s = rand(0.4, 1.4);
-      this.norm.spawn({ x: x + Math.cos(a) * 0.15, y: y + 0.08, z: z + Math.sin(a) * 0.15, vx: Math.cos(a) * s, vy: rand(0.4, 1.1), vz: Math.sin(a) * s, drag: 4, life: rand(0.35, 0.6), size: rand(0.18, 0.3), size1: rand(0.4, 0.6), color, alpha: 0.75, shape: SHAPE.SOFT });
+      this.norm.spawn({ x: x + Math.cos(a) * 0.15, y: y + 0.08, z: z + Math.sin(a) * 0.15, vx: Math.cos(a) * s, vy: rand(0.4, 1.1), vz: Math.sin(a) * s, drag: 4, life: rand(0.35, 0.6), size: rand(0.16, 0.26), size1: rand(0.34, 0.5), color, alpha: 0.75, shape: SHAPE.PUFF, vr: rand(-1.5, 1.5) });
     }
   }
   sparks(x, y, z, n = 8, color = 0xfff4b0) {
@@ -325,40 +233,48 @@ export class FX {
       const a = rand(0, TAU), e = rand(-0.3, 1.2), s = rand(3, 6.5);
       this.add.spawn({ x, y, z, vx: Math.cos(a) * Math.cos(e) * s, vy: Math.sin(e) * s, vz: Math.sin(a) * Math.cos(e) * s, drag: 7, life: rand(0.2, 0.38), size: rand(0.3, 0.5), size1: 0.05, color, shape: SHAPE.STAR, vr: rand(-8, 8) });
     }
-    this.add.spawn({ x, y, z, life: 0.14, size: 1.4, size1: 0.4, color: 0xffffff, alpha: 0.8, shape: SHAPE.SOFT });
+    this.add.spawn({ x, y, z, life: 0.12, size: 0.9, size1: 0.3, color: 0xffffff, alpha: 0.6, shape: SHAPE.SOFT });
+    this.norm.spawn({ x, y, z, life: 0.14, size: 0.42, size1: 0.3, color: 0xfff3d8, alpha: 0.95, shape: SHAPE.IMPACT, rot: rand(-0.4, 0.4), fadeIn: 0 });
   }
   poof(x, y, z, color = 0xffffff, n = 12, scale = 1) {
     for (let i = 0; i < n; i++) {
       const a = rand(0, TAU), s = rand(1, 3) * scale;
-      this.norm.spawn({ x, y: y + rand(-0.1, 0.3) * scale, z, vx: Math.cos(a) * s, vy: rand(0.5, 2.2) * scale, vz: Math.sin(a) * s, drag: 4.5, life: rand(0.45, 0.8), size: rand(0.35, 0.6) * scale, size1: rand(0.7, 1.0) * scale, color, alpha: 0.9, shape: SHAPE.SOFT });
+      this.norm.spawn({ x, y: y + rand(-0.1, 0.3) * scale, z, vx: Math.cos(a) * s, vy: rand(0.5, 2.2) * scale, vz: Math.sin(a) * s, drag: 4.5, life: rand(0.45, 0.8), size: rand(0.26, 0.42) * scale, size1: rand(0.5, 0.72) * scale, color, alpha: 0.88, shape: SHAPE.PUFF, vr: rand(-2, 2) });
     }
     for (let i = 0; i < Math.ceil(n / 2); i++) {
       const a = rand(0, TAU), s = rand(2, 5) * scale;
-      this.add.spawn({ x, y: y + 0.3, z, vx: Math.cos(a) * s, vy: rand(1, 4), vz: Math.sin(a) * s, drag: 3, grav: 4, life: rand(0.5, 0.8), size: rand(0.25, 0.4), size1: 0.05, color: pick([0xfff4a0, 0xffffff, 0xffc8e0]), shape: SHAPE.STAR, vr: rand(-6, 6) });
+      this.add.spawn({ x, y: y + 0.3, z, vx: Math.cos(a) * s, vy: rand(1, 4), vz: Math.sin(a) * s, drag: 3, grav: 4, life: rand(0.5, 0.8), size: rand(0.2, 0.32), size1: 0.05, color: pick([0xfff4a0, 0xffffff, 0xffc8e0]), shape: SHAPE.STAR5, vr: rand(-6, 6) });
     }
   }
   leaves(x, y, z, n = 6, colors = [0x8bd65d, 0xa6e07a, 0x6cc04a]) {
     for (let i = 0; i < n; i++) {
       const a = rand(0, TAU), s = rand(1, 3);
-      this.norm.spawn({ x, y: y + rand(0, 0.4), z, vx: Math.cos(a) * s, vy: rand(1.5, 3.5), vz: Math.sin(a) * s, drag: 2.5, grav: 6, life: rand(0.8, 1.3), size: rand(0.18, 0.26), color: pick(colors), shape: SHAPE.LEAF, vr: rand(-10, 10), sway: 0.8 });
+      this.norm.spawn({ x, y: y + rand(0, 0.4), z, vx: Math.cos(a) * s, vy: rand(1.5, 3.5), vz: Math.sin(a) * s, drag: 2.5, grav: 6, life: rand(0.8, 1.3), size: rand(0.16, 0.24), color: pick(colors), shape: SHAPE.LEAFP, vr: rand(-10, 10), sway: 0.8 });
+    }
+  }
+  /** WP7: grass clippings (art §8 grass cut: arc up ≈ 1.5 m/s, gravity 6) */
+  clippings(x, y, z, n = 4, colors = [0x8cc63a, 0xb9f07a, 0x9ad04e]) {
+    for (let i = 0; i < n; i++) {
+      const a = rand(0, TAU), s = rand(0.4, 1.2);
+      this.norm.spawn({ x: x + Math.cos(a) * 0.08, y, z: z + Math.sin(a) * 0.08, vx: Math.cos(a) * s, vy: rand(1.1, 1.9), vz: Math.sin(a) * s, grav: 6, drag: 1.5, life: rand(0.5, 0.8), size: rand(0.1, 0.16), color: pick(colors), shape: SHAPE.CLIP, vr: rand(-12, 12) });
     }
   }
   shards(x, y, z, n = 8, colors = [0xc87848, 0xa85a30, 0xe8a878]) {
     for (let i = 0; i < n; i++) {
       const a = rand(0, TAU), s = rand(1.5, 3.5);
-      this.norm.spawn({ x, y: y + 0.3, z, vx: Math.cos(a) * s, vy: rand(2, 4.5), vz: Math.sin(a) * s, grav: 14, drag: 1, life: rand(0.6, 0.9), size: rand(0.12, 0.2), color: pick(colors), shape: SHAPE.DOT, floor: y + 0.05 });
+      this.norm.spawn({ x, y: y + 0.3, z, vx: Math.cos(a) * s, vy: rand(2, 4.5), vz: Math.sin(a) * s, grav: 14, drag: 1, life: rand(0.6, 0.9), size: rand(0.14, 0.22), color: pick(colors), shape: SHAPE.SHARD, vr: rand(-9, 9), floor: y + 0.05 });
     }
   }
   splash(x, y, z, n = 8) {
     for (let i = 0; i < n; i++) {
       const a = rand(0, TAU), s = rand(0.6, 1.8);
-      this.norm.spawn({ x, y: y + 0.05, z, vx: Math.cos(a) * s, vy: rand(1.5, 3.2), vz: Math.sin(a) * s, grav: 12, life: rand(0.35, 0.6), size: rand(0.1, 0.18), color: pick([0xe8fbff, 0xb8ecff]), shape: SHAPE.DOT });
+      this.norm.spawn({ x, y: y + 0.05, z, vx: Math.cos(a) * s, vy: rand(1.5, 3.2), vz: Math.sin(a) * s, grav: 12, life: rand(0.35, 0.6), size: rand(0.1, 0.18), color: pick([0xe8fbff, 0xb8ecff]), shape: SHAPE.DROP });
     }
   }
   snowBurst(x, y, z, n = 18, scale = 1) {
     for (let i = 0; i < n; i++) {
       const a = rand(0, TAU), s = rand(2, 6) * scale;
-      this.norm.spawn({ x, y: y + 0.2, z, vx: Math.cos(a) * s, vy: rand(1.5, 5), vz: Math.sin(a) * s, grav: 9, drag: 2, life: rand(0.5, 1.0), size: rand(0.15, 0.35) * scale, color: pick([0xffffff, 0xe8f4ff, 0xd8ecff]), shape: SHAPE.DOT, floor: y + 0.05 });
+      this.norm.spawn({ x, y: y + 0.2, z, vx: Math.cos(a) * s, vy: rand(1.5, 5), vz: Math.sin(a) * s, grav: 9, drag: 2, life: rand(0.5, 1.0), size: rand(0.15, 0.32) * scale, color: pick([0xffffff, 0xe8f4ff, 0xd8ecff]), shape: SHAPE.SNOW, vr: rand(-4, 4), floor: y + 0.05 });
     }
     this.poof(x, y, z, 0xf4faff, 8, scale);
   }
@@ -368,12 +284,12 @@ export class FX {
   burst(x, y, z, color = 0xfff4a0, n = 24, speed = 6) {
     for (let i = 0; i < n; i++) {
       const a = (i / n) * TAU + rand(-0.1, 0.1), e = rand(-0.2, 0.9);
-      this.add.spawn({ x, y, z, vx: Math.cos(a) * Math.cos(e) * speed, vy: Math.sin(e) * speed, vz: Math.sin(a) * Math.cos(e) * speed, drag: 2.5, life: rand(0.6, 1.1), size: rand(0.35, 0.55), size1: 0.05, color, shape: SHAPE.STAR, vr: rand(-5, 5) });
+      this.add.spawn({ x, y, z, vx: Math.cos(a) * Math.cos(e) * speed, vy: Math.sin(e) * speed, vz: Math.sin(a) * Math.cos(e) * speed, drag: 2.5, life: rand(0.6, 1.1), size: rand(0.3, 0.48), size1: 0.05, color, shape: SHAPE.STAR5, vr: rand(-5, 5) });
     }
     this.add.spawn({ x, y, z, life: 0.3, size: 4, size1: 1, color: 0xffffff, alpha: 0.7, shape: SHAPE.SOFT });
   }
   petals(x, y, z, n = 1, spread = 8) {
-    for (let i = 0; i < n; i++) this.norm.spawn({ x: x + rand(-spread, spread), y: y + rand(0, 4), z: z + rand(-spread, spread), vx: rand(0.3, 1.2), vy: rand(-0.9, -0.4), vz: rand(-0.3, 0.6), life: rand(4, 6), size: rand(0.14, 0.22), color: pick([0xffc2d9, 0xffd9e6, 0xff9fc2, 0xffffff]), shape: SHAPE.LEAF, vr: rand(-3, 3), sway: 0.9, fadeIn: 0.4 });
+    for (let i = 0; i < n; i++) this.norm.spawn({ x: x + rand(-spread, spread), y: y + rand(0, 4), z: z + rand(-spread, spread), vx: rand(0.3, 1.2), vy: rand(-0.9, -0.4), vz: rand(-0.3, 0.6), life: rand(4, 6), size: rand(0.14, 0.22), color: pick([0xffc2d9, 0xffd9e6, 0xff9fc2, 0xffffff]), shape: SHAPE.PETAL, vr: rand(-3, 3), sway: 0.9, fadeIn: 0.4 });
   }
   glow(x, y, z, color, size = 1, life = 0.1) { this.add.spawn({ x, y, z, life, size, color, alpha: 0.8, shape: SHAPE.SOFT, fadeIn: 0 }); }
 }
@@ -391,11 +307,12 @@ export class Halos {
     this.uScale = { value: 800 };
     this.mat = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-      uniforms: { tAtlas: { value: atlas }, uScale: this.uScale, uNight: U.uNight, uTime: U.uTime },
-      vertexShader: `attribute float hsize; attribute vec3 hcol; uniform float uScale, uNight, uTime; varying vec3 vC; varying float vA;
+      uniforms: { tAtlas: { value: atlas }, uScale: this.uScale, uNight: U.uNight, uTime: U.uTime, uHalo: { value: new THREE.Vector3(TP.haloNear[0], TP.haloNear[1], TP.haloMax) }, uRes: U.uRes, uPassK: U.uPassK },
+      // WP7: a halo never exceeds haloMax metres and fades out under 3 m view depth (a lantern beside the eye is no fog bank)
+      vertexShader: `attribute float hsize; attribute vec3 hcol; uniform float uScale, uNight, uTime, uPassK; uniform vec3 uHalo; uniform vec2 uRes; varying vec3 vC; varying float vA;
         void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); gl_Position = projectionMatrix * mv;
-          float fl = 0.92 + 0.08 * sin(uTime * 7.0 + position.x * 3.0);
-          gl_PointSize = hsize * fl * uScale / max(0.5, -mv.z); vC = hcol; vA = uNight * fl; }`,
+          float fl = 0.92 + 0.08 * sin(uTime * 7.0 + position.x * 3.0), dz = -mv.z;
+          gl_PointSize = min(min(hsize, uHalo.z) * fl * uScale * uPassK / max(0.1, dz), 0.3 * uRes.y); vC = hcol; vA = uNight * fl * smoothstep(uHalo.x, uHalo.y, dz); }`,
       fragmentShader: `uniform sampler2D tAtlas; varying vec3 vC; varying float vA;
         void main(){ vec2 uv = vec2(gl_PointCoord.x * 0.5, 1.0 - gl_PointCoord.y * 0.5); float a = texture2D(tAtlas, uv).a * vA * 0.55; if (a < 0.005) discard; gl_FragColor = vec4(vC, a);
           #include <colorspace_fragment>
