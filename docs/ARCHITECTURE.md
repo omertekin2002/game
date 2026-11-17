@@ -67,6 +67,7 @@ Grep rules (must stay empty): `grep -rnE "\.yawTarget|cam\.bias|cam\.yaw" js` an
 | `js/input.js`, `js/input-lock.js`, `js/touch.js` | input, pointer lock, touch controls | §11, [WP6](wp/WP6.md) |
 | `js/ui.js`, `js/hud/*.js`, `styles.css`, `index.html` | HUD, menus, dialogue, title, module `wp6-hud` | §15, [WP6](wp/WP6.md) |
 | `js/toon.js`, `js/scatter.js`, `js/fx.js`, `js/perf/perf.js`, `js/perf/lod.js`, `js/perf/grass.js` | materials, instanced scenery, particles, module `wp7-perf` (culling, LOD, cutaway, lights, warm-up, resolution), tree proxies, near grass | §14.2, [WP7](wp/WP7.md) |
+| `js/perf/dynres.js` | the dynamic-resolution decisions: `dynDecide`, `dynPause`, `titlePace`, `clampDyn` (pure; unit-tested in `tests/dynres.test.js`) | §14.2 |
 | `js/sky.js`, `js/terrain.js`, `js/atmo.js`, `js/ambient.js`, `js/assets.js`, `assets/manifest.js` | sky and fog, terrain and water, module `wp8-atmo`, ambient particles, asset loader, manifest | §14, [WP8](wp/WP8.md) |
 | `js/debug/debug.js`, `js/debug/gpu-timer.js`, `js/debug/tests.js`, `js/debug/tests/wp1.js … wp9.js` | `G.debug`, GPU timer, test runner and suites | §17, §18 |
 
@@ -640,7 +641,14 @@ no code change.
   later (first used in play) compiles at first sight: add one to the warm-up list in `main.js`.
 - Resolution: the canvas DPR cap per quality (`dprFor`: auto 1.5, low 1.0, high 2.0). Dynamic resolution 0.70–1.0 scales
   only the main pass from the GPU timer (p75 of 30 timed frames: > 11.5 ms → −0.05; four windows < 8.5 ms → +0.05; ≥ 0.5 s
-  apart); off with `dynRes: false`, under the manual clock and while `G.debug.perf` samples. A lost WebGL context drops
+  apart); off with `dynRes: false`, under the manual clock and while `G.debug.perf` samples. Without the timer extension
+  (Firefox, Safari) the samples are frame intervals, which only show whether the display's pace holds: a window with
+  more than a quarter of its frames late → −0.05; four windows on time → +0.05 as a probe, and a step down within 128
+  decisions of a step up doubles the on-time windows the next one needs (up to 128); a step up that no decision has
+  judged when play pauses is taken back. The pace is 60 fps, or the display's own if slower (a 50 Hz display, a 30 fps
+  power-saver cap), measured on the title screen, which draws no 3D (not when the page is embedded in a frame); a pace
+  that gets slower during play is not measured again, one that gets faster moves back towards 60 fps. The decisions
+  and their known limits are in `js/perf/dynres.js`. A lost WebGL context drops
   the timer's queries and pauses it; on restore the timer fetches its extension again and the scale starts over at 1. Shaders that use
   `gl_FragCoord` must take the pass size from `U.uRes`. Quality low: DPR 1.0, no near grass, 1024² shadow map, lo
   textures, no terrain near detail or cliff layer.
@@ -764,7 +772,7 @@ Namespaces added by modules:
 ## 18. In-page tests (`js/debug/tests.js`, `js/debug/tests/wp1.js … wp9.js`)
 
 CI (`.github/workflows/ci.yml`) does not run these. It runs `bun test` (`tests/*.test.js`: world generation, content
-tables, save schema) and `tests/smoke.mjs` (headless Chromium with software WebGL: New Game, then Continue a valid, a
+tables, save schema, the dynamic-resolution controller against simulated displays) and `tests/smoke.mjs` (headless Chromium with software WebGL: New Game, then Continue a valid, a
 corrupt and a newer-version save). `jsconfig.json` maps `three` to the vendored copy for `bun test`, as the import map
 in `index.html` does for the browser, because `js/world.js` reaches `js/props.js` and so three.js. The Pages build
 (`tools/build-pages.mjs`) scans every `js/**/*.js` for `from '…'` with a regular expression, comments and strings

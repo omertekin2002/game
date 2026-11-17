@@ -5,8 +5,8 @@
 // - resolution: DPR cap per quality (auto 1.5, low 1.0, high 2.0) for the canvas; dynamic resolution 0.70–1.0 scales
 //   only the main pass, which is drawn into the lower-left part of the canvas and stretched over it (copy + one quad), so
 //   a step re-allocates nothing and costs nothing (arch §9.2-7 steps: ±0.05, ≥ 0.5 s apart); driven by a GPU timer around
-//   the main pass (rAF time without the extension); held at 1.0 while G.debug.perf samples, under the manual clock or
-//   with settings.dynRes off
+//   the main pass, or without the extension by the frame interval against the pace the display allows (the decisions:
+//   perf/dynres.js); held at 1.0 while G.debug.perf samples, under the manual clock or with settings.dynRes off
 // - quality: low = DPR 1.0, no near grass, 1024² shadow map (lo textures: assets.js); auto / high = 2048²
 // - G.debug.perf.* helpers (perf() itself stays the foundation's sampler)
 import * as THREE from 'three';
@@ -15,6 +15,7 @@ import { perf as TP } from '../tune.js';
 import { setBufferSize, U } from '../toon.js';
 import { LAYER_SHADOW } from '../scatter.js';
 import { GpuTimer } from '../debug/gpu-timer.js';
+import { dynDecide, dynPause, clampDyn, titlePace } from './dynres.js';
 import { NearGrass } from './grass.js';
 
 const D2R = Math.PI / 180;
@@ -46,7 +47,7 @@ const perf = {
   name: 'wp7-perf',
   game: null, dyn: 1, dynHold: false, pass: null, up: null, lightsOn: null, lightsForced: null, lights: [], objs: [], objHidden: 0, lastLightScan: -1e9, keep: [], warmed: 0,
   view: { x: 0, z: 0, fx: 0, fz: 1, cosH: -1, half: Math.PI, full: true, box: null },
-  gt: null, frameN: 0, hiWins: 0, loWins: 0, lastDyn: -1e9, rafDts: [], timing: true, ctxLost: false, stats: { cullMs: 0, grassMs: 0, objMs: 0 },
+  gt: null, frameN: 0, hiWins: 0, loWins: 0, lastDyn: -1e9, loNeed: 0, probe: 0, pace: 0, paceRaf: 0, rafDts: [], timing: true, ctxLost: false, stats: { cullMs: 0, grassMs: 0, objMs: 0 },
   attach(game) {
     this.game = game;
     const sky = game.sky, S = game.settings;
@@ -92,10 +93,27 @@ const perf = {
   contextRestored() {
     this.ctxLost = false; this.setDyn(1); this.pass = null;
     this.hiWins = this.loWins = 0; this.lastDyn = -1e9; this.rafDts.length = 0;
+    this.loNeed = this.probe = 0;
     if (this.gt) this.gt.samples.f = [];
     this.onResize();
   },
-  onTitle() { if (this.grass) this.grass.clear(); },
+  onTitle() { if (this.grass) this.grass.clear(); this.watchPace(); },
+  /** The title draws no 3D, so its frame intervals are the display's own pace (60 Hz, 50 Hz, a 30 fps power-saver cap).
+   *  Without the GPU timer, dynamic resolution judges frames against it (perf/dynres.js): a display slower than 60 Hz
+   *  must not read as a slow GPU. Sampled until the session starts; the last dynPaceN intervals count. Not inside a
+   *  frame: Safari runs an embedded page at 30 fps until its first click, which is the one that starts the session */
+  watchPace() {
+    if (this.paceRaf || typeof requestAnimationFrame !== 'function' || window.parent !== window) return;
+    const dts = [];
+    let last = 0;
+    const tick = (t) => {
+      if (this.game.state !== 'title') { this.paceRaf = 0; this.pace = titlePace(dts, TP) || this.pace; return; }
+      if (last) { dts.push(t - last); if (dts.length > TP.dynPaceN) dts.shift(); }
+      last = t;
+      this.paceRaf = requestAnimationFrame(tick);
+    };
+    this.paceRaf = requestAnimationFrame(tick);
+  },
 
   // ------------------------------------------------------------------ per frame (render side, after the view)
   afterCamera(alpha, dt) {
@@ -275,11 +293,12 @@ const perf = {
     if (!first) this.applyDpr();
   },
   /** dynamic resolution scale of the main pass (no canvas work: the next main pass is drawn at that size) */
-  setDyn(k) { this.dyn = Math.min(1, Math.max(TP.dynMin, Math.round(k * 100) / 100)); return this.dyn; },
+  setDyn(k) { this.dyn = clampDyn(k, TP); return this.dyn; },
   /** the canvas pixel ratio: the quality's cap (a settings change re-allocates the canvas once; dynamic resolution never does) */
   applyDpr() {
     const game = this.game, r = game.renderer, pr = dprFor(game.settings.get('quality'));
     if (Math.abs(r.getPixelRatio() - pr) < 1e-3) return;
+    if (pr < r.getPixelRatio()) this.loNeed = this.probe = 0;   // fewer pixels: what the untimed probes learned is void
     const w = window.innerWidth, h = window.innerHeight;
     r.setPixelRatio(pr); r.setSize(w, h);
     game.view.onResize(w, h);
@@ -332,22 +351,19 @@ const perf = {
     const game = this.game, S0 = game.settings.get('dynRes') !== false, now = performance.now();
     const on = S0 && !this.dynHold && !this.ctxLost && !game.gpuT && !game.clock.manual && game.state === 'play' && game.playing;
     if (!on) {
-      this.gt.samples.f = []; this.rafDts.length = 0; this.hiWins = this.loWins = 0;
-      if (!this.dynHold && this.dyn !== 1 && (game.gpuT || !S0 || game.clock.manual)) this.setDyn(1);   // measurements and tests run at full res
+      // (untimed, the on-time count survives a menu or a dialogue: a backed-off probe can need a minute of them)
+      this.gt.samples.f = []; this.rafDts.length = 0; this.hiWins = 0; if (this.gt.ok) this.loWins = 0;
+      if (game.gpuT || !S0 || game.clock.manual) { this.probe = 0; if (!this.dynHold && this.dyn !== 1) this.setDyn(1); }   // measurements and tests run at full res
+      else if (!this.dynHold && !this.ctxLost) { const k = dynPause(this, this.gt.ok, TP); if (k !== this.dyn) this.setDyn(k); }   // only play paused
       return;
     }
     const S = this.gt.ok ? (this.gt.samples.f || (this.gt.samples.f = [])) : this.rafDts;
     if (!this.gt.ok && dt > 0) this.rafDts.push(dt * 1000);
     if (S.length < TP.dynEvery) return;
-    const s = S.slice().sort((a, b) => a - b), p75 = s[Math.floor(s.length * 0.75)];
+    // the decision (bands, the untimed pace and its probes): perf/dynres.js, on this module's own fields
+    const k = dynDecide(this, S, this.gt.ok, now, TP);
     S.length = 0;
-    const hi = this.gt.ok ? TP.dynHi : 1000 / 55, lo = this.gt.ok ? TP.dynLo : 1000 / 62;
-    this.hiWins = p75 > hi ? (this.hiWins || 0) + 1 : 0;
-    this.loWins = p75 < lo ? (this.loWins || 0) + 1 : 0;
-    if (now - this.lastDyn < TP.dynGap * 1000) return;
-    // one step per decision (a step is free: nothing waits for a calm moment, nothing stacks)
-    if (this.hiWins >= TP.dynHiWins && this.dyn > TP.dynMin) { this.hiWins = 0; this.lastDyn = now; this.setDyn(this.dyn - TP.dynStep); }
-    else if (this.loWins >= TP.dynLoWins && this.dyn < 1) { this.loWins = 0; this.lastDyn = now; this.setDyn(this.dyn + TP.dynStep); }
+    if (k !== this.dyn) this.setDyn(k);
   },
 
   // ------------------------------------------------------------------ boot warm-up (main.js renderer setup)
@@ -440,7 +456,7 @@ const perf = {
       state() {
         const g = self.game, sc = g.scenery;
         return {
-          dpr: g.renderer.getPixelRatio(), dyn: self.dyn, dynHold: self.dynHold, pass: self.pass, quality: g.settings.get('quality'), lights: self.lightsOn, lightsForced: self.lightsForced, nLights: self.lights.length,
+          dpr: g.renderer.getPixelRatio(), dyn: self.dyn, dynHold: self.dynHold, dynPace: self.pace, dynWait: Math.max(TP.dynLoWins, self.loNeed || 0), pass: self.pass, quality: g.settings.get('quality'), lights: self.lightsOn, lightsForced: self.lightsForced, nLights: self.lights.length,
           view: { full: self.view.full, half: +(self.view.half / D2R).toFixed(1), cone: self.view.full ? 360 : +((Math.acos(self.view.cosH) / D2R) * 2).toFixed(1), box: !!self.view.box },
           cullOff: !!(sc && sc.cullOff), scatter: sc && sc.stats ? sc.stats() : null,
           objs: { tracked: self.objs.length, hidden: self.objHidden },

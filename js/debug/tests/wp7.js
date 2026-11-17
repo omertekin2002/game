@@ -431,11 +431,13 @@ export default function register(suite) {
       t.ok(stepMs < 5, 'a step costs nothing', stepMs);
       t.ok(d.mean < 20 && black / (scaled.length / 28) < 0.01, 'the stretched 0.8 frame matches the full frame', d);
       // the controller (fake samples; manual clock off for the decision, play state)
+      // (without the timer these windows go through the untimed rules: its pace and probe state start clean and are put back)
       const ok = P.gt.ok, hiMs = ok ? 13 : 25, loMs = ok ? 6 : 10, was = game.clock.manual;
+      const keep = { pace: P.pace, loNeed: P.loNeed, probe: P.probe };
       const feed = (ms) => { if (ok) P.gt.samples.f = new Array(TP.dynEvery).fill(ms); else P.rafDts = new Array(TP.dynEvery).fill(ms); P.dynamicRes(0); };
       game.clock.manual = false;
       try {
-        P.lastDyn = -1e9; P.hiWins = P.loWins = 0; P.setDyn(1);
+        P.lastDyn = -1e9; P.hiWins = P.loWins = P.loNeed = P.probe = 0; if (!ok) P.pace = 0; P.setDyn(1);
         feed(hiMs); const one = P.dyn;                    // dynHiWins (1) window over 11.5 ms: −0.05 at once, nothing waits
         feed(hiMs); const gap = P.dyn;                    // within dynGap: no second step
         const seq = [P.dyn];
@@ -448,7 +450,51 @@ export default function register(suite) {
         t.near(gap, one, 1e-6, 'steps at least dynGap apart');
         t.ok(steps.every((x) => x <= TP.dynStep + 1e-6) && Math.min(...seq) >= TP.dynMin - 1e-6, 'never more than one step per decision, floor 0.70', seq);
         t.ok(Math.abs(notYet - Math.min(...seq)) < 1e-6 && Math.abs(up - notYet - TP.dynStep) < 1e-6, 'dynLoWins windows under 8.5 ms → one step up', { notYet, up });
-      } finally { game.clock.manual = was; P.setDyn(1); P.hiWins = P.loWins = 0; P.lastDyn = -1e9; }
+      } finally { game.clock.manual = was; Object.assign(P, keep); P.setDyn(1); P.hiWins = P.loWins = 0; P.lastDyn = -1e9; }
+      // without the GPU timer (Firefox, Safari): frame intervals against the pace (perf/dynres.js; tests/dynres.test.js
+      // plays whole sessions). A stand-in timer without the extension, the same fake windows
+      const gt = P.gt, state = game.state, raf = window.requestAnimationFrame;
+      const feedU = (ms) => { P.lastDyn = -1e9; P.rafDts = new Array(TP.dynEvery).fill(ms); P.dynamicRes(0); return P.dyn; };
+      P.gt = { ok: false, samples: {}, open: null, poll() {} };
+      game.clock.manual = false;
+      try {
+        P.hiWins = P.loWins = P.loNeed = P.probe = P.pace = 0; P.setDyn(1);
+        const down = feedU(1000 / 30);                                              // one slow window on a 60 Hz display
+        let back = down; for (let i = 0; i < TP.dynLoWins; i++) back = feedU(1000 / 60);
+        const fail = feedU(1000 / 30), need = P.loNeed;                             // that step up did not hold
+        let wait = fail; for (let i = 0; i < TP.dynLoWins; i++) wait = feedU(1000 / 60);
+        let later = wait; for (let i = 0; i < TP.dynLoWins; i++) later = feedU(1000 / 60);
+        P.hiWins = P.loWins = P.loNeed = P.probe = 0; P.pace = 20; P.setDyn(1);     // a 50 Hz display, seen on the title
+        let slow = 1; for (let i = 0; i < 8; i++) slow = feedU(20);
+        t.note('untimed', { down, back, fail, need, wait, later, slow, pace: P.pace });
+        t.near(down, 1 - TP.dynStep, 1e-6, 'untimed: one slow window → one step down');
+        t.eq(back, 1, 'untimed: dynLoWins windows at a steady 60 fps → full size again');
+        t.ok(fail < 1 && need === TP.dynLoWins * 2 && wait === fail && later === 1, 'untimed: a step up that did not hold doubles the wait for the next', { fail, need, wait, later });
+        t.eq(slow, 1, 'untimed: the display\'s own slower pace is not a slowdown');
+        // play pauses (here: the title state) right after a step up that nothing has judged: it is taken back, once
+        P.hiWins = P.loWins = P.loNeed = P.probe = P.pace = 0; P.setDyn(0.9);
+        let up = 0.9; for (let i = 0; i < TP.dynLoWins; i++) up = feedU(1000 / 60);
+        game.state = 'title'; P.dynamicRes(0); const paused = P.dyn; P.dynamicRes(0); const still = P.dyn;
+        game.state = state;
+        t.ok(Math.abs(up - 0.95) < 1e-6 && Math.abs(paused - 0.9) < 1e-6 && still === paused && P.loNeed === 0, 'untimed: an unjudged step up does not outlast the start of a pause', { up, paused, still, loNeed: P.loNeed });
+        // off (here: the manual clock) the on-time windows counted so far stay, a backed-off probe needs many; timed, they go
+        P.setDyn(1); P.loWins = 3; game.clock.manual = true; P.dynamicRes(0); const kept = P.loWins;
+        P.gt = gt; P.loWins = 3; P.dynamicRes(0); const timed = P.loWins;
+        P.gt = { ok: false, samples: {}, open: null, poll() {} }; game.clock.manual = false;
+        t.ok(kept === 3 && timed === (gt.ok ? 0 : 3), 'off: the untimed on-time count is kept, the timed one starts again', { kept, timed, timer: gt.ok });
+        // the title's own pace (watchPace), frames pumped by hand: 20 ms apart → a 20 ms pace; a visit too short to tell
+        // keeps it; an even 60 Hz title is 60 fps
+        let q = [], now = 5000;
+        window.requestAnimationFrame = (cb) => { q.push(cb); return q.length; };
+        const pump = (n, ms) => { for (let i = 0; i < n; i++) { now += ms; const c = q; q = []; for (const f of c) f(now); } };
+        const title = (n, ms) => { game.state = 'title'; P.watchPace(); pump(n, ms); game.state = state; pump(1, ms); return P.pace; };
+        P.pace = 0;
+        const p50 = title(TP.dynPaceN + 1, 20), idle = P.paceRaf, left = q.length, short = title(TP.dynPaceMin - 2, 33), p60 = title(TP.dynPaceN + 1, 1000 / 60);
+        t.note('title pace', { p50, short, p60, idle, left });
+        t.ok(Math.abs(p50 - 20) < 0.01 && idle === 0 && left === 0, 'watchPace: an even 50 Hz title is a 20 ms pace, and the watch ends with the title', { p50, idle, left });
+        t.eq(short, p50, 'watchPace: too few title frames keep the pace');
+        t.near(p60, 1000 / 60, 1e-6, 'watchPace: a 60 Hz title is the 60 fps pace');
+      } finally { window.requestAnimationFrame = raf; game.state = state; P.gt = gt; game.clock.manual = was; Object.assign(P, keep); P.paceRaf = 0; P.rafDts.length = 0; P.setDyn(1); P.hiWins = P.loWins = 0; P.lastDyn = -1e9; }
     }, { prepare: { settings: { dynRes: true } } }],
     ['quality low: no near grass, 1024² shadow map, DPR 1; back to auto restores them', (t) => {
       const { game, settings } = t, P = mod(game), sh = game.sky.sun.shadow;
@@ -676,10 +722,11 @@ export default function register(suite) {
       t.ok(!gt.lost, 'dispose removes its listeners');
       const P = game.modules.find((m) => m && m.name === 'wp7-perf'), hold = P.dynHold;
       try {
-        P.dynHold = true; P.setDyn(0.8); P.hiWins = 3; P.contextLost();
+        P.dynHold = true; P.setDyn(0.8); P.hiWins = 3; P.loNeed = 8; P.probe = 5; P.contextLost();
         t.ok(P.ctxLost, 'perf: lost');
         P.contextRestored();
         t.ok(P.dyn === 1 && !P.ctxLost && P.hiWins === 0 && P.lastDyn < 0, 'perf: restored at full resolution, decisions start over', { dyn: P.dyn, hiWins: P.hiWins });
+        t.ok(P.loNeed === 0 && P.probe === 0, 'perf: restored without the untimed back-off of the old context', { loNeed: P.loNeed, probe: P.probe });
       } finally { P.dynHold = hold; P.setDyn(1); }
     }],
     ['far plane 300 m; G.debug.perf helpers (state, cull, dyn, lights, grass, repack)', (t) => {

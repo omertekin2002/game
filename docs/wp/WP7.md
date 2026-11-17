@@ -82,8 +82,10 @@ No edit outside these files.
   (outline px, particle sizes and the TP occluder circle follow that size), copied into a texture and stretched over the
   canvas with one quad (bilinear); the viewmodel / item-get passes then draw at full size. A step is just the next pass's
   size: nothing is re-allocated (CPU 0.3 ms, no frame-time change: `out/dyn-trace.json`), so the controller follows arch
-  §9.2-7: GPU timer p75 of the main pass every 30 timed frames (rAF time without the extension), one window over 11.5 ms →
-  −0.05, four windows under 8.5 ms → +0.05, at most one step per 0.5 s, one step per decision. Off with
+  §9.2-7: GPU timer p75 of the main pass every 30 timed frames, one window over 11.5 ms →
+  −0.05, four windows under 8.5 ms → +0.05, at most one step per 0.5 s, one step per decision. Without the timer
+  extension the frame interval is judged against the display's pace (later change: `ARCHITECTURE.md` §14.2,
+  `js/perf/dynres.js`). Off with
   `settings.dynRes = false`, under the manual clock and while `G.debug.perf` samples.
 - **Quality** `low`: DPR 1.0, no near grass, 1024² shadow map (lo textures: `assets.js`); `auto` / `high`: 2048².
 - **Far plane 300 m** (RULINGS).
@@ -189,7 +191,9 @@ No edit outside these files.
   lod{small, glow, big} [start, end, tris], lodMin, lodMinTotal, coneMargin, coneMarginDeco, repackMove, nearAll,
   shadowPad, shadowFullR, outline{char, prop, propOcc, big, tree, bush}{px, w, far}, outlineCap, outlinePxKMin,
   outlineInside, outlineNear, outlineThin, nearFade, nearFadeFoliage, objCull, objScanEvery, dprCap{auto, low, high},
-  dynMin 0.70, dynStep 0.05, dynHi 11.5, dynLo 8.5, dynEvery 30, dynHiWins 1, dynLoWins 4, dynGap 0.5, shadowLow,
+  dynMin 0.70, dynStep 0.05, dynHi 11.5, dynLo 8.5, dynEvery 30, dynHiWins 1, dynLoWins 4, dynGap 0.5, dynLate 1.09,
+  dynProbe 128, dynLoMax 128, dynPaceN 60, dynPaceMin 20, dynPaceEven 1.15, dynPaceDrop 0.9 (the last seven: without
+  the timer extension), shadowLow,
   shadowHigh, grass{…, clipFx, alphaTest, groundMatch, tintMid}, pNear, pCapNear, pCapFar, haloNear, haloMax`, `objSpread`
   (r2: 6 m). Removed in
   the fix round: `hullMax`, `dynCalm`, `dynForce`.
@@ -197,7 +201,8 @@ No edit outside these files.
 - **Sounds**: `sfx('leaves', { x, y, z, vol })` once per sword swing that cuts near grass (a C8 name).
 - **Events**: none emitted or consumed.
 - **Debug** (`G.debug.perf` keeps the foundation's sampler function and gains): `perf.state()` → `{ dpr (the canvas),
-  dyn, dynHold, pass ([w, h] of the scaled main pass or null), quality, lights, lightsForced, nLights, view {full, half,
+  dyn, dynHold, dynPace (ms, the untimed pace; 0 = not measured), dynWait (on-time windows the next untimed step up
+  needs), pass ([w, h] of the scaled main pass or null), quality, lights, lightsForced, nLights, view {full, half,
   cone, box}, cullOff, scatter (per-layer packed counts), objs {tracked, hidden}, grass {on, cards, tiles, cached, grass,
   flowers, blades, cuts, sfx, tris}, ms {cull, obj, grass}, far, timer }`, `perf.cull(on = true)` (false = A/B base),
   `perf.dyn(k?)` (k: main pass scale held, also under the manual clock, until `dyn(null)`), `perf.lights(on?)` (the set

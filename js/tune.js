@@ -476,6 +476,13 @@ export const perf = {
   // −dynStep after dynHiWins windows over dynHi ms, +dynStep after dynLoWins windows under dynLo, at most one per dynGap s
   dprCap: { auto: 1.5, low: 1.0, high: 2.0 },
   dynMin: 0.70, dynStep: 0.05, dynHi: 11.5, dynLo: 8.5, dynEvery: 30, dynHiWins: 1, dynLoWins: 4, dynGap: 0.5,
+  // without the GPU timer (perf/dynres.js): the samples are frame intervals, judged against the pace to hold: late
+  // over pace × dynLate, else on time. A step up is a probe: a step down within dynProbe decisions doubles the on-time
+  // windows the next one needs, up to dynLoMax (dynProbe 64 met a heavy view that returns every 50 s at full size each
+  // time, 8 % of play at half rate; 240 also lowered the scale for slowdowns two minutes apart). The pace is 60 fps, or
+  // the display's own if slower: the median of the last dynPaceN title-screen frames (at least dynPaceMin, p75 under
+  // p25 × dynPaceEven); a window median under pace × dynPaceDrop moves it back
+  dynLate: 1.09, dynProbe: 128, dynLoMax: 128, dynPaceN: 60, dynPaceMin: 20, dynPaceEven: 1.15, dynPaceDrop: 0.9,
   shadowLow: 1024, shadowHigh: 2048,
   // near-field grass cards (art §4.2): camera-centred tiles, density per m² by splat layer, heights, fade band
   grass: {

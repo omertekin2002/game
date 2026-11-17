@@ -94,7 +94,7 @@ Design: `docs/DESIGN.md`. Code contract: `docs/ARCHITECTURE.md`, with per-area d
 
 ```sh
 bun install
-bun test             # unit tests: world generation, content tables, save schema (migration + validation)
+bun test             # unit tests: world generation, content tables, save schema, dynamic resolution
 bun run test:smoke   # headless Chromium: New Game, then Continue a valid / corrupt / newer save; fails on any error
 ```
 
