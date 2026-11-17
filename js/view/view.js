@@ -163,8 +163,8 @@ export class ViewController {
       this.padBoostT = 0; this.freezeAim(); return;
     }
     const S = this.settings;
-    const mk = MOUSE_K * S.get('sens'), inv = S.get('invertY') ? -1 : 1;
-    let dyaw = -m.x * mk, dpitch = -m.y * mk * inv;
+    const mk = MOUSE_K * S.get('sens'), inv = S.get('invertY') ? -1 : 1, invX = S.get('invertX') ? -1 : 1;
+    let dyaw = -m.x * mk * invX, dpitch = -m.y * mk * inv;
     // touch: × (1 + smoothstep(400, 1600, finger speed px/s)) (feel §3.4: a slow 400 px swipe turns 115°, a flick up to
     // 230°); the speed is this frame's travel over the time since the last frame that brought any (touch events may
     // come at 60 Hz on a 120 Hz display), at most 1/30 s back (a swipe's first move)
@@ -175,9 +175,9 @@ export class ViewController {
     dyaw -= tc.x * TOUCH_YAW * tk; dpitch -= tc.y * TOUCH_PITCH * tk;
     if (st && st.m > 0) {
       if (st.m >= 0.98) this.padBoostT += dt; else if (st.m < 0.95) this.padBoostT = 0;
-      const ps = S.get('padSens'), pinv = S.get('padInvertY') ? -1 : 1;
+      const ps = S.get('padSens'), pinv = S.get('padInvertY') ? -1 : 1, pinvX = S.get('padInvertX') ? -1 : 1;
       const yr = lerp(PAD_YAW, PAD_BOOST, clamp((this.padBoostT - 0.12) / 0.3, 0, 1));
-      dyaw -= st.x * yr * D2R * ps * dt;
+      dyaw -= st.x * yr * D2R * ps * dt * pinvX;
       dpitch -= st.y * PAD_PITCH * D2R * ps * dt * pinv;
     } else this.padBoostT = 0;
     if (this.lookMods.length) {

@@ -257,9 +257,9 @@ village and lamps along the first stretch. A river runs down the east side to th
 | Third-person shoulder (View) | right, left or centre (X swaps) |
 | Crosshair, size, colour; HUD size; minimap (View) | dot / dot + ring / off; small / medium / large; cream / bright yellow; 80–120 %; turns with you / north up / off |
 | Graphics quality; dynamic resolution (View) | auto / low / high (low: lower resolution, no near grass, smaller shadow map, smaller textures); on / off |
-| Mouse sensitivity, invert, raw input (Controls) | 0.25–4 ×; up / down inverted; pointer lock without OS acceleration |
+| Mouse sensitivity, invert, raw input (Controls) | 0.25–4 ×; up / down and left / right, each on its own switch; pointer lock without OS acceleration |
 | Arrow keys look around (Controls) | the arrow keys turn the view (WASD still walks); hidden on a touch-only screen |
-| Controller look speed, invert, stick response (Controls) | 0.5–2 ×; linear / smooth / precise |
+| Controller look speed, invert, stick response (Controls) | 0.5–2 ×; up / down and left / right, each on its own switch (the arrow keys follow them when they look); linear / smooth / precise |
 | Touch look sensitivity, left-handed buttons (Controls) | 0.5–2 ×; mirrors the stick and buttons |
 | Swing assist, lock-on button, lock-on turns the camera, lock on to bosses by itself (Controls · Sword) | magnetism off / low / high / auto; press or hold; on / off; auto (pad and touch) / on / off |
 | Camera drifts behind Pip, Pip faces where you look (Controls · Third person) | with a pad or touch the camera eases behind Pip while he runs (never near enemies); Pip strafes instead of turning |

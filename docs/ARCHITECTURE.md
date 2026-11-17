@@ -237,7 +237,7 @@ shot weight), `eye` (interpolated FP eye), `armLen`, `fovV`, `fovH`, `px` (pixel
 
 | Method | |
 |---|---|
-| `applyLook(input, dt)` | before the steps. Mouse `0.0022 × sens` rad per count (no smoothing; `invertY`); touch `0.0050 / 0.0042 × touchSens` rad per px × (1 + smoothstep(400, 1600, finger px/s)); pad stick 200 / 140 °/s × `padSens` (yaw boosts to 320 °/s after 0.12 s at full deflection). Drained while not allowed (scripted assists still run); then the look mods; then the aim is frozen for this frame's steps |
+| `applyLook(input, dt)` | before the steps. Mouse `0.0022 × sens` rad per count (no smoothing; `invertY`, `invertX`); touch `0.0050 / 0.0042 × touchSens` rad per px × (1 + smoothstep(400, 1600, finger px/s)); pad stick 200 / 140 °/s × `padSens` (yaw boosts to 320 °/s after 0.12 s at full deflection; `padInvertY`, `padInvertX`, which the arrow keys follow when they look: they feed the same stick). Drained while not allowed (scripted assists still run); then the look mods; then the aim is frozen for this frame's steps |
 | `update(alpha, dt)` | render pose (above), FOV, near plane, layers, `bodyFade`, the TP occluder uniforms |
 | `snap()` | reset smoothing (teleport, respawn, session); also cuts a shot that is only blending out |
 | `forward()`, `right()`, `aim(out)`, `aimYaw / aimPitch / lookYaw / lookPitch` | the look basis and sword aim frozen for this frame. FP aim = the eye ray. TP aim = from Pip's eye toward the crosshair ray at `TUNE.combat.tpConverge` (3 m) past his shoulder plane, the ray at `tp.pivot.y + tp.lift − tp.drop` |
@@ -525,8 +525,8 @@ from `META` (`js/hud/menus.js`); a key without `META` still gets a row.
 |---|---|---|
 | `view` | `fp` (`fp`, `tp`) | view |
 | `fovFP`, `fovTP` | 100 (80–115), 90 (75–100), horizontal at 16:9 | view |
-| `sens`, `invertY`, `rawInput` | 1 (0.25–4), false, false | view; pointer lock (`unadjustedMovement`) |
-| `padSens`, `padInvertY`, `padCurve` | 1 (0.5–2), false, `default` (`linear`, `default`, `precise`) | view; input |
+| `sens`, `invertY`, `invertX`, `rawInput` | 1 (0.25–4), false, false, false | view; pointer lock (`unadjustedMovement`) |
+| `padSens`, `padInvertY`, `padInvertX`, `padCurve` | 1 (0.5–2), false, false, `default` (`linear`, `default`, `precise`) | view; input |
 | `touchSens`, `touchLeftHanded` | 1 (0.5–2), false | view; touch, HUD, viewmodel |
 | `arrowLook` | false | input |
 | `headBob`, `shake`, `speedFx` | 1 (0–1 each) | view feel, viewmodel, HUD speed lines |

@@ -302,7 +302,9 @@ export const TargetingMixin = {
     const L = this.lockS(), v = this.view, st = this.input && this.input.lookStick;
     const hx = st && st.m > 0 ? (Math.abs(st.x) / (Math.hypot(st.x, st.y) || 1)) * st.m : 0; // horizontal stick magnitude
     if (!v.lockTarget || v.mode !== 'tp' || !this.playing || !this.lockFramed()) { L.flickAcc = 0; L.flickT = 0; L.padPrev = hx; return; }
-    const counts = Lk.mouse > 0 ? -Lk.dyaw / (MOUSE_K * (this.settings.get('sens') || 1)) : 0; // + = mouse right
+    // + = mouse right, as the hand moved: the look delta carries the invertX sign, a pick on the screen must not (the
+    // stick below is read raw for the same reason, so padInvertX does not turn it either)
+    const counts = Lk.mouse > 0 ? (-Lk.dyaw / (MOUSE_K * (this.settings.get('sens') || 1))) * (this.settings.get('invertX') ? -1 : 1) : 0;
     if (counts && Math.sign(counts) !== Math.sign(L.flickAcc)) { L.flickAcc = 0; L.flickT = 0; }
     L.flickT += Lk.dt; L.flickAcc += counts;
     if (L.flickT > TC.lockFlickT) { L.flickAcc = counts; L.flickT = Lk.dt; }

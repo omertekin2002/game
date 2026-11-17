@@ -76,10 +76,12 @@ export const META = {
   dynRes: { tab: 'view', g: 'Graphics', label: 'Dynamic resolution' },
   sens: { tab: 'controls', g: 'Keyboard + mouse', label: 'Mouse sensitivity', fmt: MUL },
   invertY: { tab: 'controls', g: 'Keyboard + mouse', label: 'Invert mouse up / down' },
+  invertX: { tab: 'controls', g: 'Keyboard + mouse', label: 'Invert mouse left / right' },
   rawInput: { tab: 'controls', g: 'Keyboard + mouse', label: 'Raw mouse input' },
-  arrowLook: { tab: 'controls', g: 'Keyboard + mouse', label: 'Arrow keys look around', note: 'WASD still walks · they turn at the controller look speed' },
+  arrowLook: { tab: 'controls', g: 'Keyboard + mouse', label: 'Arrow keys look around', note: 'WASD still walks · they turn at the controller look speed, with its invert switches' },
   padSens: { tab: 'controls', g: 'Controller', label: 'Controller look speed', fmt: MUL },
   padInvertY: { tab: 'controls', g: 'Controller', label: 'Invert controller up / down' },
+  padInvertX: { tab: 'controls', g: 'Controller', label: 'Invert controller left / right' },
   padCurve: { tab: 'controls', g: 'Controller', label: 'Stick response', names: { linear: 'Linear', default: 'Smooth', precise: 'Precise' } },
   // (the two third-person rows: their own group right after the device's and Sword, so a portrait phone, which plays in
   // third person, finds the drift it gets by default without scrolling past other devices' rows)

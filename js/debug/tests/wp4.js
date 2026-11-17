@@ -576,6 +576,28 @@ export default function register(suite) {
       } finally { settings.set('lockTurnsCamera', true); game.releaseLock(); }
       t.ok(back, 'spawned');
     }],
+    ['TP lock flick with the look inverted left / right: the pick follows the hand (mouse right, stick right → the target on the right)', (t) => {
+      const { D, game, view, settings } = t, got = {};
+      try {
+        withFraming(view, () => {
+          for (const dev of ['mouse', 'stick']) {
+            D.setView('tp'); D.pose('meadow'); D.look(0, -6 * D2R); t.frames(3); t.clearEnemies();
+            D.spawn('slime', 6, 0); const a = D.last; D.spawn('slime', 6, 30); const L = D.last; D.spawn('slime', 6, -30); const R = D.last; t.frames(2);
+            game.setLock(a, 'toggle'); t.frames(2);
+            settings.set(dev === 'mouse' ? 'invertX' : 'padInvertX', true);
+            D.pad(0, 0); t.frames(30);
+            if (dev === 'mouse') { D.lookDelta(80, 0, { single: true }); t.frames(1); } else { D.pad(0.95, 0); t.frames(1); }
+            D.pad(0, 0); t.frames(2); D.pad(null);
+            const now = view.lockTarget;
+            got[dev] = now === a ? 'same' : now === L ? 'L' : now === R ? 'R' : String(now);
+            settings.set('invertX', false); settings.set('padInvertX', false); game.releaseLock();
+          }
+        });
+      } finally { settings.set('invertX', false); settings.set('padInvertX', false); D.pad(null); }
+      t.note('flick', got);
+      t.eq(got.mouse, 'R', 'invertX: a mouse flick right');
+      t.eq(got.stick, 'R', 'padInvertX: a stick flick right');
+    }],
     ['TP pad flick (with the framing): only a horizontal push switches; (±0.03…0.1, −0.95), (0.05, +0.95) never do', (t) => {
       const { D, game, view } = t, rows = [];
       withFraming(view, () => {

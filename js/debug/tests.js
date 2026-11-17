@@ -138,7 +138,7 @@ async function prepare(t, o = {}) {
   if (o.sword) { S.swordLevel = o.sword; game.player.setSword(o.sword); }
   D.seed(o.seed ?? 1); D.god(!!o.god); D.freezeAI(!!o.freeze); D.freezeTime(false); D.hud(true);
   D.release(); D.move(0, 0); D.pad(null);
-  for (const [k, v] of Object.entries({ sens: 1, invertY: false, padInvertY: false, padCurve: 'default', padSens: 1, touchSens: 1, arrowLook: false, fovFP: 100, fovTP: 90, tpShoulder: 'right', reduceMotion: false, shake: 1, ...(o.settings || {}) })) settings.set(k, v);
+  for (const [k, v] of Object.entries({ sens: 1, invertY: false, invertX: false, padInvertY: false, padInvertX: false, padCurve: 'default', padSens: 1, touchSens: 1, arrowLook: false, fovFP: 100, fovTP: 90, tpShoulder: 'right', reduceMotion: false, shake: 1, ...(o.settings || {}) })) settings.set(k, v);
   D.setView(o.view || 'fp');
   game.view.tp.boom = TV.tpBoom;
   D.setTime(o.time ?? 12);

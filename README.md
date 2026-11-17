@@ -71,7 +71,8 @@ Open Settings from the pause menu or the title.
 
 - **View**: first or third person, field of view for each (first person 100°, third person 90° by default), crosshair
   style, HUD size, minimap (turns with you, north up, off), graphics quality and dynamic resolution.
-- **Controls**: mouse, controller and touch sensitivity and inversion, "Arrow keys look around", left-handed touch
+- **Controls**: mouse, controller and touch sensitivity, mouse and controller inversion (up / down and left / right),
+  "Arrow keys look around", left-handed touch
   buttons, swing assist, lock-on as press or hold, "Lock-on turns the camera", "Lock on to bosses by itself", and for
   third person "Camera drifts behind Pip" and "Pip faces where you look".
 - **Sound**: music, effects and ambience volumes, mute.

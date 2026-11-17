@@ -83,7 +83,7 @@ What WP6 added or changed, for folding into `docs/ARCHITECTURE.md` after the mer
   Controller; a touch-only screen counts as touch before its first tap); the Controls card's look / walk rows use the
   device tab's pictogram. Groups (round 3): **Keyboard + mouse** (was "Mouse": it holds the arrow-look row) — mouse
   sensitivity, invert, raw input, "Arrow keys look around" (note: WASD still walks · they turn at the controller look
-  speed); Controller; Touch; Sword; **Third person** — "Camera drifts behind Pip" (note: with a controller or touch,
+  speed, with its invert switches); Controller; Touch; Sword; **Third person** — "Camera drifts behind Pip" (note: with a controller or touch,
   while you run and leave the camera alone; it was under Controller, after the mouse rows) and "Pip faces where you look"
   (note: Pip steps sideways instead of turning to run; it was "… (third person)" under Sword). On a **touch-only screen
   nobody has typed on** (`kbmRowsHidden()`: `(pointer: coarse)`, no `(any-pointer: fine)`, `input.lastDevice` not

@@ -33,8 +33,8 @@ const DRAG_K = 0.0035 / 0.0022;      // drag-look fallback runs 0.0035 rad per C
 const CURVE = { linear: 1.0, default: 1.8, precise: 2.6 };
 const CLICK_GUARD = 300;             // ms after a cursor menu closes during which canvas mouse presses do nothing
 // Keyboard look (setting arrowLook, feel §3.5): ←/→ yaw 60°/s ramping to 140°/s over 0.25 s, ↑/↓ pitch 90°/s. It is fed
-// to view.applyLook as a right-stick deflection (full stick = yaw 200°/s, pitch 140°/s; × Pad sensitivity, Pad invert Y
-// applies), so every look consumer (assist cancel, the lock-on idle test, coach marks) sees it as look input. The
+// to view.applyLook as a right-stick deflection (full stick = yaw 200°/s, pitch 140°/s; × Pad sensitivity, the pad's two
+// invert switches apply), so every look consumer (assist cancel, the lock-on idle test, coach marks) sees it as look input. The
 // deflection stays under the stick's turn-boost threshold (m < 0.95).
 const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
 const KEY_LOOK = { yaw0: 60 / 200, yaw1: 140 / 200, ramp: 0.25, pitch: 90 / 140 };
