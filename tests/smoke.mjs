@@ -162,6 +162,8 @@ async function main() {
     if (!kept.calm) fail('motion comfort not applied to the HUD');
     // ... and two of them do what they say: motion comfort caps a full-screen flash at 20 %, and with left / right
     // inverted a mouse move to the right turns the view to the left (yaw grows). Both are read without waiting on a frame.
+    // (the look is not free until the opening fade is over, which takes a few seconds at software-WebGL frame rates)
+    await waitFor('the view to take look input after Continue', () => window.G.game.view.lookAllowed === true, STEP_TIMEOUT);
     const effect = await page.evaluate(() => {
       const G = window.G, g = G.game, v = g.view;
       g.redFlash = 1; g.whiteFlash = 1;
