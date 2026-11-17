@@ -5,8 +5,10 @@
 // sprites:  transparent PNGs, tightly trimmed (2px pad), bottom edge = feet/ground contact.
 //           Optional animation strips: { src, frames, fps } — a horizontal strip of equal-width frames.
 //           chest_closed/chest_open share one canvas height (same scale); so do great_tree/great_tree_bloom.
-// textures: opaque seamless tiles, used with ctx.createPattern.
-// ui:       full images (title art etc).
+// textures: seamless tiles (THREE textures, repeat). `<name>_hd` = 1024² version, loaded after the title; its `lo`
+//           (512²) is used on phones / low quality. `atlas` = JSON of named cells { cells: { name: {x,y,w,h} }, size }.
+// billboards: transparent painted cards (THREE textures, clamped): sky sprites, foliage / grass cards, effects.
+// ui:       full images used by the DOM (title art, icons, backdrops); only `title` and `eager` ones are preloaded.
 // models:   GLB files normalised to origin bottom-centre (feet), facing +Z, exactly 1 unit tall.
 //           { src, height } — height = in-game size in metres (scale uniformly by it).
 window.ASSET_MANIFEST = {
@@ -74,6 +76,47 @@ window.ASSET_MANIFEST = {
     dirt: { src: 'assets/textures/dirt.png' },
     water: { src: 'assets/textures/water.png' },
     rock: { src: 'assets/textures/rock.png' },
+    grass_hd: { src: 'assets/textures/grass_hd.jpg', lo: 'assets/textures/grass_hd_lo.jpg' },
+    forest_hd: { src: 'assets/textures/forest_hd.jpg', lo: 'assets/textures/forest_hd_lo.jpg' },
+    meadow_hd: { src: 'assets/textures/meadow_hd.jpg', lo: 'assets/textures/meadow_hd_lo.jpg' },
+    sand_hd: { src: 'assets/textures/sand_hd.jpg', lo: 'assets/textures/sand_hd_lo.jpg' },
+    snow_hd: { src: 'assets/textures/snow_hd.jpg', lo: 'assets/textures/snow_hd_lo.jpg' },
+    dirt_hd: { src: 'assets/textures/dirt_hd.jpg', lo: 'assets/textures/dirt_hd_lo.jpg' },
+    rock_hd: { src: 'assets/textures/rock_hd.jpg', lo: 'assets/textures/rock_hd_lo.jpg' },
+    water_hd: { src: 'assets/textures/water_hd.jpg', lo: 'assets/textures/water_hd_lo.jpg' },
+    cobble_hd: { src: 'assets/textures/cobble_hd.jpg', lo: 'assets/textures/cobble_hd_lo.jpg' },
+    planks_hd: { src: 'assets/textures/planks_hd.jpg', lo: 'assets/textures/planks_hd_lo.jpg' },
+    cliff_hd: { src: 'assets/textures/cliff_hd.jpg', lo: 'assets/textures/cliff_hd_lo.jpg' },
+    // first-person conversion art (see docs/ARCHITECTURE.md §14 for the loader rules)
+    stars: { src: 'assets/textures/stars.webp' },                                  // seamless RGBA star field (night dome)
+    fx_atlas: { src: 'assets/textures/fx_atlas.webp', lo: 'assets/textures/fx_atlas_lo.webp', atlas: 'assets/textures/fx_atlas.json', loAtlas: 'assets/textures/fx_atlas_lo.json', wrap: 'clamp' },
+    fx_foam: { src: 'assets/textures/fx_foam.webp' },                              // seamless white foam lace (shoreline)
+    interiors: { src: 'assets/textures/interiors.jpg', atlas: 'assets/textures/interiors.json', wrap: 'clamp' },   // 2×2 room cards behind windows
+    surf_detail: { src: 'assets/textures/surf_detail.jpg', atlas: 'assets/textures/surf_detail.json', deferred: true, srgb: false }, // 6 greyscale 512² detail layers in a vertical strip (each tiles alone)
+  },
+  // billboards: transparent painted cards loaded as clamped, mip-mapped sRGB textures (sky, foliage, effects).
+  billboards: {
+    cloud_a: { src: 'assets/sprites/cloud_a.webp' },
+    cloud_b: { src: 'assets/sprites/cloud_b.webp' },
+    cloud_c: { src: 'assets/sprites/cloud_c.webp' },
+    cloud_d: { src: 'assets/sprites/cloud_d.webp' },
+    cloud_e: { src: 'assets/sprites/cloud_e.webp' },
+    cloud_f: { src: 'assets/sprites/cloud_f.webp' },
+    horizon_isle_a: { src: 'assets/sprites/horizon_isle_a.webp' },
+    horizon_isle_b: { src: 'assets/sprites/horizon_isle_b.webp' },
+    horizon_isle_c: { src: 'assets/sprites/horizon_isle_c.webp' },
+    horizon_isle_d: { src: 'assets/sprites/horizon_isle_d.webp' },
+    sun: { src: 'assets/sprites/sun.webp' },
+    moon: { src: 'assets/sprites/moon.webp' },
+    sky_isle: { src: 'assets/sprites/sky_isle.webp' },
+    grass_cards: { src: 'assets/sprites/grass_cards.webp', atlas: 'assets/sprites/grass_cards.json' },     // cells: short, airy, clover, seed_heads (bottom-aligned)
+    flower_cards: { src: 'assets/sprites/flower_cards.webp', atlas: 'assets/sprites/flower_cards.json' },  // cells: daisies, cosmos, forget_me_nots, buttercups
+    gt_foliage_card: { src: 'assets/sprites/gt_foliage_card.webp' },
+    gt_foliage_card_b: { src: 'assets/sprites/gt_foliage_card_b.webp' },
+    fx_slash_swoosh: { src: 'assets/sprites/fx_slash_swoosh.webp' },   // white crescent, bright head on the right
+    fx_raysburst: { src: 'assets/sprites/fx_raysburst.webp' },         // additive rays behind a held-up item
+    fx_footprint: { src: 'assets/sprites/fx_footprint.webp' },
+    fx_crack: { src: 'assets/sprites/fx_crack.webp' },
   },
   models: {
     hero: { src: 'assets/models/hero.glb', height: 1.0 },
@@ -88,5 +131,43 @@ window.ASSET_MANIFEST = {
   ui: {
     title: { src: 'assets/ui/title.jpg' },
     icon: { src: 'assets/ui/icon.png' },
+    title_fp_v2: { src: 'assets/ui/title_fp_v2.jpg', eager: true },   // first-person title painting (preferred)
+    title_fp: { src: 'assets/ui/title_fp.jpg' },
+    loading_bg: { src: 'assets/ui/loading_bg.jpg', lo: 'assets/ui/loading_bg_lo.jpg' },
+    ending_art: { src: 'assets/ui/ending_art.jpg' },
+    vista_village: { src: 'assets/ui/vista_village.jpg' },
+    vista_woods: { src: 'assets/ui/vista_woods.jpg' },
+    vista_peaks: { src: 'assets/ui/vista_peaks.jpg' },
+    vista_shores: { src: 'assets/ui/vista_shores.jpg' },
+    vista_meadow: { src: 'assets/ui/vista_meadow.jpg' },
+    ui_vignette_hurt: { src: 'assets/ui/ui_vignette_hurt.webp' },
+    ui_cursor: { src: 'assets/ui/ui_cursor.png' },
+    ui_paper: { src: 'assets/textures/ui_paper.jpg' },               // seamless parchment
+    icon_tree: { src: 'assets/ui/icon_tree.webp' },
+    icon_woods: { src: 'assets/ui/icon_woods.webp' },
+    icon_peaks: { src: 'assets/ui/icon_peaks.webp' },
+    icon_shores: { src: 'assets/ui/icon_shores.webp' },
+    icon_meadow: { src: 'assets/ui/icon_meadow.webp' },
+    icon_village: { src: 'assets/ui/icon_village.webp' },
+    icon_shop: { src: 'assets/ui/icon_shop.webp' },
+    icon_chest: { src: 'assets/ui/icon_chest.webp' },
+    icon_waypoint: { src: 'assets/ui/icon_waypoint.webp' },
+    icon_talk: { src: 'assets/ui/icon_talk.webp' },
+    act_swing: { src: 'assets/ui/act_swing.webp' },
+    act_roll: { src: 'assets/ui/act_roll.webp' },
+    act_hop: { src: 'assets/ui/act_hop.webp' },
+    act_use: { src: 'assets/ui/act_use.webp' },
+    act_view: { src: 'assets/ui/act_view.webp' },
+    act_lock: { src: 'assets/ui/act_lock.webp' },
+    act_map: { src: 'assets/ui/act_map.webp' },
+    act_settings: { src: 'assets/ui/act_settings.webp' },
+    pic_mouse: { src: 'assets/ui/pic_mouse.webp' },
+    pic_keycap: { src: 'assets/ui/pic_keycap.webp' },
+    pic_controller: { src: 'assets/ui/pic_controller.webp' },
+    pic_phone: { src: 'assets/ui/pic_phone.webp' },
+    // the same icons as atlases (cells by name in the JSON), for anything that wants one image
+    ui_icons: { src: 'assets/textures/ui_icons.webp', atlas: 'assets/textures/ui_icons.json' },
+    action_icons: { src: 'assets/textures/action_icons.webp', atlas: 'assets/textures/action_icons.json' },
+    pictos: { src: 'assets/textures/pictos.webp', atlas: 'assets/textures/pictos.json' },
   },
 };

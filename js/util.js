@@ -5,10 +5,22 @@ export const lerp = (a, b, t) => a + (b - a) * t;
 export const invLerp = (a, b, v) => clamp((v - a) / (b - a), 0, 1);
 export function smoothstep(e0, e1, x) { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); }
 export const damp = (a, b, lambda, dt) => lerp(a, b, 1 - Math.exp(-lambda * dt));
+/** angle → [−π, π) (wrapAngle(π) = −π) */
 export function wrapAngle(a) { a = (a + Math.PI) % TAU; if (a < 0) a += TAU; return a - Math.PI; }
 export const angDiff = (a, b) => wrapAngle(b - a);
 export function dampAngle(a, b, lambda, dt) { return a + angDiff(a, b) * (1 - Math.exp(-lambda * dt)); }
 export const len2 = (x, z) => Math.sqrt(x * x + z * z);
+
+// One angle convention everywhere: yaw = atan2(dx, dz) (0 looks +Z / south, π looks −Z / north), pitch + = up.
+export const fwdXZ = (yaw) => ({ x: Math.sin(yaw), z: Math.cos(yaw) });
+export const rightXZ = (yaw) => ({ x: -Math.cos(yaw), z: Math.sin(yaw) }); // forward × up
+export const yawOf = (dx, dz) => Math.atan2(dx, dz);
+export function dir3(yaw, pitch, out) { const c = Math.cos(pitch); return out.set(Math.sin(yaw) * c, Math.sin(pitch), Math.cos(yaw) * c); }
+// render layers: Pip's body lives on BODY (hidden from the FP camera, still cast into the sun's shadow map); PRESENT is
+// the FP item-get item, drawn in its own pass over the world (Game.renderPresent) until WP2's viewmodel pass
+export const LAYER = { WORLD: 0, BODY: 1, PRESENT: 2, DEBUG: 3 };
+/** layers are not inherited: set one on every descendant (except `skip`) */
+export function setLayer(obj, layer, skip = null) { obj.traverse((o) => { if (o !== skip) o.layers.set(layer); }); }
 export function distToSeg(px, pz, ax, az, bx, bz) {
   const dx = bx - ax, dz = bz - az;
   const l2 = dx * dx + dz * dz || 1e-9;

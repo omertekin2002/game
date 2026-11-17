@@ -1,0 +1,210 @@
+// Gameplay input routing, potions, pickups, item-get, talking, shop, chests, pedestal (Game mixin). Event names and
+// function names here are hooks for WP1 (camera), WP2 (hands) and WP6 (UI): keep them stable. Timed beats (the chest
+// freeze) run on sim time (later / tickLater), so they hold while a menu or the shop pauses the world.
+import * as THREE from 'three';
+import { sfx } from './core.js';
+import { CFG, SEED_ORDER, SEEDS, progress } from './data.js';
+import { NPC } from './npcs.js';
+import { Pickup } from './entities.js';
+import { toonMat, sharedOutline, meshWithOutline } from './toon.js';
+import { seedBuilt, heartContainerBuilt } from './models.js';
+import { rand, pick, LAYER, setLayer } from './util.js';
+import { EV } from './events.js';
+import { combat as TC } from './tune.js';
+
+const _v = new THREE.Vector3(), _a = new THREE.Vector3();
+
+export const InteractMixin = {
+  gameplayInput(input) {
+    const pl = this.player, p = this.presses;
+    if (input.pressed('pause')) { this.ui.openPause(); return; }
+    if (input.pressed('map')) { this.ui.openMap(pl.pos, this.view.yaw, this.S); return; }
+    if (input.pressed('potion')) this.drinkPotion();
+    const tgt = this.target;
+    // E / F / Enter, pad Y, touch Use or a tap in the look zone; attack never interacts (RULINGS)
+    if (tgt && (input.pressed('interact') || input.pressed('tap'))) { this.interact(tgt); return; }
+    if (performance.now() - this.modalClosedAt < 120) return; // the press that closed a modal never swings or rolls
+    if (input.pressed('attack')) p.attack = true;
+    if (input.pressed('dash')) p.dash = true;
+    if (input.pressed('jump')) p.jump = true;
+  },
+  /** turn toward something Pip interacts with: FP eases the view onto it; TP turns the body (look unchanged) */
+  faceSubject(x, y, z, dur = 0.35) {
+    const pl = this.player;
+    if (this.view.mode === 'fp') this.view.faceTo(x, y, z, { dur });
+    else pl.turnTo(Math.atan2(x - pl.pos.x, z - pl.pos.z));
+  },
+  drinkPotion() {
+    const S = this.S;
+    if (S.potions <= 0) { this.ui.toast('No potions! Miso sells them.'); sfx('error'); return; }
+    if (S.hp >= S.maxHp) { this.ui.toast('Already full of hearts!'); sfx('error'); return; }
+    S.potions--; S.hp = S.maxHp;
+    sfx('potion');
+    this.events.emit(EV.POTION, {});
+    const a = this.view.selfAnchor('chest', _a);
+    for (let i = 0; i < 14; i++) this.fx.sparkle(a.x, a.y, a.z, pick([0xff9fb6, 0xffffff, 0xfff4a0]), 1, 0.6);
+    this.ui.selfFloater('Refreshed!', '#ffb6c8');
+  },
+  collect(p) {
+    const S = this.S;
+    const a = this.view.selfAnchor('chest', _a);
+    this.events.emit(EV.COLLECT, { kind: p.kind, value: p.value });
+    if (p.kind === 'gem') {
+      S.coins += p.value;
+      sfx('coin');
+      this.fx.sparkle(a.x, a.y, a.z, 0xb8fff0, 3, 0.4);
+      if (p.value > 1) this.ui.selfFloater('+' + p.value + ' gems', '#c8fbff', 18);
+    } else if (p.kind === 'heart') {
+      S.hp = Math.min(S.maxHp, S.hp + 2);
+      sfx('heart');
+      this.fx.sparkle(a.x, a.y, a.z, 0xff9fb6, 4, 0.4);
+    } else if (p.kind === 'seed') {
+      S.seeds[p.seedId] = 1;
+      sfx('seed'); sfx('fanfare');
+      const left = 3 - progress.found(S);
+      this.itemGet(seedBuilt(SEEDS[p.seedId].color), SEEDS[p.seedId].key, [
+        'You got the ' + SEEDS[p.seedId].name + '!',
+        left > 0 ? 'Bring it to the pedestal by the Great Tree. ' + left + ' more to find!' : 'That\'s all three! Hurry back to the Great Tree!',
+      ]);
+      this.save(true);
+      this.updateMusic(true);
+    }
+  },
+  /** item-get: Pip holds the item up. FP never turns the view: the item is presented in front of the eye (viewmodel.js);
+   *  TP turns the body to the camera and raises it overhead */
+  itemGet(built, portrait, lines, after) {
+    const pl = this.player;
+    pl.state = 'item';
+    pl.vel.set(0, 0);
+    if (this.view.mode === 'tp') pl.turnTo(this.view.yaw + Math.PI); // TP: show the item to the camera
+    this.clearHeldItem();
+    const mat = toonMat({ glow: true, glowBase: 0.4, rim: 0.6 });
+    const g = meshWithOutline(built, mat, sharedOutline('char'));
+    g.traverse((m) => { m.castShadow = false; });
+    g.scale.setScalar(1.3);
+    setLayer(g, LAYER.BODY);
+    pl.held.add(g);
+    this.heldItem = g;
+    // the burst: over Pip's head in TP; in FP well past the held item (never inside 0.6 m of the eye)
+    if (this.view.bodyOut) this.fx.burst(pl.pos.x, pl.pos.y + 1.5, pl.pos.z, 0xfff4a0, 18, 4);
+    else { const e = this.view.simEye(_a), f = this.view.forward(); this.fx.burst(e.x + f.x * 1.6, e.y + 0.35, e.z + f.z * 1.6, 0xfff4a0, 18, 4); }
+    const ev = { built, portrait, kind: portrait };   // itemDone carries the same payload, so overlapping item-gets stay apart
+    this.events.emit(EV.ITEM_GET, ev);
+    this.ui.say(lines, { portrait, onDone: () => { this.clearHeldItem(); pl.state = 'normal'; this.ui.updateHud(this.S); this.events.emit(EV.ITEM_DONE, ev); if (after) after(); } });
+  },
+  /** after the session fade-in: Shellby's intro (new game / intro not done), else the controls card once or a greeting */
+  sessionIntro(isNew) {
+    const S = this.S;
+    if (isNew || !S.introDone) {
+      const sh = this.npcs.find((n) => n.id === 'shellby');
+      if (!sh) return;
+      sh.talkStart();
+      this.events.emit(EV.TALK_START, { npc: sh });
+      this.faceSubject(sh.pos.x, sh.pos.y + TC.aimPts.npc[0] * sh.height, sh.pos.z, 0.6);
+      this.ui.say(sh.def.intro, { name: sh.name, portrait: sh.key, onDone: () => { sh.talkEnd(); this.events.emit(EV.TALK_END, { npc: sh }); S.introDone = true; this.save(true); if (!S.controlsSeen) this.ui.openControls(false); } });
+    } else if (!S.controlsSeen) this.ui.openControls(false);
+    else this.ui.toast('Welcome back, Pip!');
+  },
+  /** run fn after sec of sim time (ticked by the wp4-targeting module's afterStep: holds under menus / the shop, and is
+   *  dropped at session start and on the title) */
+  later(sec, fn, cancel = null) { const j = { t: sec, fn, cancel }; (this._later || (this._later = [])).push(j); return j; },
+  tickLater(dt) {
+    const L = this._later;
+    if (!L || !L.length) return;
+    for (const j of L) j.t -= dt;
+    const due = L.filter((j) => j.t <= 0);
+    this._later = L.filter((j) => j.t > 0);
+    for (const j of due) { try { j.fn(); } catch (e) { this.modError({ name: 'wp4-later' }, 'fn', e); } }
+  },
+  clearLater() { if (this._later && this._later.length) { for (const j of this._later) if (j.cancel) j.cancel(); } this._later = []; },
+  clearHeldItem() {
+    if (this.heldItem) this.heldItem.removeFromParent();
+    this.heldItem = null;
+    this.player.held.clear();
+  },
+  interact(t) {
+    const o = t.o;
+    const pl = this.player;
+    pl.endSwing();          // E mid-swing: the swing stops here (talking pauses the world; no hits during it)
+    pl.vel.set(0, 0);
+    this.faceSubject(t.px ?? t.x, t.py ?? (t.y ?? pl.pos.y) + 0.8, t.pz ?? t.z); // FP eases onto the aim point (NPC face, sign board, lid…)
+    this.events.emit(EV.INTERACT, { kind: o instanceof NPC ? (o.def.shop ? 'shop' : 'npc') : o.kind, target: o });
+    if (o instanceof NPC) return this.talkTo(o);
+    switch (o.kind) {
+      case 'sign': sfx('talk'); this.ui.say(o.lines, { name: 'Sign' }); break;
+      case 'door': sfx('door'); this.ui.say(o.lines, {}); break;
+      case 'well': sfx('splash'); this.ui.say(o.lines, {}); break;
+      case 'chest': this.openChest(o.chest); break;
+      case 'pedestal': this.usePedestal(); break;
+    }
+  },
+  talkTo(npc) {
+    sfx('talk');
+    npc.talkStart();
+    this.events.emit(EV.TALK_START, { npc });
+    const S = this.S;
+    const lines = npc.def.lines(S);
+    this.ui.say(lines, {
+      name: npc.name, portrait: npc.key,
+      onDone: () => {
+        if (npc.def.shop) {
+          this.ui.openShop(S, (it) => this.buy(it), () => { npc.talkEnd(); this.events.emit(EV.SHOP_CLOSE, {}); this.events.emit(EV.TALK_END, { npc }); this.ui.updateHud(S); this.save(true); });
+          this.events.emit(EV.SHOP_OPEN, {});
+        } else { npc.talkEnd(); this.events.emit(EV.TALK_END, { npc }); }
+      },
+    });
+  },
+  buy(it) {
+    const S = this.S;
+    S.coins -= it.price;
+    let msg = '';
+    if (it.id === 'potion') { S.potions++; msg = 'A potion! Bottoms up, later.'; }
+    if (it.id === 'heart') { S.shopHeart = true; S.maxHp = Math.min(CFG.maxHp, S.maxHp + 2); S.hp = S.maxHp; msg = 'Max hearts +1! Purr-fect.'; sfx('fanfare'); }
+    if (it.id === 'sword') { S.swordLevel = 2; this.player.setSword(2); msg = 'The Shiny Sword! Swish swish~'; sfx('fanfare'); }
+    this.ui.updateHud(S);
+    return msg;
+  },
+  openChest(c) {
+    const S = this.S;
+    if (S.chests[c.id] || c._opening) return;
+    c._opening = true;                 // in its lid beat: not offered again; S.chests is set only with the reward
+    this.scenery.setChestOpen(c.id, true);
+    sfx('chest');
+    this.events.emit(EV.CHEST_OPEN, { chest: c });
+    this.fx.burst(c.x, c.y + 0.8, c.z, 0xfff4a0, 16, 3);
+    this.player.frozen = true;
+    // the lid's beat: 420 ms of sim time (pauses with the world), then the reward. A beat that never finishes (Save & Quit
+    // during it, a session change) grants nothing and leaves the chest closed in the save, so a heart container is never
+    // saved as taken without its max-heart bonus
+    this.later(0.42, () => {
+      c._opening = false;
+      this.player.frozen = false;
+      if (this.state !== 'play' || this.leaving) return;
+      S.chests[c.id] = true;
+      if (c.kind === 'heart') {
+        sfx('fanfare');
+        S.maxHp = Math.min(CFG.maxHp, S.maxHp + 2);
+        S.hp = S.maxHp;
+        this.itemGet(heartContainerBuilt(), 'heart_container', ['You found a Heart Container!', 'Your max hearts grew by one, and you feel all warm and full.'], () => this.ui.bumpHearts());
+      } else {
+        const n = Math.max(2, Math.round(c.amount / 5));
+        for (let i = 0; i < n; i++) this.pickups.push(new Pickup('gem', c.x, c.z, { value: 5, vy: rand(5, 8), spread: rand(1, 2.4) }));
+        // TP: over the lid; FP: the feed (a world floater rises out of the eye-level view within a fraction of a second)
+        if (this.view.bodyOut) this.ui.floater(_v.set(c.x, c.y + 0.9, c.z), '+' + n * 5 + ' gems!', '#bff6ff', 22);
+        else this.ui.selfFloater('+' + n * 5 + ' gems!', '#bff6ff', 22);
+      }
+      this.save(true);
+    }, () => { c._opening = false; this.player.frozen = false; });
+  },
+  usePedestal() {
+    const S = this.S;
+    const carried = SEED_ORDER.filter((id) => S.seeds[id] === 1);
+    const placed = progress.placed(S);
+    if (!carried.length) {
+      if (placed >= 3) this.ui.say(['The three Starseeds hum happily in their sockets. The Great Tree is thriving!'], { name: 'Pedestal' });
+      else this.ui.say(['A mossy stone pedestal with three little star-shaped sockets.', placed + ' of 3 Starseeds are home. ' + (placed === 0 ? 'The grumpy guardians still have them...' : 'Find the rest, Pip!')], { name: 'Pedestal' });
+      return;
+    }
+    this.startPlace(carried);   // cutscenes.js: staging, camera and the placing itself
+  },
+};
