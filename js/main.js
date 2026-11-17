@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { G, music, audioInit, store, setMusicVolume, setSfxVolume } from './core.js';
 import { CFG, SAVE_KEY } from './data.js';
 import { loadSave } from './save.js';
-import { SETTINGS_KEY, camScale, defaultSettings, sanitizeSettings } from './settings.js';
+import { SETTINGS_KEY, camScale, defaultSettings, qualityProfile, sanitizeSettings } from './settings.js';
 import { loadAll } from './assets.js';
 import { generateWorld } from './world.js';
 import { buildTerrain, buildWater, buildMapCanvas } from './terrain.js';
@@ -30,7 +30,7 @@ async function boot() {
     ui.setLoading(0, 'Oh no — this browser could not start WebGL2. Try a recent Chrome, Firefox or Safari.');
     throw e;
   }
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, qualityProfile('high').pixelRatioCap));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -76,8 +76,31 @@ async function boot() {
   // settings: own storage key (New Game never resets them), sanitized, applied before the first frame
   let prefersRM = false;
   try { prefersRM = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch (e) { /* ignore */ }
+  let resize = null; // set once the game exists (it also sizes the FX and halos)
+  let quality = null;
+  // Graphics preset: pixel ratio, sun shadows and decoration density. Only does work when the preset changes.
+  const applyQuality = (q) => {
+    if (q === quality) return;
+    quality = q;
+    const prof = qualityProfile(q);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, prof.pixelRatioCap));
+    if (resize) resize();
+    const shadowsChanged = renderer.shadowMap.enabled !== prof.shadows;
+    renderer.shadowMap.enabled = prof.shadows;
+    sky.setShadows(prof.shadows, prof.shadowMapSize);
+    // Shadow on/off changes shader defines. The sun's castShadow change above already makes every lit
+    // material (in the scene or not) pick a new shader on its next render; flag the scene's materials too.
+    if (shadowsChanged) {
+      scene.traverse((o) => {
+        if (!o.material) return;
+        for (const m of Array.isArray(o.material) ? o.material : [o.material]) m.needsUpdate = true;
+      });
+    }
+    scenery.setDecoDensity(prof.decoDensity);
+  };
   const applySettings = (s) => {
     G.settings = s;
+    applyQuality(s.quality);
     setMusicVolume(s.musicVolume);
     setSfxVolume(s.sfxVolume);
     cam.scale = camScale(s);
@@ -101,7 +124,7 @@ async function boot() {
   renderer.render(scene, camera);
   warm.forEach((e) => e.remove());
 
-  const resize = () => {
+  resize = () => {
     const w = window.innerWidth, h = window.innerHeight;
     renderer.setSize(w, h);
     camera.aspect = w / h;

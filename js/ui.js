@@ -5,7 +5,7 @@ import { G, sfx, spriteUrl, isMuted, toggleMute } from './core.js';
 import { SEED_ORDER, SEEDS, SHOP, REGIONS, CFG } from './data.js';
 import { HALF, SIZE, N } from './world.js';
 import { TAU, clamp } from './util.js';
-import { RANGES, stepSetting } from './settings.js';
+import { ENUMS, RANGES, stepSetting } from './settings.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 function el(tag, cls, html, parent) {
@@ -21,9 +21,11 @@ const _v = new THREE.Vector3();
 const SETTING_ROWS = [
   ['musicVolume', 'Music volume'], ['sfxVolume', 'SFX volume'], ['camSensitivity', 'Camera sensitivity'],
   ['invertCamX', 'Invert camera ↔'], ['invertCamY', 'Invert camera ↕'], ['reducedMotion', 'Reduced motion'],
+  ['quality', 'Graphics'],
 ];
 const SETTINGS_N = SETTING_ROWS.length + 2;
-const fmtSetting = (k, v) => (k === 'camSensitivity' ? `${v}×` : k in RANGES ? `${Math.round(v * 100)}%` : v ? 'On' : 'Off');
+const fmtSetting = (k, v) => (k === 'camSensitivity' ? `${v}×` : k in RANGES ? `${Math.round(v * 100)}%`
+  : k in ENUMS ? String(v).charAt(0).toUpperCase() + String(v).slice(1) : v ? 'On' : 'Off');
 
 export class UI {
   constructor(root) {
@@ -65,7 +67,7 @@ export class UI {
       <button class="btn" data-a="settings">Settings</button><button class="btn" data-a="sound">Sound: On</button>
       <button class="btn" data-a="quit">Save &amp; Quit</button></div></div>`);
     this.settingsEl = this.overlay('settings', `<div class="card panel"><h2>Settings</h2><div class="settings-rows">${SETTING_ROWS.map(([k, label], i) =>
-      `<div class="srow" data-r="${i}"><div class="sl">${label}</div><div class="sv">${k in RANGES
+      `<div class="srow" data-r="${i}"><div class="sl">${label}</div><div class="sv">${k in RANGES || k in ENUMS
         ? `<button class="sb" data-r="${i}" data-d="-1" aria-label="${label} down">−</button><span class="val"></span><button class="sb" data-r="${i}" data-d="1" aria-label="${label} up">+</button>`
         : `<button class="sb tog" data-r="${i}" data-d="1"><span class="val"></span></button>`}</div></div>`).join('')}</div>
       <div class="menu"><button class="btn" data-r="${SETTING_ROWS.length}">Reset to defaults</button><button class="btn" data-r="${SETTING_ROWS.length + 1}">Back</button></div>
@@ -503,6 +505,13 @@ export class UI {
       r.classList.toggle('sel', i === this.settingsSel);
     });
     this.settingsEl.querySelectorAll('.menu .btn').forEach((b) => b.classList.toggle('sel', +b.dataset.r === this.settingsSel));
+    // on short screens the card scrolls: keep the keyboard / gamepad selection in view (only the card scrolls)
+    const card = $('.card', this.settingsEl), sel = $('.sel', card);
+    if (sel && card.scrollHeight > card.clientHeight) {
+      const c = card.getBoundingClientRect(), r = sel.getBoundingClientRect();
+      if (r.bottom > c.bottom) card.scrollTop += r.bottom - c.bottom + 6;
+      else if (r.top < c.top) card.scrollTop -= c.top - r.top + 6;
+    }
   }
   // dir: -1 / +1 from ← → or the − + buttons; 0 is Enter / attack / a click (toggle, step up with wrap, or press)
   settingsActivate(dir) {

@@ -29,6 +29,9 @@ function mats() {
 }
 export function sceneryMats() { return mats(); }
 
+// Decoration the graphics preset may thin out: non-interactive and never collides. Not `tallgrass`, which is cuttable.
+const THINNABLE = new Set(['grass', 'flowers', 'fern', 'pebble', 'shell', 'glowshroom', 'crystal']);
+
 const VARIATION = {
   tree_round: 0.12, tree_pine: 0.1, tree_snow: 0.06, tree_palm: 0.08, bush: 0.12, grass: 0.14, tallgrass: 0.12, fern: 0.14, flowers: 0.05,
   rock: 0.08, boulder: 0.08,
@@ -42,6 +45,8 @@ export class Scenery {
     this.root.name = 'scenery';
     scene.add(this.root);
     this.meshes = [];
+    this.thinned = []; // { mesh, keys }: decoration meshes whose instances are sorted by `keys` (ascending)
+    this.decoDensity = 1;
     this.chests = new Map();
   }
   build() {
@@ -66,6 +71,15 @@ export class Scenery {
     for (const g of groups.values()) {
       const model = propModel(g.type);
       if (!model || !model.geo) continue;
+      // Thinnable decoration is ordered by a fixed per-instance hash, so drawing only the first `count`
+      // instances drops a stable, evenly spread subset (see setDecoDensity). `p._inst.i` follows the new order.
+      let keys = null;
+      if (!isProp && THINNABLE.has(g.type)) {
+        const keyed = g.items.map((p) => ({ p, k: hash2(Math.round(p.x * 10), Math.round(p.z * 10), 31) }));
+        keyed.sort((a, b) => a.k - b.k);
+        g.items = keyed.map((e) => e.p);
+        keys = Float32Array.from(keyed, (e) => e.k);
+      }
       const kind = mats()[PROP_KIND[g.type]] || mats().solid;
       const mesh = new THREE.InstancedMesh(model.geo, kind.m, g.items.length);
       const vari = VARIATION[g.type] || 0;
@@ -96,7 +110,19 @@ export class Scenery {
         this.root.add(om);
         mesh.userData.outline = om;
       }
+      if (keys) { this.thinned.push({ mesh, keys }); this.thinMesh(mesh, keys); }
     }
+  }
+  /** Draw only this fraction (0..1) of the thinnable decoration. Fewer instances are submitted, so the
+   *  triangles really drop (a zero-scaled instance would still cost its vertices). */
+  setDecoDensity(d) {
+    this.decoDensity = Math.min(1, Math.max(0, d));
+    for (const t of this.thinned) this.thinMesh(t.mesh, t.keys);
+  }
+  thinMesh(mesh, keys) {
+    let n = keys.length;
+    if (this.decoDensity < 1) { n = 0; while (n < keys.length && keys[n] < this.decoDensity) n++; }
+    for (const m of [mesh, mesh.userData.outline]) if (m) { m.count = n; m.visible = n > 0; }
   }
   composeFor(p) {
     _e.set(0, p.rot || 0, 0);

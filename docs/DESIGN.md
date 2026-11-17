@@ -31,7 +31,8 @@ squash & stretch, hit-stop, camera shake, particles, bouncy UI.
 - `assets/manifest.js` (classic script, `window.ASSET_MANIFEST`) is owned by the art pipeline — read it,
   don't edit it. Every key may be missing → the game must still run (procedural fallback).
 - WebGL2 renderer, `outputColorSpace = SRGB`, ACES or AgX tone mapping (keep colours pastel, not washed
-  out), pixel ratio `min(devicePixelRatio, 1.75)`. 60 fps target on a MacBook: instancing for repeated props,
+  out), pixel ratio `min(devicePixelRatio, 1.75)` on the default High graphics preset (Medium caps it at 1.25,
+  Low at 1 with no shadows and thinner decoration; `qualityProfile` in `js/settings.js`). 60 fps target on a MacBook: instancing for repeated props,
   merged static geometry, chunked frustum culling, one shadow-casting directional light whose shadow camera
   follows the player tightly, draw calls ideally < 300.
 - Fixed-timestep simulation (1/60 s accumulator, clamp big gaps), render every animation frame.
@@ -174,7 +175,7 @@ Fredoka font; use the 2D sprites for icons)
 - Dialogue box: bottom, typewriter text, name tag, sprite portrait, bounce arrow; `talk` blip every few chars.
 - Title screen: `ui.title` art, logo "Starseed Isle", "New Adventure" / "Continue" (if save), gentle
   particles. Pause menu: Resume, Controls, Settings (volumes, camera sensitivity /
-  invert, reduced motion), Sound on/off, Save & Quit. Controls card on first start.
+  invert, reduced motion, graphics Low / Medium / High), Sound on/off, Save & Quit. Controls card on first start.
 - Loading screen with a progress bar while GLBs/textures load.
 
 ## Atmosphere
