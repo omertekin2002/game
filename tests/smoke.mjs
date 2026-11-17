@@ -206,6 +206,10 @@ async function main() {
     const want = { v: 1, musicVolume: 0.3, sfxVolume: 0.8, camSensitivity: 1, invertCamX: true, invertCamY: false, reducedMotion: true };
     if (JSON.stringify(applied.stored) !== JSON.stringify(want)) fail(`stored settings ${JSON.stringify(applied.stored)}, expected ${JSON.stringify(want)}`);
     await press('Escape', 'back to the pause menu on Settings', () => window.G.ui.menu === 'pause' && window.G.ui.pauseSel === 2);
+    await press('Enter', 'settings overlay again', () => window.G.ui.menu === 'settings');
+    await page.waitForTimeout(500); // let the card finish scaling in
+    await page.click('#settings .menu .btn:last-child'); // Back, with the mouse (sits where the faded title's button was)
+    await waitFor('Back click returns to the pause menu on Settings', () => window.G.ui.menu === 'pause' && window.G.ui.pauseSel === 2, STEP_TIMEOUT);
     step('settings changed by keyboard and mouse; audio, camera, shake and flash follow them');
     await openPage(page.context(), ' again, same localStorage');
     const reloaded = await page.evaluate(() => ({ s: window.G.settings, scale: window.G.cam.scale, rm: window.G.cam.reducedMotion }));
