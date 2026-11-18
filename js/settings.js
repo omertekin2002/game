@@ -14,9 +14,11 @@ export const SCHEMA = {
   fovTP: { def: 90, min: 75, max: 100, step: 1 },
   sens: { def: 1.0, min: 0.25, max: 4.0, step: 0.05 },           // × 0.0022 rad per mouse count
   invertY: { def: false },
+  invertX: { def: false },
   rawInput: { def: false },                                       // unadjustedMovement pointer lock
   padSens: { def: 1.0, min: 0.5, max: 2.0, step: 0.05 },
   padInvertY: { def: false },
+  padInvertX: { def: false },
   padCurve: { def: 'default', opts: ['linear', 'default', 'precise'] },
   touchSens: { def: 1.0, min: 0.5, max: 2.0, step: 0.05 },
   arrowLook: { def: false },                                      // arrow keys look (accessibility)
@@ -71,8 +73,10 @@ function coerce(sc, v) {
     const n = Number(v);
     return typeof sc.def === 'number' && sc.opts.includes(n) ? n : undefined;
   }
+  // a number, or text that reads as one: Number() would also make 0 of false, [] and blank text, 1 of true
+  if (typeof v === 'string' ? v.trim() === '' : typeof v !== 'number') return undefined;
   let n = Number(v);
-  if (v === null || v === '' || !Number.isFinite(n)) return undefined;
+  if (!Number.isFinite(n)) return undefined;
   if (sc.step) n = Math.round(n / sc.step) * sc.step;
   n = Math.min(sc.max, Math.max(sc.min, n));
   return +n.toFixed(4);

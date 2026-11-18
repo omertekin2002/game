@@ -71,13 +71,14 @@ Open Settings from the pause menu or the title.
 
 - **View**: first or third person, field of view for each (first person 100°, third person 90° by default), crosshair
   style, HUD size, minimap (turns with you, north up, off), graphics quality and dynamic resolution.
-- **Controls**: mouse, controller and touch sensitivity and inversion, "Arrow keys look around", left-handed touch
+- **Controls**: mouse, controller and touch sensitivity, mouse and controller inversion (up / down and left / right),
+  "Arrow keys look around", left-handed touch
   buttons, swing assist, lock-on as press or hold, "Lock-on turns the camera", "Lock on to bosses by itself", and for
   third person "Camera drifts behind Pip" and "Pip faces where you look".
 - **Sound**: music, effects and ambience volumes, mute.
-- **Comfort**: "Motion comfort" (one switch for a calm camera: no head bob, roll or speed effects, softer shake; on by
-  default when your system asks for reduced motion), head bob, camera shake, speed effects, camera roll, "Look at whoever
-  is talking", text speed.
+- **Comfort**: "Motion comfort" (one switch for a calm camera: no head bob, roll or speed effects, softer shake, and
+  dimmer full-screen flashes; on by default when your system asks for reduced motion), head bob, camera shake, speed
+  effects, camera roll, "Look at whoever is talking", text speed.
 
 ## What's in the box
 
@@ -94,8 +95,8 @@ Design: `docs/DESIGN.md`. Code contract: `docs/ARCHITECTURE.md`, with per-area d
 
 ```sh
 bun install
-bun test             # unit tests: world generation, content tables, save schema, dynamic resolution
-bun run test:smoke   # headless Chromium: New Game, then Continue a valid / corrupt / newer save; fails on any error
+bun test             # unit tests: world generation, content tables, save schema, settings, dynamic resolution
+bun run test:smoke   # headless Chromium: New Game, Continue a valid / corrupt / newer save, stored settings; fails on any error
 ```
 
 The smoke test needs Playwright's Chromium once: `bunx playwright install chromium`. On failure it saves a

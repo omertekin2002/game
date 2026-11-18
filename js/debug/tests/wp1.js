@@ -427,6 +427,22 @@ export default function register(suite) {
       t.ok(b.act <= b.walk + 2e-4, 'dash: per-frame bob step ≤ walking (mm)', [b.walk * 1000, b.act * 1000]);
       t.eq(a.back + b.back, 0, 'frames where the bob phase went backwards');
     }],
+    ['invert left / right: the mouse (invertX) and the look stick (padInvertX) turn the other way; up / down is untouched', (t) => {
+      const { D, view, settings } = t, K = 0.0022 * settings.get('sens');
+      const mouse = () => { const y0 = view.yaw, p0 = view.pitch; D.lookDelta(40, 20); t.frames(1); return { yaw: wrapAngle(view.yaw - y0), pitch: view.pitch - p0 }; };
+      const stick = () => { const y0 = view.yaw, p0 = view.pitch; D.pad(0.6, 0.3); t.frames(1); D.pad(null); return { yaw: wrapAngle(view.yaw - y0), pitch: view.pitch - p0 }; };
+      D.setView('fp'); D.pose('meadow'); t.frames(3); t.clearEnemies(); D.look(view.yaw, 0); t.frames(2);
+      try {
+        const m0 = mouse(); settings.set('invertX', true); const m1 = mouse(); settings.set('invertX', false);
+        const s0 = stick(); settings.set('padInvertX', true); const s1 = stick(); const mPad = mouse(); settings.set('padInvertX', false);
+        t.note('invertX', { m0, m1, s0, s1, mPad });
+        t.near(m0.yaw, -40 * K, 1e-9, 'mouse right turns right');
+        t.near(m1.yaw, 40 * K, 1e-9, 'invertX: the same move turns left');
+        t.near(m1.pitch, m0.pitch, 1e-9, 'invertX: up / down as before');
+        t.ok(s0.yaw < -1e-4 && Math.abs(s1.yaw + s0.yaw) < 1e-9 && Math.abs(s1.pitch - s0.pitch) < 1e-9, 'padInvertX: the stick turns the other way, its up / down as before', { s0, s1 });
+        t.near(mPad.yaw, m0.yaw, 1e-9, 'padInvertX leaves the mouse alone');
+      } finally { settings.set('invertX', false); settings.set('padInvertX', false); D.pad(null); }
+    }],
     ['V mid boss intro (TP → FP at 1.0 s): mouse look turns the view on the first fight frame, no look assist left', (t) => {
       const { D, view, game } = t;
       D.setView('tp'); D.cutscene('bossIntro', 'woods');
