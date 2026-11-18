@@ -81,11 +81,11 @@ async function main() {
       await page.locator('#game').focus();
     };
     // Errors are recorded asynchronously; poll them alongside each wait so a broken boot fails fast.
-    const waitFor = async (what, fn, timeout) => {
+    const waitFor = async (what, fn, timeout, arg) => {
       const t0 = Date.now();
       while (Date.now() - t0 < timeout) {
         if (problems.length) fail(`errors while waiting for ${what}`);
-        if (await page.evaluate(fn).catch(() => false)) return Date.now() - t0;
+        if (await page.evaluate(fn, arg).catch(() => false)) return Date.now() - t0;
         await new Promise((r) => setTimeout(r, 200));
       }
       fail(`timed out after ${timeout} ms waiting for ${what}`);
@@ -212,6 +212,99 @@ async function main() {
     if (!(fresh.quality === 'auto' && fresh.sens === 1 && fresh.invertX === false)) fail(`unreadable settings did not give the defaults: ${JSON.stringify(fresh)}`);
     if (problems.length) fail('errors with a newer-version save');
     step('newer-version save ignored, unreadable settings replaced by the defaults');
+
+    // 5. Rebound keys. Continue with Hop stored on T: the controls card shows T, T hops and Space no longer does.
+    await openGame(save, { v: 1, keys: { jump: 'KeyT' } });
+    await page.keyboard.press('Enter');
+    await waitFor("G.game.state === 'play' after Continue with rebound keys", () => window.G.game.state === 'play', STEP_TIMEOUT);
+    await waitFor('the view to take look input (play is live)', () => window.G.game.view.lookAllowed === true, STEP_TIMEOUT);
+    const card = await page.evaluate(() => {
+      const ui = window.G.ui;
+      ui.openControls(true); ui.controlsCard.setDev('kbm');
+      const rows = Object.fromEntries([...ui.controlsCard.grid.querySelectorAll('.crow')].map((r) => [r.querySelector('.k').textContent, r.querySelector('.v').textContent]));
+      ui.closeMenu(true);
+      return rows;
+    });
+    if (card.Hop !== 'T') fail(`the controls card does not show Hop on T: ${JSON.stringify(card)}`);
+    // count hops (EV.JUMP) and input frames: a software-rendered frame can take a second, so a check waits for frames
+    await page.evaluate(() => {
+      const I = window.G.input, up = I.update.bind(I);
+      window.__jumps = 0; window.__frames = 0;
+      window.G.events.on('jump', () => { window.__jumps++; });
+      I.update = (dt) => { up(dt); window.__frames++; };
+    });
+    const free = () => { const G = window.G; return G.game.playing && !G.ui.menu && !G.ui.dlg && G.game.player.grounded; };
+    await waitFor('free play (no menu, no dialogue, Pip on the ground)', free, STEP_TIMEOUT);
+    await page.waitForTimeout(500);                         // the 120 ms guard after a closed card, at slow frame rates
+    const hops = async (key) => {
+      await waitFor('free play before a hop', free, STEP_TIMEOUT);
+      const [before, f0] = await page.evaluate(() => [window.__jumps, window.__frames]);
+      await page.keyboard.press(key);
+      await waitFor('six frames after the key press', (f) => window.__frames >= f + 6, STEP_TIMEOUT, f0);
+      return (await page.evaluate(() => window.__jumps)) - before;
+    };
+    if ((await hops('KeyT')) < 1) fail('T (Hop rebound to T) did not hop');
+    if ((await hops('Space')) !== 0) fail('Space still hops after Hop moved to T');
+    if (problems.length) fail('errors with rebound keys in play');
+    step('stored binding in effect: the controls card shows T, T hops, Space does not');
+
+    // ... rebind with real key presses in Settings → Controls: keys move to the Map row, Enter waits, Esc cancels, P is
+    // refused, E (Use's key) swaps Map and Use; then the bindings are saved and come back on the next load
+    await page.evaluate(() => { const ui = window.G.ui; ui.openPause(); ui.onPauseChoice(1); ui.settingsCard.setTab('controls'); });
+    const focused = () => page.evaluate(() => { const r = document.querySelector('#ui .srow.foc'); return r ? r.dataset.a || r.dataset.k : null; });
+    for (let f = await focused(), guard = 0; f !== 'map'; f = await focused()) {
+      if (++guard > 40) fail('could not reach the Map key row with the arrow keys');
+      await page.keyboard.press('ArrowDown');
+      await waitFor('the settings focus to move down', (w) => { const r = document.querySelector('#ui .srow.foc'); return (r ? r.dataset.a || r.dataset.k : null) !== w; }, STEP_TIMEOUT, f);
+    }
+    const keyRow = () => page.evaluate(() => {
+      const r = document.querySelector('#ui .srow[data-a="map"]');
+      return { key: r.querySelector('kbd').textContent, waiting: r.classList.contains('waiting'), note: r.querySelector('.snote').textContent, keys: window.G.settings.get('keys'), menu: window.G.ui.menu };
+    });
+    const waitRow = (what, fn) => waitFor(what, fn, STEP_TIMEOUT);
+    await page.keyboard.press('Enter');
+    await waitRow('the Map row to wait for a key', () => document.querySelector('#ui .srow[data-a="map"]').classList.contains('waiting'));
+    await page.keyboard.press('Escape');
+    let row = await keyRow();
+    if (row.waiting || row.key !== 'M' || row.menu !== 'settings' || JSON.stringify(row.keys) !== '{"jump":"KeyT"}') fail(`Esc did not just cancel the rebind: ${JSON.stringify(row)}`);
+    await page.keyboard.press('Enter');
+    await waitRow('the Map row to wait for a key again', () => document.querySelector('#ui .srow[data-a="map"]').classList.contains('waiting'));
+    await page.keyboard.press('KeyP');
+    row = await keyRow();
+    if (!row.waiting || !/stay as they are/.test(row.note) || JSON.stringify(row.keys) !== '{"jump":"KeyT"}') fail(`P (pause) was not refused: ${JSON.stringify(row)}`);
+    await page.keyboard.press('KeyE');
+    row = await keyRow();
+    const swapped = { jump: 'KeyT', interact: 'KeyM', map: 'KeyE' };
+    if (row.waiting || row.key !== 'E' || !/Swapped with Use/.test(row.note) || JSON.stringify(row.keys) !== JSON.stringify(swapped)) fail(`E did not swap Map and Use: ${JSON.stringify(row)}`);
+    await waitFor('the new bindings to reach localStorage', (k) => {
+      try { const v = JSON.parse(localStorage.getItem(k)).keys; return !!v && v.map === 'KeyE'; } catch (e) { return false; }
+    }, STEP_TIMEOUT, SETTINGS_KEY);
+    const written = (await settingsNow()).stored;
+    if (JSON.stringify(written.keys) !== JSON.stringify(swapped)) fail(`rebound keys not saved: ${JSON.stringify(written)}`);
+    step('rebound Map to E in Settings with real key presses (Esc cancels, P refused, Use swapped onto M) and saved');
+
+    // the next load with what was saved: the bindings are back, E opens the map, the Controls tab's Reset restores all
+    await openGame(save, written);
+    if (JSON.stringify(await page.evaluate(() => window.G.settings.get('keys'))) !== JSON.stringify(swapped)) fail('rebound keys did not survive a reload');
+    await page.keyboard.press('Enter');
+    await waitFor("G.game.state === 'play' after the reload", () => window.G.game.state === 'play', STEP_TIMEOUT);
+    await waitFor('the view to take look input after the reload', () => window.G.game.view.lookAllowed === true, STEP_TIMEOUT);
+    await waitFor('free play after the reload', () => { const G = window.G; return G.game.playing && !G.ui.menu && !G.ui.dlg; }, STEP_TIMEOUT);
+    await page.waitForTimeout(500);
+    await page.keyboard.press('KeyE');
+    await waitFor('E (Map rebound to E) to open the map', () => window.G.ui.menu === 'map', STEP_TIMEOUT);
+    await page.keyboard.press('Escape');
+    await waitFor('the map to close', () => !window.G.ui.menu, STEP_TIMEOUT);
+    const reset = await page.evaluate(() => {
+      const ui = window.G.ui;
+      ui.openPause(); ui.onPauseChoice(1); ui.settingsCard.setTab('controls'); ui.settingsCard.resetTab();
+      const keys = window.G.settings.get('keys'), map = document.querySelector('#ui .srow[data-a="map"] kbd').textContent;
+      ui.closeSettings(true);
+      return { keys, map };
+    });
+    if (JSON.stringify(reset.keys) !== '{}' || reset.map !== 'M') fail(`Reset on the Controls tab did not restore the default keys: ${JSON.stringify(reset)}`);
+    if (problems.length) fail('errors after rebinding');
+    step('rebound keys came back after a reload, worked in play, and Reset restored the defaults');
   } catch (e) {
     for (const p of problems) console.error(`  - ${p}`);
     if (page) {
