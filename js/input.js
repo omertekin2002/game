@@ -6,25 +6,40 @@ import { TouchMixin } from './touch.js';
 import { G } from './core.js';
 import { EV } from './events.js';
 import { settings } from './settings.js';
+import { buildKeymap, effectiveKeys, activeSecondary, keyLabel } from './keybinds.js';
 
-const KEYMAP = {
-  KeyW: 'up', ArrowUp: 'up', KeyS: 'down', ArrowDown: 'down', KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right',
-  KeyJ: 'attack', Space: 'jump', KeyK: 'dash', ShiftLeft: 'dash', ShiftRight: 'dash',
-  KeyE: 'interact', KeyF: 'interact', Enter: 'interact', NumpadEnter: 'interact', KeyR: 'potion', KeyV: 'view', KeyX: 'shoulder', KeyQ: 'lockOn',
-  KeyM: 'map', Tab: 'map', Escape: 'pause', KeyP: 'pause',
-};
-const KEY_HELD = { KeyK: 'sprint', ShiftLeft: 'sprint', ShiftRight: 'sprint' }; // keep holding the roll button = sprint (WP3)
+// Keyboard: the map is built from the bindings (setting `keys`, js/keybinds.js) and rebuilt when they change:
+// W/A/S/D move, J attack, Space jump, Shift (+ K, Right Shift) roll, held = sprint, E (+ F) interact, R potion, V view,
+// X shoulder, Q lock, M (+ Tab) map; fixed: the arrows move, Enter / NumpadEnter interact, Esc / P pause.
 // Standard-mapping pad (feel §14.2): A jump, B roll/sprint, X/RT attack, Y interact, LB/D↓ potion, RB/D↑ view,
 // R3 lock toggle, LT lock hold, L3 sprint toggle, D←/→ shoulder, Back map, Start pause. D-pad/stick also navigate menus.
 const PADMAP = [[0, 'jump'], [1, 'dash'], [2, 'attack'], [7, 'attack'], [3, 'interact'], [4, 'potion'], [13, 'potion'], [5, 'view'],
   [12, 'view'], [11, 'lockOn'], [10, 'sprintToggle'], [14, 'shoulder'], [15, 'shoulder'], [8, 'map'], [9, 'pause']];
 const PAD_HELD = [[1, 'sprint'], [6, 'lockHold']];
+let KEYMAP = {}, KEY_HELD = {};    // code → action / code → 'sprint' (buildKeys)
 /** single source for prompts, the controls card and hints (WP6 renders it) */
 export const BINDINGS = {
-  kbm: { move: 'W A S D', look: 'Mouse', attack: 'LMB / J', jump: 'Space', dash: 'Shift / K', interact: 'E / F / Enter', lockOn: 'Q / MMB / RMB hold', potion: 'R', view: 'V', shoulder: 'X', zoom: 'Wheel', map: 'M / Tab', pause: 'Esc / P' },
+  kbm: kbmBindings(buildKeys()),
   pad: { move: 'L stick', look: 'R stick', attack: 'X / RT', jump: 'A', dash: 'B', interact: 'Y', lockOn: 'LT / R3', potion: 'LB', view: 'RB', shoulder: 'D-pad ← →', map: 'Back', pause: 'Start' },
   touch: { move: 'left stick', look: 'drag right side', attack: 'A', jump: 'Jump', dash: 'B', interact: 'Use', potion: '🧪', view: '👁', map: '🗺', pause: 'II' },
 };
+/** (re)build the keyboard maps and BINDINGS.kbm from the stored bindings (at load, and on every change of `keys`) */
+function buildKeys() {
+  const k = settings.get('keys');
+  ({ map: KEYMAP, held: KEY_HELD } = buildKeymap(k));
+  return k;
+}
+/** BINDINGS.kbm labels for the bindings in effect */
+function kbmBindings(k) {
+  const e = effectiveKeys(k), s = activeSecondary(k), L = keyLabel, alt = (a) => s[a].filter((c) => c !== 'ShiftRight').map(L);
+  return {
+    move: [e.up, e.left, e.down, e.right].map(L).join(' '), look: 'Mouse', attack: 'LMB / ' + L(e.attack), jump: L(e.jump),
+    dash: [L(e.dash), ...alt('dash')].join(' / '), interact: [L(e.interact), ...alt('interact'), 'Enter'].join(' / '),
+    lockOn: L(e.lockOn) + ' / MMB / RMB hold', potion: L(e.potion), view: L(e.view), shoulder: L(e.shoulder), zoom: 'Wheel',
+    map: [L(e.map), ...alt('map')].join(' / '), pause: 'Esc / P',
+  };
+}
+settings.on('keys', () => { BINDINGS.kbm = kbmBindings(buildKeys()); });
 // Enter/Space never reach a focused DOM button natively (the game's own confirm handles them)
 const PREVENT = new Set(['Tab', 'Space', 'Enter', 'NumpadEnter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Backquote']);
 const BTN_BIT = [1, 4, 2];           // e.button 0 / 1 / 2 (LMB / MMB / RMB) → e.buttons bit
@@ -81,8 +96,19 @@ export class Input {
     this.drag = null;               // drag-look fallback (no pointer lock)
     this.dropped = 0;
     this.anyPressed = false;
+    this.keyCapture = null;         // fn(code): the Settings card waits for a key to bind; that press is no input
     window.addEventListener('keydown', (e) => {
-      if (PREVENT.has(e.code)) e.preventDefault();
+      if (this.keyCapture) {
+        e.preventDefault();
+        if (e.repeat) return;
+        const fn = this.keyCapture; this.keyCapture = null;
+        this.setDevice('keyboard');
+        try { fn(e.code); } catch (err) { console.error('[Starseed] key capture', err); }
+        return;
+      }
+      // a key bound to an action does not also do its browser thing (' and / open Firefox's quick find); letters and
+      // digits have none worth stopping
+      if (PREVENT.has(e.code) || (KEYMAP[e.code] && !/^(Key|Digit)/.test(e.code))) e.preventDefault();
       if (e.repeat) return;
       this.keys.add(e.code);
       this.keyEdges.add(e.code);

@@ -1,13 +1,16 @@
 // Player preferences: per device, survive New Game, separate from the save (key 'starseed-isle-settings-v1').
 // Only values the player changed are stored; defaults are computed once at load (portrait phone → third person,
 // prefers-reduced-motion → motion comfort). Stored keys this build doesn't know are kept for forward compatibility.
-// Mute keeps its own key ('starseed-isle-muted', owned by audio.js).
+// Mute keeps its own key ('starseed-isle-muted', owned by audio.js). One key holds an object instead of a scalar:
+// `keys` (keyboard bindings, js/keybinds.js), sanitized by its `obj` rule.
 import { G, store } from './core.js';
 import { EV } from './events.js';
+import { sanitizeKeys } from './keybinds.js';
 
 export const SETTINGS_KEY = 'starseed-isle-settings-v1';
 
-// def = default; opts = allowed values; min/max/step = numeric range. FOVs are horizontal degrees at 16:9 (Hor+).
+// def = default; opts = allowed values; min/max/step = numeric range; obj = sanitizer of an object-valued key (a plain
+// object in, a clean frozen object out). FOVs are horizontal degrees at 16:9 (Hor+).
 export const SCHEMA = {
   view: { def: 'fp', opts: ['fp', 'tp'] },                        // phone portrait defaults to 'tp'
   fovFP: { def: 100, min: 80, max: 115, step: 1 },
@@ -22,6 +25,7 @@ export const SCHEMA = {
   padCurve: { def: 'default', opts: ['linear', 'default', 'precise'] },
   touchSens: { def: 1.0, min: 0.5, max: 2.0, step: 0.05 },
   arrowLook: { def: false },                                      // arrow keys look (accessibility)
+  keys: { def: Object.freeze({}), obj: sanitizeKeys },            // { action: KeyboardEvent.code }, changed actions only
   headBob: { def: 1.0, min: 0, max: 1, step: 0.05 },
   shake: { def: 1.0, min: 0, max: 1, step: 0.05 },
   speedFx: { def: 1.0, min: 0, max: 1, step: 0.05 },             // dash/sprint FOV, hit punches
@@ -62,6 +66,7 @@ function computeDefaults() {
 
 /** coerce a value to the schema; returns undefined when it can't be made valid */
 function coerce(sc, v) {
+  if (sc.obj) return v && typeof v === 'object' && !Array.isArray(v) ? sc.obj(v) : undefined;
   if (typeof sc.def === 'boolean') {
     if (typeof v === 'boolean') return v;
     if (v === 1 || v === 'true') return true;
@@ -82,6 +87,9 @@ function coerce(sc, v) {
   return +n.toFixed(4);
 }
 
+/** equal values: scalars by ===, object-valued keys (always sanitized, keys in a fixed order) by their JSON */
+const same = (a, b) => a === b || (!!a && !!b && typeof a === 'object' && typeof b === 'object' && JSON.stringify(a) === JSON.stringify(b));
+
 export class Settings {
   constructor() {
     this.defaults = computeDefaults();
@@ -94,7 +102,7 @@ export class Settings {
         if (k === 'v') continue;
         if (!SCHEMA[k]) { this.user[k] = raw[k]; continue; }
         const v = coerce(SCHEMA[k], raw[k]);
-        if (v !== undefined) this.user[k] = v;
+        if (v !== undefined && !(SCHEMA[k].obj && same(v, this.defaults[k]))) this.user[k] = v; // an emptied object is not kept
       }
     }
     try { window.addEventListener('pagehide', () => { if (this.saveT) this.flush(); }); } catch (e) { /* ignore */ }
@@ -109,9 +117,9 @@ export class Settings {
     const c = coerce(sc, v);
     if (c === undefined) return this.get(k);
     const prev = this.get(k);
-    if (c === this.defaults[k]) delete this.user[k]; else this.user[k] = c;
+    if (same(c, this.defaults[k])) delete this.user[k]; else this.user[k] = c;
     this.persist();
-    if (c !== prev) this.notify(k, c);
+    if (!same(c, prev)) this.notify(k, c);
     return c;
   }
   /** back to defaults (one key, or all when k is omitted) */
@@ -121,7 +129,7 @@ export class Settings {
       if (!SCHEMA[key]) continue;
       const prev = this.get(key);
       delete this.user[key];
-      if (this.get(key) !== prev) this.notify(key, this.get(key));
+      if (!same(this.get(key), prev)) this.notify(key, this.get(key));
     }
     this.persist();
   }
