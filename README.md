@@ -60,6 +60,11 @@ the device you used last.
 | Pause (Resume, Settings, Controls, Map, Chat log, Save & Quit) | Esc / P | Start | Pause |
 | Menus | ↑↓ choose · ←→ change · Enter / E / Space confirm · Esc back | stick / D-pad · A · B · LB / RB tabs | tap |
 
+The keyboard keys above are the defaults. **Settings → Controls → Keys** rebinds the key of every action except Pause:
+confirm a row, then press the new key (Esc cancels; a key another action uses swaps the two). The arrow keys, Enter, Esc /
+P and the mouse buttons always keep working; K, F, Tab and Right Shift work only while their action keeps its default
+key. Hints, prompts and the controls card show the keys you chose, and Reset on the Controls tab restores the defaults.
+
 The compass at the top points at the next guardian (over the bridge first while the river lies between, or at the altar
 by the Great Tree while you carry a Starseed), with the distance; that goal, your map marker and the Great Tree stay pinned at its edge while they are behind you. Red
 chevrons at the screen edge warn of an attack winding up off screen. On touch the controls step aside during dialogue,
@@ -72,7 +77,7 @@ Open Settings from the pause menu or the title.
 - **View**: first or third person, field of view for each (first person 100°, third person 90° by default), crosshair
   style, HUD size, minimap (turns with you, north up, off), graphics quality and dynamic resolution.
 - **Controls**: mouse, controller and touch sensitivity, mouse and controller inversion (up / down and left / right),
-  "Arrow keys look around", left-handed touch
+  "Arrow keys look around", the keyboard keys of every action (Keys), left-handed touch
   buttons, swing assist, lock-on as press or hold, "Lock-on turns the camera", "Lock on to bosses by itself", and for
   third person "Camera drifts behind Pip" and "Pip faces where you look".
 - **Sound**: music, effects and ambience volumes, mute.
@@ -95,8 +100,8 @@ Design: `docs/DESIGN.md`. Code contract: `docs/ARCHITECTURE.md`, with per-area d
 
 ```sh
 bun install
-bun test             # unit tests: world generation, content tables, save schema, settings, dynamic resolution
-bun run test:smoke   # headless Chromium: New Game, Continue a valid / corrupt / newer save, stored settings; fails on any error
+bun test             # unit tests: world generation, content tables, save schema, settings, key bindings, dynamic resolution
+bun run test:smoke   # headless Chromium: New Game, Continue a valid / corrupt / newer save, stored settings, rebound keys; fails on any error
 ```
 
 The smoke test needs Playwright's Chromium once: `bunx playwright install chromium`. On failure it saves a

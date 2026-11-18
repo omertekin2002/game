@@ -5,6 +5,8 @@
 // becomes a plain word (touch has no shoulder swap), so text never names a key the player does not have.
 import { G } from '../core.js';
 import { Assets } from '../assets.js';
+import { settings } from '../settings.js';
+import { effectiveKeys, activeSecondary, keyLabel } from '../keybinds.js';
 
 const ALIAS = { roll: 'dash', lockon: 'lock', use: 'interact', swing: 'attack', hop: 'jump', camera: 'look' };
 /** input.lastDevice → glyph family */
@@ -23,12 +25,10 @@ export function hasKeys(text, device) {
   return !m || m.every((t) => { const g = glyph(t.slice(1, -1), device); return !g || !!g.text; });
 }
 // [text, style]: 'key' = keycap, 'pad' = round face button (colour class), 'word' = plain word, 'icon' = touch button icon
+// The keyboard rows (GLYPHS.kbm, ALL.kbm) come from the key bindings in effect (setting `keys`) and are rebuilt when
+// they change (wp6-hud then drops the HUD text it formatted once per device: prompt, coach, key chips, dialogue).
 export const GLYPHS = {
-  kbm: {
-    move: ['WASD', 'key'], look: ['Mouse', 'key'], attack: ['LMB', 'key'], jump: ['Space', 'key'], dash: ['Shift', 'key'],
-    sprint: ['hold Shift', 'key'], interact: ['E', 'key'], potion: ['R', 'key'], view: ['V', 'key'], shoulder: ['X', 'key'],
-    lock: ['Q', 'key'], map: ['M', 'key'], pause: ['Esc', 'key'], zoom: ['Wheel', 'key'],
-  },
+  kbm: null,
   pad: {
     move: ['L-stick', 'key'], look: ['R-stick', 'key'], attack: ['X', 'pad x'], jump: ['A', 'pad a'], dash: ['B', 'pad b'],
     sprint: ['hold B', 'pad b'], interact: ['Y', 'pad y'], potion: ['LB', 'key'], view: ['RB', 'key'], shoulder: ['D-pad ◂▸', 'key'],
@@ -43,13 +43,34 @@ export const GLYPHS = {
 };
 // the full binding list per device (controls reference); first entry is the glyph above
 export const ALL = {
-  kbm: { move: ['W A S D', '← ↑ → ↓'], look: ['Mouse'], attack: ['LMB', 'J'], jump: ['Space'], dash: ['Shift', 'K'], interact: ['E', 'F', 'Enter'],
-    lock: ['Q', 'MMB', 'hold RMB'], potion: ['R'], view: ['V'], shoulder: ['X'], zoom: ['Wheel'], map: ['M', 'Tab'], pause: ['Esc', 'P'] },
+  kbm: null,
   pad: { move: ['L-stick'], look: ['R-stick'], attack: ['X', 'RT'], jump: ['A'], dash: ['B'], interact: ['Y'], lock: ['R3', 'hold LT'],
     potion: ['LB', 'D-pad ↓'], view: ['RB', 'D-pad ↑'], shoulder: ['D-pad ◂▸'], map: ['Back'], pause: ['Start'] },
   touch: { move: ['stick'], look: ['swipe the screen'], attack: ['Swing'], jump: ['Hop'], dash: ['Roll'], interact: ['Use', 'tap'],
     lock: ['Lock'], potion: ['Potion'], view: ['View'], map: ['Map'], pause: ['Pause'] },
 };
+/** the move keys as one keycap: 'WASD' for single characters, else spaced ('I J K L', 'Num 8 Num 4 …') */
+export function moveLabel(e, sep = '') {
+  const l = [e.up, e.left, e.down, e.right].map(keyLabel);
+  return l.every((x) => x.length === 1) ? l.join(sep) : l.join(' ');
+}
+/** rebuild the keyboard glyphs from the bindings k (default: the setting in effect) */
+export function setKbmKeys(k = settings.get('keys')) {
+  const e = effectiveKeys(k), s = activeSecondary(k), L = keyLabel;
+  const alt = (a) => s[a].filter((c) => c !== 'ShiftRight').map(L);   // Right Shift: the same "Shift" keycap
+  GLYPHS.kbm = {
+    move: [moveLabel(e), 'key'], look: ['Mouse', 'key'], attack: ['LMB', 'key'], jump: [L(e.jump), 'key'], dash: [L(e.dash), 'key'],
+    sprint: ['hold ' + L(e.dash), 'key'], interact: [L(e.interact), 'key'], potion: [L(e.potion), 'key'], view: [L(e.view), 'key'],
+    shoulder: [L(e.shoulder), 'key'], lock: [L(e.lockOn), 'key'], map: [L(e.map), 'key'], pause: ['Esc', 'key'], zoom: ['Wheel', 'key'],
+  };
+  ALL.kbm = {
+    move: [moveLabel(e, ' '), '← ↑ → ↓'], look: ['Mouse'], attack: ['LMB', L(e.attack)], jump: [L(e.jump)], dash: [L(e.dash), ...alt('dash')],
+    interact: [L(e.interact), ...alt('interact'), 'Enter'], lock: [L(e.lockOn), 'MMB', 'hold RMB'], potion: [L(e.potion)], view: [L(e.view)],
+    shoulder: [L(e.shoulder)], zoom: ['Wheel'], map: [L(e.map), ...alt('map')], pause: ['Esc', 'P'],
+  };
+}
+setKbmKeys();
+settings.on('keys', (k) => setKbmKeys(k));
 const PADCLS = { A: 'a', B: 'b', X: 'x', Y: 'y' };
 const TOKEN = /\{([a-zA-Z]+)\}/g;
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
