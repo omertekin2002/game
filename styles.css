@@ -489,6 +489,12 @@ kbd.kp.a { background: #6cc35a; } kbd.kp.b { background: #ef7a6a; } kbd.kp.x { b
   background: linear-gradient(90deg, var(--green) 0 var(--p), #f0d9b0 var(--p) 100%); }
 .sctl input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50% 0 50% 0; transform: rotate(45deg); background: var(--cream); border: 3px solid var(--brown); box-shadow: 0 2px 0 rgba(74,44,26,0.4); }
 .sctl input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50% 0 50% 0; transform: rotate(45deg); background: var(--cream); border: 3px solid var(--brown); }
+/* Keys rows: the key button waits for a press (gold while waiting); a refused key's note turns coral */
+.kbind { font: 700 16px var(--font); color: var(--ink); background: none; border: 0; padding: 2px; cursor: pointer; border-radius: 10px; }
+.kbind kbd { min-width: 3.4em; padding: 2px 0.6em; background: #fffaf0; }
+.kbind:hover kbd, .kbnav .srow.foc .kbind kbd { background: #effbe2; }
+.srow.waiting .kbind kbd { background: var(--gold); }
+.snote.warn { color: #c0503c; }
 .sval { min-width: 82px; font-size: 16px; font-weight: 700; text-align: right; }
 .sval small { font-weight: 500; color: var(--muted); font-size: 12px; }
 
