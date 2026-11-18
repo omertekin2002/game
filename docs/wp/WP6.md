@@ -10,11 +10,11 @@ What WP6 added or changed, for folding into `docs/ARCHITECTURE.md` after the mer
 |---|---|
 | `js/ui.js` | `UI`: builds every element, layout (`--u`, phone layouts, the narrow-window top-row fit), settings hooks, title / loading, the per-frame HUD (`frame`), dialogue, shop, pause / settings / controls / map / chat log / ending cards, veil; exports `topFit` (pure top-row fit) |
 | `js/hud/hud.js` | module `wp6-hud`: event wiring, per-session resets, the portrait "turn sideways" tip, `G.debug.hud.*`, `audit()` |
-| `js/hud/keys.js` | **C7** key tokens → device glyphs: `fmtKeys`, `keyParts`, `glyph`, `keyCap`, `deviceKind`, `hasKeys`, `GLYPHS`, `ALL`, `esc` |
+| `js/hud/keys.js` | **C7** key tokens → device glyphs: `fmtKeys`, `keyParts`, `glyph`, `keyCap`, `deviceKind`, `hasKeys`, `GLYPHS`, `ALL`, `esc`; the keyboard rows come from the key bindings (`setKbmKeys`, `moveLabel`) |
 | `js/hud/feedback.js` | `Feedback`: crosshair states, hit ticks / kill star, damage petals, threat chevrons + look-up caret, enemy pips, lock reticle (edge mode on a free-area ellipse), TP target marker (`tm`), Pip's projected box in TP (`pipBox`), speed lines; `sty(e, k, v)`, `actorMax(e)` |
 | `js/hud/nav.js` | `objective(W, S, pl)`, `navMarkers(W, S, out)`, `Compass`, `Minimap`, `MapCard` |
 | `js/hud/notify.js` | `Feed` (pickup feed), `Notices` (region card + boss lower-third), `Coach` (coach marks + hint queue), `KeyHints`, `hudMem` |
-| `js/hud/menus.js` | `Nav` (menu input edges + repeat), `MenuList`, `SettingsCard` (from `SCHEMA`), `ControlsCard`, `META`, `TABS` |
+| `js/hud/menus.js` | `Nav` (menu input edges + repeat), `MenuList`, `SettingsCard` (from `SCHEMA`; the Keys rows), `ControlsCard`, `META`, `TABS`, `KEY_LABEL` |
 | `js/hud/icons.js` | `iconUrl`, `iconImg`, `iconState`, `drawIcon`, `iconHtml` (ui / sprite icons with fallbacks), `preloadIcons` |
 | `js/hud/sound.js` | `uiSfx(name)`, `hasSfx(name)`: the C8 UI names, falling back to the legacy sound until WP5 has the name |
 | `js/hud/projector.js` | `project(v, out)` does the camera maths itself with a cached viewport (`viewport()`, `refreshViewport()`; refreshed on resize and by `ui.layout`); adds camera-space `vx vy vz`; behind the eye `edgeAngle` is the real direction. It no longer calls `view.worldToScreen` (that reads `innerWidth` per call, which forces a style + layout pass under a mobile viewport) |
@@ -82,8 +82,14 @@ What WP6 added or changed, for folding into `docs/ARCHITECTURE.md` after the mer
   Controls tab puts the device in use first, then Sword, then **Third person** (touch: Touch · Sword · Third person ·
   Controller; a touch-only screen counts as touch before its first tap); the Controls card's look / walk rows use the
   device tab's pictogram. Groups (round 3): **Keyboard + mouse** (was "Mouse": it holds the arrow-look row) — mouse
-  sensitivity, invert, raw input, "Arrow keys look around" (note: WASD still walks · they turn at the controller look
-  speed, with its invert switches); Controller; Touch; Sword; **Third person** — "Camera drifts behind Pip" (note: with a controller or touch,
+  sensitivity, invert, raw input, "Arrow keys look around" (note: {move} still walks · they turn at the controller look
+  speed, with its invert switches; `META.noteDev` formats it for the keyboard on any device), then **Keys** (setting
+  `keys`, its own heading inside the group): one row per rebindable action with its key and, in the note, the keys it
+  also has (fixed alternates, and extra keys while it keeps its default). Confirming a row (Enter / E / Space, pad A, a
+  click or tap on the key) makes it wait for the next key press (`input.keyCapture`): that key is bound; a key another
+  action has swaps the two ("Swapped with …"); Esc cancels; a reserved key (Esc, P, the arrows, Enter, Tab, `` ` ``) is
+  refused with a note and the row keeps waiting; a pad / mouse move or back stops the wait. The tab's Reset restores the
+  default keys too; Controller; Touch; Sword; **Third person** — "Camera drifts behind Pip" (note: with a controller or touch,
   while you run and leave the camera alone; it was under Controller, after the mouse rows) and "Pip faces where you look"
   (note: Pip steps sideways instead of turning to run; it was "… (third person)" under Sword). On a **touch-only screen
   nobody has typed on** (`kbmRowsHidden()`: `(pointer: coarse)`, no `(any-pointer: fine)`, `input.lastDevice` not
