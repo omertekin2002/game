@@ -91,6 +91,10 @@ Open Settings from the pause menu or the title.
   (east), Sunny Shores (south) and Bloom Meadow (west), each with a landmark you can see over the trees.
 - Six enemy types that always telegraph their attacks, three boss fights, six villagers, a shop, 14 chests (4 heart
   containers), a day / night cycle, positional sound, autosave.
+- A completion tracker on the pause menu and the map card: chests opened, heart containers (the four heart chests and
+  Miso's shop heart), guardians beaten, regions visited and Starseeds home, each as found / total with a ✓ when full,
+  plus an overall percentage (★ 100% when everything is found). Totals come from the island, so any `?seed=` counts
+  its own chests.
 - Art: 2D sprites and painted cards in `assets/`, GLB models listed in `assets/manifest.js`; anything missing falls back
   to a procedural version.
 
@@ -100,8 +104,8 @@ Design: `docs/DESIGN.md`. Code contract: `docs/ARCHITECTURE.md`, with per-area d
 
 ```sh
 bun install
-bun test             # unit tests: world generation, content tables, save schema, settings, key bindings, dynamic resolution
-bun run test:smoke   # headless Chromium: New Game, Continue a valid / corrupt / newer save, stored settings, rebound keys; fails on any error
+bun test             # unit tests: world generation, content tables, save schema, completion tally, settings, key bindings, dynamic resolution
+bun run test:smoke   # headless Chromium: New Game, completion tracker, Continue a valid / corrupt / newer save, stored settings, rebound keys; fails on any error
 ```
 
 The smoke test needs Playwright's Chromium once: `bunx playwright install chromium`. On failure it saves a
