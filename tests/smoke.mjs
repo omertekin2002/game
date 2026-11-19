@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Headless-browser smoke test: serve the repo, boot the game in Chromium (software WebGL via SwiftShader),
-// start a New Game, then continue a valid, a corrupt and a newer-version save from localStorage. The same loads carry
-// stored settings (valid, wrong-typed, not JSON at all) and check that they are applied, repaired and saved. Fails on
-// any page error, console error or failed request.
+// start a New Game (checking the completion tracker on the pause menu and the map), then continue a valid, a corrupt
+// and a newer-version save from localStorage. The same loads carry stored settings (valid, wrong-typed, not JSON at
+// all) and check that they are applied, repaired and saved. Fails on any page error, console error or failed request.
 // Usage: node tests/smoke.mjs   (or `bun run test:smoke`). On failure a screenshot lands in test-results/.
 import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
@@ -116,6 +116,55 @@ async function main() {
     step(`debug info: ${JSON.stringify(info)}`);
     if (info.unreachable !== 0) fail(`world reports ${info.unreachable} unreachable targets`);
     if (problems.length) fail('errors during gameplay');
+
+    // 1b. The completion tracker on the pause menu and the map card: a fresh game shows nothing found, a chest, a
+    // guardian and a region set through G.game.S show on the next opening, and a finished save marks every chip.
+    const tally = (sel) => page.evaluate((q) => {
+      const chips = [...document.querySelectorAll(q + ' .tchip')];
+      return Object.fromEntries(chips.map((c) => [c.dataset.k, { text: c.querySelector('b').textContent.trim(), full: c.classList.contains('full'), tick: !!c.querySelector('.tok') }]));
+    }, sel);
+    const openPause = () => page.evaluate(() => { window.G.ui.openPause(); return window.G.ui.menu; });
+    const pauseToMap = () => page.evaluate(() => { window.G.ui.onPauseChoice(3); return window.G.ui.menu; });
+    const closeMenus = () => page.evaluate(() => { window.G.ui.closeMenu(true); return window.G.ui.menu; });
+    const regionsSeen = () => page.evaluate(() => [0, 1, 2, 3, 4].filter((i) => window.G.game.S.visited[i]).length);
+    const nChests = await page.evaluate(() => window.G.world.chests.length);
+    if (await openPause() !== 'pause') fail('the pause menu did not open');
+    let t = await tally('#pause .ptrack');
+    const r0 = await regionsSeen();
+    const want0 = { chests: `0/${nChests}`, hearts: '0/5', guardians: '0/3', regions: `${r0}/5`, seeds: '0/3' };
+    for (const [k, v] of Object.entries(want0)) if (!t[k] || t[k].text !== v || t[k].full) fail(`pause tracker ${k} on a new game: ${JSON.stringify(t[k])}, expected ${v}`);
+    await closeMenus();
+    const had3 = await page.evaluate(() => {
+      const g = window.G.game, W = window.G.world, had = !!g.S.visited[3];
+      g.S.chests[W.chests.find((c) => c.kind !== 'heart').id] = true;
+      g.S.bosses.woods = true;
+      g.S.visited[3] = true;
+      return had;
+    });
+    const r1 = await regionsSeen();
+    if (r1 !== r0 + (had3 ? 0 : 1)) fail(`setting a visited region did not take: ${r0} → ${r1}`);
+    const want1 = { chests: `1/${nChests}`, guardians: '1/3', regions: `${r1}/5` };
+    if (await openPause() !== 'pause') fail('the pause menu did not reopen');
+    t = await tally('#pause .ptrack');
+    for (const [k, v] of Object.entries(want1)) if (!t[k] || t[k].text !== v) fail(`pause tracker ${k} after setting flags: ${JSON.stringify(t[k])}, expected ${v}`);
+    if (await pauseToMap() !== 'map') fail('Map from the pause menu did not open the map card');
+    t = await tally('#mapview .mtrack');
+    for (const [k, v] of Object.entries(want1)) if (!t[k] || t[k].text !== v) fail(`map tracker ${k} after setting flags: ${JSON.stringify(t[k])}, expected ${v}`);
+    await closeMenus();
+    await page.evaluate(() => {
+      const S = window.G.game.S, W = window.G.world;
+      for (const c of W.chests) S.chests[c.id] = true;
+      for (const id of ['woods', 'peaks', 'shores']) { S.bosses[id] = true; S.seeds[id] = 2; }
+      for (let i = 0; i < 5; i++) S.visited[i] = true;
+      S.shopHeart = true;
+    });
+    await openPause();
+    t = await tally('#pause .ptrack');
+    for (const [k, v] of Object.entries(t)) if (!v.full || (k !== 'pct' && !v.tick)) fail(`pause tracker ${k} not marked complete: ${JSON.stringify(v)}`);
+    if (!t.pct || t.pct.text !== '★ 100%') fail(`pause tracker total on a finished save: ${JSON.stringify(t.pct)}`);
+    await closeMenus();
+    if (problems.length) fail('errors with the completion tracker');
+    step(`completion tracker on the pause menu and the map: 0/${nChests} → 1/${nChests} chests, 1/3 guardians, ${r1}/5 regions, ✓ and ★ 100% when finished`);
 
     // 2. Continue a valid v2 save (one chest open, one boss beaten and its seed placed, a saved position).
     // controlsV is the controls-card version the player has seen (CONTROLS_V in js/game.js); a save without it

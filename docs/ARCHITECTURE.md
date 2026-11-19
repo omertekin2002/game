@@ -55,6 +55,7 @@ Grep rules (must stay empty): `grep -rnE "\.yawTarget|cam\.bias|cam\.yaw" js` an
 | `js/tune.js`, `js/settings.js` | `TUNE` groups; settings schema and persistence | §16, §12 |
 | `js/game.js` | session, save, transitions, input routing, step and render orchestration, module host | §3, §6 |
 | `js/save.js` | save schema: `SAVE_VERSION`, `freshState`, `migrate`, `normalize`, `loadSave` (pure; unit-tested in `tests/save.test.js`) | §12 |
+| `js/completion.js` | completion tally `completion(W, S)` for the tracker on the pause menu and map card (`js/hud/tracker.js`); pure, unit-tested in `tests/completion.test.js` | §12 |
 | `js/view/view.js` | `ViewController`: look, camera pose, FOV, near plane, layers, shots | §7, [WP1](wp/WP1.md) |
 | `js/view/rig-fp.js`, `rig-tp.js`, `lockon.js`, `shots.js`, `shake.js`, `comfort.js`, `feel.js` | FP eye rig and feel layers, TP spring arm, lock-on camera, cinematics, trauma shake, comfort factors, module `wp1-feel` | §7, [WP1](wp/WP1.md) |
 | `js/view/viewmodel.js`, `js/vm/*.js` | module `wp2-viewmodel`: FP hands and swords pass (`anim`, `rig`, `fx`, `boots`, `dither`) | §13, [WP2](wp/WP2.md) |
