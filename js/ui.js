@@ -20,6 +20,7 @@ import { uiSfx } from './hud/sound.js';
 import { Feed, Notices, Coach, KeyHints, hudMem } from './hud/notify.js';
 import { Compass, Minimap, MapCard, navMarkers, objective } from './hud/nav.js';
 import { MenuList, SettingsCard, ControlsCard, Nav } from './hud/menus.js';
+import { trackerHtml } from './hud/tracker.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 function el(tag, cls, html, parent) {
@@ -117,7 +118,7 @@ export class UI {
     this.shopWrap = el('div', 'overlay hidden', '<div class="panel" id="shop"></div>', R); this.shopWrap.id = 'shopwrap';
     this.shopEl = $('#shop', this.shopWrap);
     // overlay cards
-    this.pauseEl = this.overlay('pause', `<div class="card panel"><h2>Paused</h2><div class="pseeds"></div><div class="small sub"></div><div class="menu">
+    this.pauseEl = this.overlay('pause', `<div class="card panel"><h2>Paused</h2><div class="pseeds"></div><div class="track ptrack" aria-label="Completion"></div><div class="small sub"></div><div class="menu">
       <button class="btn" data-i="0">Resume</button><button class="btn" data-i="1">Settings</button><button class="btn" data-i="2">Controls</button>
       <button class="btn" data-i="3">Map</button><button class="btn" data-i="4">Chat log</button><button class="btn" data-i="5">Save &amp; Quit</button></div></div>`);
     this.settingsEl = this.overlay('settings', `<div class="card panel wide"><div class="chead">${iconHtml('act_settings', '', 'hico')}<h2>Settings</h2></div><div class="tabs"></div>
@@ -131,7 +132,7 @@ export class UI {
       <div class="lbody"></div><div class="cfoot"><span class="small fkeys"></span><button class="btn sm sel" data-close>Back</button></div></div>`);
     this.chatLog = [];
     this.mapEl = this.overlay('mapview', `<div class="card panel paper"><div class="mhead"><h2>Starseed Isle</h2><button class="btn sm x" data-close aria-label="Close">✕</button></div>
-      <div class="mframe"><canvas></canvas></div><div class="legend"></div><div class="small mhint"></div></div>`);
+      <div class="mframe"><canvas></canvas></div><div class="legend"></div><div class="track mtrack" aria-label="Completion"></div><div class="small mhint"></div></div>`);
     this.endingEl = this.overlay('ending', `<div class="eart"></div><div class="card panel"><div class="et">✿ Starseed Isle is blooming again! ✿</div><div class="es">Thanks for playing</div>
       <div class="ex"></div></div>`);
     this.fadeEl = el('div', '', null, R); this.fadeEl.id = 'fade';
@@ -515,6 +516,7 @@ export class UI {
     this.mapCard.open({ mapImg: this.mapImg, labels: this.regionLabels, W: this.W, S, pl: { x: pl.x, z: pl.z }, facing: g ? g.player.facing : facing, viewYaw: facing, halfFov: v ? (v.fovH * Math.PI) / 360 : 0.8, list: this.markers.slice(), obj: this.obj });
     const L = [['icon_tree', '✿', 'Great Tree'], ['icon_woods', '!', 'Guardian'], ['icon_shop', '$', 'Miso\'s shop'], ['icon_chest', '▣', 'Chest found'], ['icon_waypoint', '★', 'Your marker']];
     $('.legend', this.mapEl).innerHTML = L.map(([k, f, n]) => `<span>${iconHtml(k, f, 'lico')}${esc(n)}</span>`).join('');
+    $('.mtrack', this.mapEl).innerHTML = trackerHtml(this.W, S);
     const dev = deviceKind();
     $('.mhint', this.mapEl).innerHTML = fmtKeys(dev === 'touch' ? 'Tap the map to drop a marker · tap it again to remove it' : dev === 'pad' ? '{move} move · {jump} drop a marker · {dash} close' : 'Click to drop a marker (click it again to remove) · {map} close', { html: true });
     uiSfx('uiOpen');
@@ -770,6 +772,7 @@ export class UI {
     const ps = $('.pseeds', this.pauseEl);
     if (!ps.children.length) { ps.innerHTML = this.seedsEl.innerHTML; }
     if (G.game && G.game.S) this.updateHud(G.game.S, true);
+    $('.ptrack', this.pauseEl).innerHTML = G.game && G.game.S ? trackerHtml(this.W, G.game.S) : '';
     this.pauseGuardUntil = sub ? performance.now() + 200 : 0;
     this.syncPause();
     this.showOverlay(this.pauseEl, true);
