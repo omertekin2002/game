@@ -12,7 +12,7 @@ import { G } from './core.js';
 import { CFG } from './data.js';
 import { makeModel } from './assets.js';
 import { instRig, pipDef, swordBuilt } from './models.js';
-import { toonMat, sharedOutline, outlineMat, meshWithOutline, GB } from './toon.js';
+import { toonMat, sharedOutline, outlineMat, meshWithOutline } from './toon.js';
 import { clamp, lerp, damp, wrapAngle, Ease, TAU, LAYER, setLayer, mulberry32, smoothstep } from './util.js';
 import { SlashTrail } from './fx-trail.js';
 import * as TUNE from './tune.js';
@@ -41,18 +41,19 @@ export function buildBody(pl, scene) {
   pl.inner.position.y = -0.45;
   pl.spin.add(pl.inner);
 
-  const glb = makeModel('hero');
-  if (glb) {
+  // hero.glb carries its sword arm as its own node (armR): the pivot sits at the shoulder and the arm hangs along -Y at
+  // rotation 0 like the rig's, so the same pose angles drive both; its rest pose (the node's own rotation) is the baked
+  // forward pitch and the sword rides in the baked fist (extras.hand). A GLB without it falls back to the rig
+  const glb = makeModel('hero'), armR = glb && glb.group.getObjectByName('armR');
+  if (armR && armR.userData.hand) {
     pl.glb = true;
     pl.height = glb.height;
     pl.mats = glb.materials;
     pl.inner.add(glb.group);
     pl.body = glb.group;
-    const h = pl.height;
-    pl.arm = new THREE.Group();
-    pl.arm.position.set(-0.19 * h, 0.5 * h, 0.02 * h);
-    pl.inner.add(pl.arm);
-    pl.handPos = new THREE.Vector3(-0.06 * h, -0.17 * h, 0.06 * h);
+    pl.arm = armR;
+    pl.armRest = new THREE.Euler().setFromQuaternion(armR.quaternion, 'YXZ').x;
+    pl.handPos = new THREE.Vector3().fromArray(armR.userData.hand);
     pl.swordMat = toonMat({ glow: true });
     pl.mats = [...pl.mats, pl.swordMat];
   } else {
@@ -64,9 +65,21 @@ export function buildBody(pl, scene) {
     pl.mats = r.mats;
     pl.body = r.nodes.body;
     pl.arm = r.nodes.armR;
+    pl.armRest = 0;
     pl.handPos = new THREE.Vector3(-0.075, -0.17, 0.02);
     pl.swordMat = r.mat;
   }
+  // at rest the blade leans the same 0.55 rad forward in either body; the GLB's fist sits in front of his cheek, so
+  // its blade also leans out to the side, clear of the face
+  pl.swordRest = 0.55 - pl.armRest;
+  pl.swordRestZ = pl.glb ? 0.3 : 0;
+  // the GLB's shoulder sits low and close to his head: A's TP follow-through stays out beside him (wrapped up over the
+  // far shoulder it ran the blade through his hood) and a swinging arm splays out, so the chop's raise clears it too
+  pl.tpWrapK = pl.glb ? 0 : 1;
+  pl.armSplay = pl.glb ? -0.7 : 0;
+  // with the camera centred behind him the blade would then stay hidden behind his hood: the torso twists through the
+  // swing instead (opening right at the wind-up, left at the follow-through), so it shows beside him
+  pl.tpTwistC = pl.glb ? 1 : 0;
   pl.arm.rotation.order = 'YXZ';
   pl.swordPivot = new THREE.Group();
   pl.swordPivot.position.copy(pl.handPos);
@@ -83,16 +96,6 @@ export function buildBody(pl, scene) {
     pl.swordPivot.add(g);
     return g;
   });
-  // GLB: the model's arms are baked in, so a little paw rides at the grip and the sword is always held by one
-  if (pl.glb) {
-    const b = new GB();
-    b.sphere(0.05, 0xeaa676, { ws: 12, hs: 9, sx: 1.1 });
-    b.torus(0.04, 0.014, 0xf4e4c1, { y: 0.045, rx: HALF_PI, ts: 14, rs: 5 });
-    b.cyl(0.042, 0.046, 0.05, 0x86b443, { y: 0.085, seg: 10 });
-    pl.paw = meshWithOutline(b.build(), pl.swordMat, pl.olMat);
-    pl.paw.position.y = 0.0;
-    pl.swordPivot.add(pl.paw);
-  }
   pl.root.traverse((o) => { if (o.isMesh && o.material === sharedOutline('char')) o.material = pl.olMat; });
   for (const m of new Set(pl.mats)) { ditherToon(m, pl.fadeU, pl.rimU); if (m.userData.flashColor) m.userData.flashColor.value.copy(SHIMMER); }
   pl.trail = new SlashTrail();
@@ -161,9 +164,10 @@ export const PlayerBody = {
     }
     // air: lean with the arc (forward rising, back a touch falling)
     if (an.air > 0.01) this.inner.rotation.x += an.air * clamp(vy * 0.03, -0.12, 0.15);
-    // limbs (procedural rig; the GLB has only the sword arm)
-    const rig = this.rig, dirLeg = back > 0.5 ? -1 : 1;
-    let armRx = 0, armRy = 0, armRz = 0, swordRx = 0.55, swordRz = 0;
+    // limbs: the sword arm in either body (the GLB's left arm is baked), the rest on the procedural rig only
+    const rig = this.rig, dirLeg = back > 0.5 ? -1 : 1, fall = clamp(-vy / 6, 0, 1);
+    let armRx = this.armRest + (moving ? Math.sin(ph) * 0.5 * k : 0), armRy = 0, armRz = 0, swordRx = this.swordRest, swordRz = this.swordRestZ;
+    if (an.air > 0.01) armRx = lerp(armRx, -0.8 - fall * 0.8, an.air);
     an.swOpen = 0; an.swLift = 0; an.swTrail = 0;
     if (rig) {
       const swing = moving ? Math.sin(ph) * 0.7 * k * dirLeg * (1 - sideA) : 0, step = moving ? Math.sin(ph) * 0.35 * sideA : 0;
@@ -171,12 +175,9 @@ export const PlayerBody = {
       rig.armL.rotation.x = moving ? -Math.sin(ph) * 0.6 * k : Math.sin(time * 2.6) * 0.04;
       rig.armL.rotation.z = 0;
       rig.head.rotation.set(moving ? Math.sin(ph * 2) * 0.03 : Math.sin(time * 1.3) * 0.03, 0, moving ? -Math.sin(ph) * 0.05 : 0);
-      armRx = moving ? Math.sin(ph) * 0.5 * k : 0;
       if (an.air > 0.01) {
-        const fall = clamp(-vy / 6, 0, 1);
         rig.legL.rotation.x = lerp(rig.legL.rotation.x, -0.7 + fall * 0.4, an.air); rig.legR.rotation.x = lerp(rig.legR.rotation.x, -0.2 - fall * 0.2, an.air);
         rig.armL.rotation.x = lerp(rig.armL.rotation.x, -1.2 - fall * 1.2, an.air); rig.armL.rotation.z = 0.4 * an.air;
-        armRx = lerp(armRx, -0.8 - fall * 0.8, an.air);
       }
     }
     if (st === 'attack') {
@@ -190,8 +191,8 @@ export const PlayerBody = {
         else if (t < s1) { e = chopAt(TC, t); reach = 1; }
         else if (t < hold) { e = TC.chopDown * D2R; reach = 1; }
         else { const u = Ease.inOutSine(clamp((t - hold) / (dur - hold), 0, 1)); e = lerp(TC.chopDown * D2R, -1.2, u); reach = 1 - u; }
-        armRx = lerp(armRx, -HALF_PI - e, reach);
-        swordRx = lerp(0.55, Math.PI - 0.12, reach);
+        armRx = lerp(armRx, -HALF_PI - e, reach); armRz = this.armSplay * reach;
+        swordRx = lerp(this.swordRest, Math.PI - 0.12, reach); swordRz = this.swordRestZ * (1 - reach);
         const bite = t >= s1 && t < hold ? 1 : 0;
         this.inner.rotation.x = 0.06 + clamp(-e, 0, 1) * 0.35 * reach;
         sy *= 1 - bite * 0.06; sx *= 1 + bite * 0.04;
@@ -211,12 +212,12 @@ export const PlayerBody = {
         // front (tpLiftA) and its follow-through wraps up over the far shoulder (tpWrapA), so the blade ends above his hood
         // in open screen; the world trail is drawn over him, tilted toward the camera (an.swTrail, fx-trail.js)
         const v = G.view, tpk = kind === 'A' && v && v.bodyOut && v.mode === 'tp' ? clamp(v.blend ?? 1, 0, 1) : 0;
-        const side = v && v.tp ? clamp(v.tp.side, -1, 1) : 1, u = (a / arc + 1) / 2;
+        const cs = v && v.tp ? clamp(v.tp.side, -1, 1) : 1, u = (a / arc + 1) / 2, side = cs + (1 - Math.abs(cs)) * this.tpTwistC * (1 - 2 * u);
         an.swOpen = -TV.tpOpenA * side * tpk * reach; an.swLift = TV.tpLiftA * tpk; an.swTrail = TV.tpTrailA * tpk;
-        const wrap = TV.tpWrapA * tpk * smoothstep(0.45, 1.1, u);
+        const wrap = TV.tpWrapA * this.tpWrapK * tpk * smoothstep(0.45, 1.1, u);
         armRx = lerp(armRx, -HALF_PI + tilt - an.swLift * Math.cos(a) - wrap, reach);
-        armRy = a * reach;
-        swordRx = lerp(0.55, Math.PI - 0.12, reach);
+        armRy = a * reach; armRz = this.armSplay * reach;
+        swordRx = lerp(this.swordRest, Math.PI - 0.12, reach); swordRz = this.swordRestZ * (1 - reach);
         this.inner.rotation.y += a * 0.35 * reach + an.swOpen;      // the torso turns into the swing
         this.inner.rotation.x = 0.08;
         if (rig) { rig.armL.rotation.x = -0.3 * reach; rig.armL.rotation.z = 0.5 * reach; }
@@ -233,7 +234,7 @@ export const PlayerBody = {
     if (st === 'item') {
       armRx = -2.9; armRz = 0.3;
       if (rig) { rig.armL.rotation.x = -2.9; rig.armL.rotation.z = -0.3; }
-      swordRx = 0.55;
+      swordRx = 0.55; swordRz = 0;
       sy *= 1 + Math.sin(time * 8) * 0.02;
     }
     if (st === 'frozen' && G.game && G.game.cutscene && G.game.cutscene.type === 'place') {

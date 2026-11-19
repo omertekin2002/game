@@ -5,6 +5,7 @@ import { vm as TV, combat as TC } from '../../tune.js';
 import { sweepTimeAt, chopTimeAt, Pose } from '../../vm/anim.js';
 import { vmFovFor } from '../../view/viewmodel.js';
 import { Boss } from '../../bosses.js';
+import { hasModel } from '../../assets.js';
 /** r4: an earlier test may have beaten this boss (smoke's 'place' gives its seed): bring it back (the runner restores the save) */
 function reviveBoss(game, id) {
   if (!game.S.bosses[id] && game.bosses[id]) return;
@@ -429,6 +430,33 @@ export default function register(suite) {
       t.ok(sq < 0.93, 'landing squash', sq);
       t.near(pl.spin.scale.y, 1, 0.03, 'settles');
     }],
+    ['TP body: two hands, the sword in his own right fist (no extra paw at the grip), swinging with that arm', (t) => {
+      const { D, game, THREE } = t, pl = game.player;
+      D.setView('tp'); t.frames(20);
+      if (hasModel('hero')) t.ok(pl.glb, 'the loaded hero.glb is the body (its armR node read, not the rig fallback)');
+      t.ok(pl.swordPivot.parent === pl.arm, 'the sword hangs from the sword arm', pl.arm && pl.arm.name);
+      t.ok(pl.swordPivot.children.every((c) => pl.swords.includes(c)), 'nothing but the swords at the grip (a paw there made three hands)', pl.swordPivot.children.length);
+      // the grip sits inside the arm's own fist: the arm's vertices around it surround it
+      const near = [], v = new THREE.Vector3(), m = new THREE.Matrix4();
+      pl.arm.updateMatrixWorld(true);
+      const toArm = m.copy(pl.arm.matrixWorld).invert();
+      pl.arm.traverse((o) => {
+        if (!o.isMesh || o.material.side === THREE.BackSide || pl.swords.some((s) => s === o || s.getObjectById(o.id))) return;
+        const a = o.geometry.attributes.position, mm = new THREE.Matrix4().multiplyMatrices(toArm, o.matrixWorld);
+        for (let i = 0; i < a.count; i++) { v.fromBufferAttribute(a, i).applyMatrix4(mm); if (v.distanceTo(pl.swordPivot.position) < 0.07) near.push(v.clone()); }
+      });
+      // (the rig's grip sits ≈ 2 cm off its hand ball's centre, toward the cuff; the old paw's arm was a bare group)
+      const c = near.reduce((s, p) => s.add(p), new THREE.Vector3()).multiplyScalar(1 / Math.max(1, near.length));
+      const r = { n: near.length, off: +c.distanceTo(pl.swordPivot.position).toFixed(4), glb: !!pl.glb };
+      t.ok(near.length >= 30 && r.off < 0.025, 'the grip is inside the right fist', r);
+      // and the fist carries it through a swing (measured under the arm, so the torso's turn alone does not count)
+      const grip = () => pl.arm.parent.worldToLocal(pl.swordPivot.getWorldPosition(new THREE.Vector3()));
+      const rest = grip();
+      t.press('attack'); let moved = 0;
+      for (let i = 0; i < 12; i++) { t.frames(1); pl.root.updateMatrixWorld(true); moved = Math.max(moved, grip().distanceTo(rest)); }
+      t.ok(moved > 0.08, 'the fist (and the grip in it) moves with the swing', +moved.toFixed(3));
+      t.frames(40);
+    }],
     ['FP boots: hidden at a level look, shown looking steeply down, never in TP; TP item faces the camera', (t) => {
       const { D, game, THREE } = t, m = mod(t);
       D.look(Math.PI, 0); t.frames(5);
@@ -639,42 +667,46 @@ export default function register(suite) {
       }
       D.freezeAI(false); t.clearEnemies(); regrowSince(game, cuts0);
     }],
-    ['r2: TP A (right shoulder): from the hit through the hold the blade shows beside or above Pip (it was behind his head and body; the trail too)', (t) => {
+    ['r2: TP A (right shoulder, and centred): from the hit through the hold the blade shows beside or above Pip (it was behind his head and body; the trail too)', (t) => {
       const { D, game, THREE } = t, pl = game.player, cam = game.camera, cuts0 = new Set(game.regrow);
-      D.setView('tp'); D.teleport(0, 9.5, 0, -4 * D2R); t.frames(30);
-      D.spawn('slime', 2.25, -11.6, { face: true }); const e = D.last; e.hp = 99; e.iframes = 0; e.lastSwing = -1; D.freezeAI(true);
       const rc = new THREE.Raycaster(); rc.layers.enableAll();
       const body = [];
       pl.inner.traverse((o) => { let p = o, sw = false; while (p) { if (p === pl.swordPivot) { sw = true; break; } p = p.parent; } if (!sw && o.isMesh && o.visible && !(o.material && o.material.side === THREE.BackSide)) body.push(o); });
-      t.press('attack');
-      let frames = 0, shown = 0;
-      const rows = [];
-      for (let i = 0; i < 24; i++) {
-        t.frames(1);
-        if (pl.state !== 'attack' || pl.combo !== 'A') break;
-        if (pl.attackT < 0.06 || pl.attackT > TV.holdTo) continue;
-        pl.root.updateMatrixWorld(true); cam.updateMatrixWorld();
-        let mesh = null;
-        pl.swords[pl.swordLevel >= 2 ? 1 : 0].traverse((o) => { if (!mesh && o.isMesh && o.material && o.material.side !== THREE.BackSide) mesh = o; });
-        if (!mesh) break;
-        mesh.geometry.computeBoundingBox();
-        const bb = mesh.geometry.boundingBox, ext = bb.max.clone().sub(bb.min), ax = ext.x > ext.y ? (ext.x > ext.z ? 'x' : 'z') : (ext.y > ext.z ? 'y' : 'z');
-        let vis = 0;
-        for (let k = 0; k < 8; k++) {
-          const p = bb.min.clone().add(bb.max).multiplyScalar(0.5); p[ax] = bb.min[ax] + (ext[ax] * (k + 0.5)) / 8; mesh.localToWorld(p);
-          const s = p.clone().project(cam);
-          if (Math.abs(s.x) > 1 || Math.abs(s.y) > 1 || s.z > 1) continue;
-          const dir = p.clone().sub(cam.position), dd = dir.length();
-          rc.set(cam.position, dir.normalize()); rc.far = dd - 0.02;
-          if (!rc.intersectObjects(body, false).length) vis++;
+      for (const side of ['right', 'center']) {
+        D.settings({ tpShoulder: side });
+        D.setView('tp'); D.teleport(0, 9.5, 0, -4 * D2R); t.frames(30);
+        D.spawn('slime', 2.25, -11.6, { face: true }); const e = D.last; e.hp = 99; e.iframes = 0; e.lastSwing = -1; D.freezeAI(true);
+        t.press('attack');
+        let frames = 0, shown = 0;
+        const rows = [];
+        for (let i = 0; i < 24; i++) {
+          t.frames(1);
+          if (pl.state !== 'attack' || pl.combo !== 'A') break;
+          if (pl.attackT < 0.06 || pl.attackT > TV.holdTo) continue;
+          pl.root.updateMatrixWorld(true); cam.updateMatrixWorld();
+          let mesh = null;
+          pl.swords[pl.swordLevel >= 2 ? 1 : 0].traverse((o) => { if (!mesh && o.isMesh && o.material && o.material.side !== THREE.BackSide) mesh = o; });
+          if (!mesh) break;
+          mesh.geometry.computeBoundingBox();
+          const bb = mesh.geometry.boundingBox, ext = bb.max.clone().sub(bb.min), ax = ext.x > ext.y ? (ext.x > ext.z ? 'x' : 'z') : (ext.y > ext.z ? 'y' : 'z');
+          let vis = 0;
+          for (let k = 0; k < 8; k++) {
+            const p = bb.min.clone().add(bb.max).multiplyScalar(0.5); p[ax] = bb.min[ax] + (ext[ax] * (k + 0.5)) / 8; mesh.localToWorld(p);
+            const s = p.clone().project(cam);
+            if (Math.abs(s.x) > 1 || Math.abs(s.y) > 1 || s.z > 1) continue;
+            const dir = p.clone().sub(cam.position), dd = dir.length();
+            rc.set(cam.position, dir.normalize()); rc.far = dd - 0.02;
+            if (!rc.intersectObjects(body, false).length) vis++;
+          }
+          frames++; if (vis >= 2) shown++;
+          rows.push(+pl.attackT.toFixed(3) + ':' + vis);
         }
-        frames++; if (vis >= 2) shown++;
-        rows.push(+pl.attackT.toFixed(3) + ':' + vis);
+        t.note('tpA ' + side, { frames, shown, rows: rows.join(' ') });
+        t.ok(frames >= 4, side + ': frames in the hit window', frames);
+        t.ok(shown >= frames * 0.6, side + ': frames with ≥ 2 of 8 blade samples in view, not behind Pip', { frames, shown });
+        D.freezeAI(false); t.clearEnemies(); t.frames(40);
       }
-      t.note('tpA', { frames, shown, rows: rows.join(' ') });
-      t.ok(frames >= 4, 'frames in the hit window', frames);
-      t.ok(shown >= frames * 0.6, 'frames with ≥ 2 of 8 blade samples in view, not behind Pip', { frames, shown });
-      D.freezeAI(false); t.clearEnemies(); regrowSince(game, cuts0);
+      regrowSince(game, cuts0);
     }],
     ['r2 part 3: FP dialogue — the lowered blade\'s tip stays under the dialogue box\'s top at this aspect and at 4:3 (it rose from the box into Shellby\'s beard)', (t) => {
       const { D, game } = t, npc = game.npcs.find((n) => n.id === 'shellby'), rows = [];

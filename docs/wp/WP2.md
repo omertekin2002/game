@@ -139,10 +139,18 @@ Sound: `sfx('sparkle')` (a presented purchase; a C8 name).
   `TUNE.perf.outline.char` when it exists (WP7's 'char' outline config: pixel-width line, far fade), else from the
   'char' width with the C11 `px: true` flag, so Pip's line matches every other character's after the WP7 merge.
 - Rim (art §3): Pip's toon rim × `TUNE.vm.rimTP` 1.6 while the camera is out of his head, 1.0 in FP.
-- GLB hero: a small paw rides at the grip so the sword is always held.
+- GLB hero: `hero.glb` carries its sword arm as its own node `armR` (pivot at the shoulder; at rotation 0 the arm
+  hangs along −Y like the rig's, so the same pose angles drive both). The node's own rotation is the baked rest pitch
+  (`pl.armRest`) and the sword sits in the baked fist at the node's `extras.hand` (`pl.handPos`). The resting blade
+  leans 0.55 rad forward in either body (`pl.swordRest`) and, on the GLB, 0.3 rad out from his cheek
+  (`pl.swordRestZ`). Its shoulder sits low and close to his head, so A's TP follow-through stays out beside him
+  instead of wrapping up over the far shoulder (`pl.tpWrapK` 0; wrapped, the blade ran through his hood) and a
+  swinging arm splays out 0.7 rad × reach (`pl.armSplay`) so the chop's raise clears it too. With the camera centred
+  behind him the torso twists through A instead (`pl.tpTwistC`: open right at the wind-up, left at the follow-through)
+  so the blade shows beside him. A GLB without `armR` falls back to the rig. The left arm stays baked.
 - Item-get in TP: `pl.held` scaled by `heldS` 0.62 (interact.js builds the item at 1.3), it faces the camera, an
   additive rays disc behind it.
-- New fields: `pl.fadeU`, `pl.rimU` (`{ value }` uniforms), `pl.olMat`, `pl.paw` (GLB), `pl.heldRays`, `pl.anim`
+- New fields: `pl.fadeU`, `pl.rimU` (`{ value }` uniforms), `pl.olMat`, `pl.armRest`, `pl.swordRest`, `pl.swordRestZ`, `pl.tpWrapK`, `pl.armSplay`, `pl.tpTwistC`, `pl.heldRays`, `pl.anim`
   (`{ landSq, landV, jumpSq, hurtAt, fwd, side, air }`). `pl.root.userData.cull = { dist: Infinity }` (C10).
 
 `SlashTrail` (`fx-trail.js`): `setReach(r, shiny)`, `start()`, `stop()`, `update(dt, player)` (the head follows
