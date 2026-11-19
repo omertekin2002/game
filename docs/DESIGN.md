@@ -215,6 +215,12 @@ generated icons that each have a drawn fallback.
   Settings (tabs View, Controls, Sound, Comfort, built from the settings list; the device in use first); a controls
   reference per device; a parchment map where a click or tap drops a marker the compass follows; the shop over a dimmed
   backdrop. Everything works with mouse, keyboard, gamepad and touch.
+- **Completion tracker** (pause menu under the seed row, map card under the legend): a row of chips, each an icon and
+  found / total, for chests opened, heart containers (the heart chests plus Miso's shop heart), guardians beaten, regions
+  visited and Starseeds home, then the overall percentage of distinct things found. A full chip turns green and gets a
+  ✓ badge, and the finished tally reads ★ 100%, so completion never rests on colour alone. It is read-only over the save
+  (`js/completion.js`, a pure module): totals come from the generated island and `data.js`, and save keys for things
+  this island does not have are not counted. It is filled each time the card opens.
 - **Title and loading**: painted key art, a loading card with rotating tips, an ending card over its own art.
 - **Phones**: fixed layouts for landscape (first person) and portrait (third person, controls in a deck at the bottom),
   within the safe-area insets.

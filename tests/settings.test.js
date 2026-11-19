@@ -42,7 +42,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 describe('schema', () => {
   test('every default is a value its own rule accepts', () => {
     for (const [k, sc] of Object.entries(SCHEMA)) {
-      if (sc.opts) expect(sc.opts, k).toContain(sc.def);
+      if (sc.obj) expect(sc.obj(sc.def), k).toEqual(sc.def);             // an object-valued key (keys)
+      else if (sc.opts) expect(sc.opts, k).toContain(sc.def);
       else if (typeof sc.def === 'number') {
         expect(sc.min, k).toBeLessThanOrEqual(sc.def);
         expect(sc.max, k).toBeGreaterThanOrEqual(sc.def);
@@ -239,6 +240,57 @@ describe('set and reset', () => {
     s.reset();
     expect(s.all()).toEqual(DEFAULTS);
     expect(heard).toEqual([['fovFP', SCHEMA.fovFP.def], ['invertX', false], ['quality', 'auto']]);
+    s.flush();
+    expect(stored()).toEqual({ v: 1 });
+  });
+});
+
+describe('key bindings (the one object-valued setting)', () => {
+  test('a stored binding comes back; a corrupt one falls back per action and is cleaned on the next write', () => {
+    put({ v: 1, keys: { jump: 'KeyT', attack: 7, map: 'Escape', potion: 'KeyV', nope: 'KeyZ' }, quality: 'low' });
+    const s = new Settings();
+    expect(s.get('keys')).toEqual({ jump: 'KeyT' });       // potion on V clashed with view: back to R
+    expect(s.get('quality')).toBe('low');
+    s.set('sens', 2);
+    s.flush();
+    expect(stored()).toEqual({ v: 1, keys: { jump: 'KeyT' }, quality: 'low', sens: 2 });
+  });
+
+  test('whatever is no object, or holds nothing usable, gives the default keys and is not kept', () => {
+    for (const junk of ['KeyT', 7, [], ['KeyT'], null, true, { jump: 'Escape' }, { jump: 'Space' }]) {
+      put({ v: 1, keys: junk });
+      const s = new Settings();
+      expect(s.get('keys'), JSON.stringify(junk)).toEqual({});
+      s.set('sens', 2);
+      s.flush();
+      expect(stored(), JSON.stringify(junk)).toEqual({ v: 1, sens: 2 });
+    }
+  });
+
+  test('set stores only the changed actions, tells the listeners once, and a set to the same bindings is silent', () => {
+    const s = new Settings(), heard = [];
+    s.on('keys', (v) => heard.push(v));
+    expect(s.set('keys', { jump: 'KeyT', map: 'Tab' })).toEqual({ jump: 'KeyT' });   // Tab is reserved
+    expect(s.set('keys', { jump: 'KeyT' })).toEqual({ jump: 'KeyT' });
+    expect(heard).toEqual([{ jump: 'KeyT' }]);
+    expect(s.set('keys', 'KeyT')).toEqual({ jump: 'KeyT' });                          // refused: the bindings stay
+    s.flush();
+    expect(stored()).toEqual({ v: 1, keys: { jump: 'KeyT' } });
+    expect(new Settings().get('keys')).toEqual({ jump: 'KeyT' });
+    s.set('keys', {});
+    s.flush();
+    expect(stored()).toEqual({ v: 1 });
+    expect(heard).toEqual([{ jump: 'KeyT' }, {}]);
+  });
+
+  test('reset brings the default keys back and tells the listeners', () => {
+    const s = new Settings(), heard = [];
+    s.set('keys', { jump: 'KeyT' });
+    s.on('*', (v, k) => heard.push([k, v]));
+    s.reset('keys');
+    expect(s.get('keys')).toEqual({});
+    s.reset('keys');                                         // nothing left to reset: silent
+    expect(heard).toEqual([['keys', {}]]);
     s.flush();
     expect(stored()).toEqual({ v: 1 });
   });
