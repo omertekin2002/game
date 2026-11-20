@@ -71,6 +71,8 @@ Grep rules (must stay empty): `grep -rnE "\.yawTarget|cam\.bias|cam\.yaw" js` an
 | `js/perf/dynres.js` | the dynamic-resolution decisions: `dynDecide`, `dynPause`, `titlePace`, `clampDyn` (pure; unit-tested in `tests/dynres.test.js`) | §14.2 |
 | `js/sky.js`, `js/terrain.js`, `js/atmo.js`, `js/ambient.js`, `js/assets.js`, `assets/manifest.js` | sky and fog, terrain and water, module `wp8-atmo`, ambient particles, asset loader, manifest | §14, [WP8](wp/WP8.md) |
 | `js/debug/debug.js`, `js/debug/gpu-timer.js`, `js/debug/tests.js`, `js/debug/tests/wp1.js … wp9.js` | `G.debug`, GPU timer, test runner and suites | §17, §18 |
+| `js/pwa.js`, `manifest.webmanifest`, `assets/ui/app-icon-*.png` | service-worker registration for the Pages build only (`swPlan`, `registerServiceWorker`; unit-tested in `tests/pwa.test.js`); the web manifest and its icons | §14.5 |
+| `tools/build-pages.mjs`, `tools/sw-template.js`, `tools/make-app-icons.mjs` | the Pages build and its checks (`buildPages`, `checkPwa`), the service worker's code, the icon generator | §14.5 |
 
 ## 3. One frame (`main.js` `runFrame(rawDt, force = false, draw = true)`)
 
@@ -708,6 +710,42 @@ claims the old direct-call names for that frame so nothing plays twice. The low-
 (`TUNE.hud.beat` 0.9 s, soft at hp 2, full at hp ≤ 1). Volumes come from `musicVol / sfxVol / ambVol`; mute keeps its
 own key.
 
+**14.5 Offline / installable build** (`js/pwa.js`, `manifest.webmanifest`, `tools/build-pages.mjs`,
+`tools/sw-template.js`; tests `tests/pwa.test.js`, `tests/pwa.mjs`). Only `_site/` has a service worker.
+
+- `manifest.webmanifest` (linked from `index.html`): name, short name, `start_url` / `scope` / `id` `./` (so it works
+  under `/game/`), `display: fullscreen`, `background_color` `--cream`, `theme_color` `--green`, icons 192 and 512 plus
+  a maskable 512 (`assets/ui/app-icon-*.png`, drawn by `tools/make-app-icons.mjs` as a vector redraw of
+  `assets/ui/icon.png`).
+- The build adds `<meta name="starseed-sw" content="sw.js">` to `_site/index.html` and writes `_site/sw.js`: `VERSION`
+  (a hash of every file's SRI hash) and `PRECACHE` (`[relative URL, sha256 integrity]` for every site file), then the
+  template. `checkPwa(site, precache)` fails the build on a missing or invalid manifest member, a missing 192 / 512 /
+  maskable icon, a root-absolute or missing path, or a site file left out of the precache list.
+- `sw.js` install: precache into `starseed-isle-<VERSION>`. A file with the same integrity in an older version's cache
+  is copied from it; the rest are fetched (HTTP cache, then `cache: 'reload'`) with `integrity`, so a stale copy fails
+  the install instead of landing in the cache. `sw-precache-index.json`, written last, marks the cache complete. Then
+  `skipWaiting`. Activate: delete every other `starseed-isle-*` cache and `clients.claim()`. Fetch: same-origin GETs in
+  the scope (no `Range`), cache-first by path with the query string ignored and `…/` served as `…/index.html`; a miss
+  goes to the network. A deploy is therefore served from the next load after the one that found it. A page still open
+  from the old version keeps working, because the new cache is complete before it takes over; it gets the new
+  version's files from then on, and all its JS modules loaded at boot.
+- `registerServiceWorker(ready)` (called by `main.js`): with the marker it registers `sw.js` once the title is up and
+  the deferred textures have arrived (≤ 10 s); without it (the repo, `bun run start`, the smoke test) it does nothing,
+  so `sw.js` is never requested. `?nosw=1`, or a page a worker controls without the marker, removes this scope's
+  registration and every `starseed-isle-*` cache at once, even if the boot then fails. Errors are swallowed.
+- Kill switch, if a bad worker ships: revert the registration (so pages stop registering), and ship this file as the
+  site's `sw.js` (add it to `SITE_FILES`). Browsers check `sw.js` on every navigation, so each player's next load
+  installs it, and it deletes the caches, unregisters itself and reloads open pages from the network:
+
+  ```js
+  self.addEventListener('install', () => self.skipWaiting());
+  self.addEventListener('activate', (e) => e.waitUntil((async () => {
+    for (const k of await caches.keys()) if (k.startsWith('starseed-isle-')) await caches.delete(k);
+    await self.registration.unregister();
+    for (const c of await self.clients.matchAll({ type: 'window' })) c.navigate(c.url);
+  })()));
+  ```
+
 ## 15. HUD and UI (`js/ui.js`, `js/hud/*.js`, module `wp6-hud`) — detail: [WP6](wp/WP6.md)
 
 `ui.frame(game, dt)` is the per-frame HUD, called by `game.render` once `game.target` is set: crosshair states, the
@@ -791,8 +829,10 @@ Namespaces added by modules:
 ## 18. In-page tests (`js/debug/tests.js`, `js/debug/tests/wp1.js … wp9.js`)
 
 CI (`.github/workflows/ci.yml`) does not run these. It runs `bun test` (`tests/*.test.js`: world generation, content
-tables, save schema, the settings store, the dynamic-resolution controller against simulated displays) and `tests/smoke.mjs` (headless Chromium with software WebGL: New Game, then Continue a valid, a
-corrupt and a newer-version save, each load with stored settings: valid, wrong-typed, unreadable). `jsconfig.json` maps `three` to the vendored copy for `bun test`, as the import map
+tables, save schema, the settings store, the dynamic-resolution controller against simulated displays, the service-worker
+registration and the PWA build checks), `tests/smoke.mjs` (headless Chromium with software WebGL: New Game, then Continue a valid, a
+corrupt and a newer-version save, each load with stored settings: valid, wrong-typed, unreadable; no service worker) and
+`tests/pwa.mjs` (the Pages build under `/game/`: install, offline play, an update, `?nosw=1`; §14.5). `jsconfig.json` maps `three` to the vendored copy for `bun test`, as the import map
 in `index.html` does for the browser, because `js/world.js` reaches `js/props.js` and so three.js. The Pages build
 (`tools/build-pages.mjs`) scans every `js/**/*.js` for `from '…'` with a regular expression, comments and strings
 included, so text such as `from 'dash'` in a comment fails it: keep that pattern out of comments and messages.
