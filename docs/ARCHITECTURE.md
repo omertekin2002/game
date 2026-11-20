@@ -383,6 +383,7 @@ streams, so the main stream (and with it the scatter) of a seed stays stable.
 | `W.shots.{ place, ending, endingCrane, spawn, bossIntro.{woods, peaks, shores} }` | camera hints `{ pos, look }` |
 | `W.arenas[id] { x, z, r, h, entAng, entrance, outside, ring }` | the three boss arenas (r 14 m) and their edge rings |
 | `W.paths`, `W.pathF / pathFAt`, `W.woodsGaps`, `W.signpost`, `W.waymarkers`, `W.lamps`, `W.chests`, `W.houses`, `W.shop`, `W.npcSpots`, `W.interact` | paths and dressing, interactables |
+| `W.shells [{ id: 'shell1'…'shell5', kind: 'shell', x, y, z, at }]` | Clover's rainbow shells (`at`: `lighthouse`, `islet1`, `islet2`, `cove`, `path`). `placeShells()` runs after everything else in `generate()` on its own RNG (`seed × 41 + 29`), adds nothing to any other list and restores `W.walk` / `W.reach`, so no existing placement moves on any seed (`tests/world.test.js` compares with `tests/fixtures/world-prints.json`). Each spot is dry Shores sand (an islet counts as Shores), flat, ≥ 3 m off the path, clear of solids, colliders, reservations (bar the islets' own), bridges, chests and NPC spots, outside the arena ring and reachable. `generateWorld(seed, { shells: false })` skips the pass. Not in `W.interact`: `interactables()` (`js/targeting.js`) offers the ones that are out |
 
 **9.3 Colliders.** `W.colliders`, hashed in 4 m cells: `{ x, z, r (bounding), kind, shape: 'circle'|'obb'|'star', hx, hz,
 rot, y0, y1, camTop, rEye, stand, over, canopy, body, … }`. Heights are baked from `COLLIDER_H` (per kind) unless a prop
@@ -563,9 +564,10 @@ from `META` (`js/hud/menus.js`); a key without `META` still gets a row.
 | `hudScale`, `minimap` | 1 (0.8–1.2), `heading` (`heading`, `north`, `off`) | HUD |
 | `quality`, `dynRes` | `auto` (`auto`, `low`, `high`), true | perf (DPR, grass, shadow map, dynamic resolution), assets (HD / lo, anisotropy), atmosphere (terrain layers) |
 
-Save (`game.S`, key `starseed-isle-save-v2`, `v: 2`): seed, position, facing, hp, maxHp, coins, potions, swordLevel,
+Save (`game.S`, key `starseed-isle-save-v2`, `v: 3`): seed, position, facing, hp, maxHp, coins, potions, swordLevel,
 seeds (0 none, 1 carried, 2 placed), chests, bosses, shopHeart, ending, time of day, visited regions, playTime, intro and
-controls flags, plus the optional `pitch` (restored clamped ±0.6 rad), `controlsV` (< 2 → the first-run coach marks once)
+controls flags, `errands` (errand id → 1 started, 2 done; `ERRANDS` and the `errands` helpers in `js/data.js`), `shells`
+(rainbow shell id → true), plus the optional `pitch` (restored clamped ±0.6 rad), `controlsV` (< 2 → the first-run coach marks once)
 and `waypoint { x, z }` (the map marker). Non-numeric optional fields fall back to defaults. Autosave every 30 s outside
 fights and at key events. `wp9-world.onSession` moves a Continue whose saved spot is now inside a collider to the
 nearest free spot.
@@ -574,7 +576,16 @@ Every read of the save goes through `loadSave(raw, seed)` in `js/save.js`: `Game
 seed lookup at boot in `main.js`. It migrates older versions (`MIGRATIONS`), rejects unusable saves (treated as no save)
 and fills, clamps or coerces the known fields; unknown fields such as `pitch`, `controlsV` and `waypoint` pass through.
 `js/save.js` imports only `js/data.js`, so `bun test` can load it. To change the layout, bump `SAVE_VERSION` and add a
-`MIGRATIONS[old]` step with a test (`docs/DESIGN.md` §15).
+`MIGRATIONS[old]` step with a test (`docs/DESIGN.md` §15). `MIGRATIONS[2]` (v2 → v3) adds `errands: {}` and
+`shells: {}` and keeps every v2 field.
+
+Errands (`js/interact.js`): Clover's lines (`NPCS`) read the errand state before a talk; when the talk ends,
+`errandTalk` calls `errands.talk(S, e)`, which starts the errand (`syncShells` shows the shells) or, with every shell
+found, finishes it and adds the reward to `S.coins` once (the feed gets an `EV.COLLECT` gem line); either way the game
+saves. A shell is an interactable of kind `shell` (`Pick up · Rainbow shell`, aim point `TUNE.combat.aimPts.shell`, range
+`shellRange`); `pickShell` marks it (`errands.pick`), hides it (`scenery.setShellShown`) and saves. The scenery draws each
+shell as a small group (`rainbowShellModel()` in `js/props.js`, procedural) that turns and bobs; `tickShells` twinkles
+the ones within 40 m. The tracker's `errands` row counts errands done (`errands.done(S)`) over `ERRANDS.length`.
 
 ## 13. Viewmodel (`js/view/viewmodel.js`, module `wp2-viewmodel`) — detail: [WP2](wp/WP2.md)
 
@@ -801,7 +812,7 @@ comparison only).
 
 | Helper | |
 |---|---|
-| `teleport(x, z, yaw = null, pitch = 0) → [x, y, z]`, `pose(name)`, `standAt(kind \| npcId, n, { dist })` | `pose`: `spawn`, `plaza-N`, `plaza-S`, `tree`, `village`, `woods`, `peaks`, `shores`, `meadow`, `hilltop`, `arena-woods / peaks / shores` (an unknown name lists them) |
+| `teleport(x, z, yaw = null, pitch = 0) → [x, y, z]`, `pose(name)`, `standAt(kind \| npcId, n, { dist })` (`kind` `'shell'`: rainbow shell n of `W.shells`) | `pose`: `spawn`, `plaza-N`, `plaza-S`, `tree`, `village`, `woods`, `peaks`, `shores`, `meadow`, `hilltop`, `arena-woods / peaks / shores` (an unknown name lists them) |
 | `spawn(type, dist = 4, relDeg = null, { alt, face, state, st })`, `last`, `enemies()`, `freezeAI(on)`, `freezeTime(on)`, `god(on)`, `hurt(dmg, relDeg)`, `down()` | `relDeg` from the view yaw (+ = left); the new enemy is `G.debug.last` |
 | `setTime(h)`, `giveSeeds()`, `toBoss(id)`, `killBoss()`, `cutscene(name, id)` | `cutscene`: `'place'`, `'ending'`, `'bossIntro'`, `'itemGet'` |
 | `aim()`, `target()`, `aimAt(x, y, z)` | what a full swing would hit now; the interaction target; aim the crosshair at a point (TP: from the camera the rig settles at for that look, which it runs the live rig to; where a slide flips shoulders with the aim it keeps the best look) |
@@ -838,7 +849,8 @@ corrupt and a newer-version save, each load with stored settings: valid, wrong-t
 `tests/pwa.mjs` (the Pages build under `/game/`: install, offline play, an update, `?nosw=1`; §14.5) and
 `tests/playthrough.mjs` (a whole game from a clean `localStorage`: New Game, Shellby's intro, each guardian's arena walked
 into, beaten with `G.debug.killBoss()` and its Starseed walked onto, Use at the pedestal, the ending and its card, free roam,
-the pause tracker at 3/3, Save & Quit, a reload and Continue with the bloom restored; it steps the real frame loop
+Clover's errand after Captain Pinch (talk, Use on the five rainbow shells, talk again for the reward once), the pause
+tracker at 3/3 and errands 1/1, Save & Quit, a reload and Continue with the bloom and the finished errand restored; it steps the real frame loop
 (`game.runFrame`, drawing one frame in 60) on the manual clock without its redraws instead of waiting in real time).
 `tests/lib/browser.mjs` holds the static server and Chromium options the smoke and playthrough tests share. `jsconfig.json` maps `three` to the vendored copy for `bun test`, as the import map
 in `index.html` does for the browser, because `js/world.js` reaches `js/props.js` and so three.js. The Pages build
