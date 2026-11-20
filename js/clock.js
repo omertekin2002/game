@@ -18,6 +18,7 @@ export class Clock {
     this.timeScale = 1;         // slow-mo (opt-in); hit-stop does not use it
     this.hitStopT = 0;          // real seconds of freeze left, always a whole number of steps
     this.manual = false;        // frames and steps only through G.debug.step/advance (main.js loop just redraws)
+    this.redraw = true;         // with manual: false stops that redraw too (G.debug.clock({ redraw }); tests/playthrough.mjs)
     this.hold = false;          // set by Game while a cursor menu pauses the world: frames accumulate nothing
     this.steps = 0; this.alpha = 0.5; this.dt = 0;
     this.simTime = 0; this.frames = 0; this.longFrames = 0;
@@ -83,6 +84,6 @@ export class Clock {
     return { ran, frozen };
   }
   info() {
-    return { manual: this.manual, hold: this.hold, timeScale: this.timeScale, steps: this.steps, alpha: +this.alpha.toFixed(4), hitStopT: +this.hitStopT.toFixed(4), simTime: +this.simTime.toFixed(4), frames: this.frames, longFrames: this.longFrames };
+    return { manual: this.manual, redraw: this.redraw, hold: this.hold, timeScale: this.timeScale, steps: this.steps, alpha: +this.alpha.toFixed(4), hitStopT: +this.hitStopT.toFixed(4), simTime: +this.simTime.toFixed(4), frames: this.frames, longFrames: this.longFrames };
   }
 }

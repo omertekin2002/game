@@ -5,15 +5,10 @@
 // all) and check that they are applied, repaired and saved. Running from the repo registers no service worker and never
 // requests sw.js (only the Pages build has one; tests/pwa.mjs). Fails on any page error, console error or failed request.
 // Usage: node tests/smoke.mjs   (or `bun run test:smoke`). On failure a screenshot lands in test-results/.
-import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
-import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
-const SAVE_KEY = 'starseed-isle-save-v2'; // SAVE_KEY in js/data.js
-const SETTINGS_KEY = 'starseed-isle-settings-v1'; // SETTINGS_KEY in js/settings.js
-
-const root = fileURLToPath(new URL('..', import.meta.url));
+import { LAUNCH, SAVE_KEY, SETTINGS_KEY, startServer } from './lib/browser.mjs';
 const BOOT_TIMEOUT = Number(process.env.SMOKE_BOOT_TIMEOUT || 120_000);
 // Starting a session compiles every shader on its first frame; in software WebGL on a two-core runner that frame
 // alone takes around 10 s.
@@ -24,25 +19,6 @@ const STEP_TIMEOUT = 60_000;
 const QUERY = '?debug=1&nolock=1';
 const SHOT = new URL('../test-results/smoke-failure.png', import.meta.url);
 
-const freePort = () => new Promise((resolve, reject) => {
-  const srv = createServer();
-  srv.unref();
-  srv.on('error', reject);
-  srv.listen(0, '127.0.0.1', () => { const { port } = srv.address(); srv.close(() => resolve(port)); });
-});
-
-async function startServer() {
-  const port = await freePort();
-  const proc = spawn(process.execPath, ['tools/serve.mjs', String(port)], { cwd: root, stdio: ['ignore', 'pipe', 'inherit'] });
-  await new Promise((resolve, reject) => {
-    reject = ((r) => (e) => { proc.kill(); r(e); })(reject);
-    const timer = setTimeout(() => reject(new Error('static server did not start within 10 s')), 10_000);
-    proc.once('exit', (code) => { clearTimeout(timer); reject(new Error(`static server exited early (code ${code})`)); });
-    proc.stdout.on('data', (d) => { if (String(d).includes('http://')) { clearTimeout(timer); resolve(); } });
-  });
-  return { proc, url: `http://127.0.0.1:${port}/` };
-}
-
 const step = (msg) => console.log(`[smoke] ${msg}`);
 
 async function main() {
@@ -50,10 +26,7 @@ async function main() {
   const server = await startServer();
   let browser, page, titleAt = 0;
   try {
-    browser = await chromium.launch({
-      headless: true,
-      args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
-    });
+    browser = await chromium.launch(LAUNCH);
     const fail = (msg) => { throw new Error(msg); };
     // Open the game in a fresh context (its own localStorage). `save` and `settings`, if given, are written to
     // localStorage before any page script runs, so the game boots with exactly those (`settings` may be raw text).
