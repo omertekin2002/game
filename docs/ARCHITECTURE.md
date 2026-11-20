@@ -117,7 +117,8 @@ renderFrame(alpha, dt, draw)
 - The title draws nothing: its canvas keeps the last boot frame. `game.state` is `'boot'` from the start of the warm-up
   until `showTitle()`, then `'title'`, then `'play'`.
 - With the manual clock (`G.debug.manual(true)`, `?fixed=1`) the rAF loop only redraws the last frame; frames run only
-  through `G.debug.step / advance` or `game.runFrame(dt, true, draw)`.
+  through `G.debug.step / advance` or `game.runFrame(dt, true, draw)`. `G.debug.clock({ redraw: false })` stops that
+  redraw as well, so only frames run with a draw reach the GPU (in software WebGL each draw costs a fraction of a second).
 
 ## 4. Clock (`js/clock.js`, `G.clock === game.clock`)
 
@@ -806,7 +807,7 @@ comparison only).
 | `aim()`, `target()`, `aimAt(x, y, z)` | what a full swing would hit now; the interaction target; aim the crosshair at a point (TP: from the camera the rig settles at for that look, which it runs the live rig to; where a slide flips shoulders with the aim it keeps the best look) |
 | `setView(mode, { instant })`, `view(mode?)`, `look(yaw, pitch)`, `lookDelta(dx, dy, { single })`, `lookAt(x, y, z)`, `fov(h?)` | |
 | `press(a, ms)`, `hold(a, ms)`, `release(a?)`, `move(x, y, ms)`, `pad(rx, ry)`, `inject({ look, hold, release, press, pad, touch, frames })` | input injection |
-| `clock({ manual, timeScale })`, `manual(on)`, `step(n) → { ran, frozen, pos }`, `advance(n, dt \| dt[], { render })`, `seed(n \| null)` | deterministic frames; `seed` seeds `Math.random` |
+| `clock({ manual, redraw, timeScale })`, `manual(on)`, `step(n) → { ran, frozen, pos }`, `advance(n, dt \| dt[], { render })`, `seed(n \| null)` | deterministic frames; `seed` seeds `Math.random` |
 | `events(n)`, `clearEvents()`, `settings(patch?)`, `shake(a, src)`, `hud(on)` | `hud(false)` hides every HUD element (dialogue and menus stay) |
 | `armProbe(x, z, yaw, pitch)` | the TP spring arm as a pure query |
 | `perf({ ms }) → Promise<{ fps, frames, cpuMs, gpuMain, gpuVm, gpuTimer, gpuDropped, calls, tris, dpr, size, view, tod }>` | real frames, GPU per pass via `EXT_disjoint_timer_query_webgl2` (null when unavailable); pin the hour with `setTime` + `freezeTime` |
@@ -833,8 +834,13 @@ Namespaces added by modules:
 CI (`.github/workflows/ci.yml`) does not run these. It runs `bun test` (`tests/*.test.js`: world generation, content
 tables, save schema, the settings store, the dynamic-resolution controller against simulated displays, the service-worker
 registration and the PWA build checks), `tests/smoke.mjs` (headless Chromium with software WebGL: New Game, then Continue a valid, a
-corrupt and a newer-version save, each load with stored settings: valid, wrong-typed, unreadable; no service worker) and
-`tests/pwa.mjs` (the Pages build under `/game/`: install, offline play, an update, `?nosw=1`; §14.5). `jsconfig.json` maps `three` to the vendored copy for `bun test`, as the import map
+corrupt and a newer-version save, each load with stored settings: valid, wrong-typed, unreadable; no service worker),
+`tests/pwa.mjs` (the Pages build under `/game/`: install, offline play, an update, `?nosw=1`; §14.5) and
+`tests/playthrough.mjs` (a whole game from a clean `localStorage`: New Game, Shellby's intro, each guardian's arena walked
+into, beaten with `G.debug.killBoss()` and its Starseed walked onto, Use at the pedestal, the ending and its card, free roam,
+the pause tracker at 3/3, Save & Quit, a reload and Continue with the bloom restored; it steps the real frame loop
+(`game.runFrame`, drawing one frame in 60) on the manual clock without its redraws instead of waiting in real time).
+`tests/lib/browser.mjs` holds the static server and Chromium options the smoke and playthrough tests share. `jsconfig.json` maps `three` to the vendored copy for `bun test`, as the import map
 in `index.html` does for the browser, because `js/world.js` reaches `js/props.js` and so three.js. The Pages build
 (`tools/build-pages.mjs`) scans every `js/**/*.js` for `from '…'` with a regular expression, comments and strings
 included, so text such as `from 'dash'` in a comment fails it: keep that pattern out of comments and messages.
