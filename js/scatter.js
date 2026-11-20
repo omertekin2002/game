@@ -16,7 +16,7 @@ import * as THREE from 'three';
 import { HALF, CHUNK, NCH } from './world.js';
 import { toonMat, sharedOutline, outlineMat, meshWithOutline, outlineGeometry, radialProfile, setHullProfile } from './toon.js';
 import { makeModel, Assets } from './assets.js';
-import { propModel, PROP_KIND, houseA, houseB, shopModel, greatTreeParts, bridgeGeo, chestParts, rainbowShellModel } from './props.js';
+import { propModel, PROP_KIND, houseA, houseB, shopModel, greatTreeParts, bridgeGeo, chestParts, rainbowShellModel, paradeLanternModels } from './props.js';
 import { hash2 } from './util.js';
 import { perf as TP } from './tune.js';
 import { proxyGeometry } from './perf/lod.js';
@@ -114,6 +114,7 @@ export class Scenery {
     this.layers = [];
     this.chests = new Map();
     this.shells = new Map();         // Clover's rainbow shells (W.shells): hidden until her errand puts them out
+    this.lanterns = new Map();       // Ribbit's parade lanterns (W.lanterns): hidden until the parade starts, then unlit / lit
     this.cullOff = false;            // G.debug.perf.cull(false): everything packed, full models only (base for A/B)
     this.packs = 0; this.packMs = 0; // stats
     this._v = null; this.dirty = true;
@@ -127,6 +128,7 @@ export class Scenery {
     this.buildBridges();
     this.buildChests();
     this.buildShells();
+    this.buildLanterns();
   }
   buildInstanced(list) {
     const byType = new Map();
@@ -455,7 +457,7 @@ export class Scenery {
       this.chests.set(c.id, { group: g, lid: lidPivot, data: c, open: 0, target: 0 });
     }
   }
-  /** one small group per rainbow shell, hidden (game.syncShells shows the ones that are out). Model and procedural
+  /** one small group per rainbow shell, hidden (game.syncErrands shows the ones that are out). Model and procedural
    *  only: rainbowShellModel is the decorative shell's shape in rainbow colours, so it needs no asset */
   buildShells() {
     const shells = this.W.shells || [];
@@ -476,6 +478,46 @@ export class Scenery {
     const s = this.shells.get(id);
     if (s) { s.shown = !!on; s.group.visible = s.shown; }
   }
+  /** one group per parade lantern: the post and its own paper material (tinted and glowing by how lit it is), hidden
+   *  until game.syncErrands shows them. Procedural only (paradeLanternModels), so it needs no asset */
+  buildLanterns() {
+    const list = this.W.lanterns || [];
+    if (!list.length) return;
+    const m = paradeLanternModels(), postMat = mats().solid.m, ol = mats().solid.ol;
+    for (const it of list) {
+      const g = new THREE.Group(), mat = toonMat({ glow: true, glowBase: 0, rim: 0.5 });
+      g.add(meshWithOutline(m.post, postMat, ol, { cast: false }));
+      const paper = meshWithOutline(m.paper, mat, ol, { cast: false });
+      g.add(paper);
+      g.position.set(it.x, it.y, it.z);
+      g.rotation.y = hash2(Math.round(it.x * 10), Math.round(it.z * 10), 13) * Math.PI * 2;
+      g.visible = false;
+      this.root.add(g);
+      const L = { group: g, paper, mat, data: it, shown: false, lit: false, glow: 0, ph: hash2(Math.round(it.x * 10), Math.round(it.z * 10), 17) * Math.PI * 2 };
+      this.lanterns.set(it.id, L);
+      this.tintLantern(L);
+    }
+  }
+  /** a lantern's look at glow g (0 unlit cream paper, 1 lit warm and glowing) */
+  tintLantern(L) {
+    const g = L.glow;
+    // pale paper → warm amber, in sRGB (the glow adds the paper's own colour on top of the light: a deep amber keeps it
+    // from washing out to white)
+    L.mat.color.setRGB(0.93 + 0.07 * g, 0.91 - 0.37 * g, 0.86 - 0.7 * g, THREE.SRGBColorSpace);
+    L.mat.userData.glowK.value.x = 0.6 * g;
+  }
+  /** show / hide a parade lantern and light it: a newly lit one warms up over ≈ 0.8 s (update), `instant` at once */
+  setLantern(id, shown, lit, instant = false) {
+    const L = this.lanterns.get(id);
+    if (!L) return;
+    L.shown = !!shown; L.group.visible = L.shown; L.lit = !!lit;
+    if (instant || !L.lit) { L.glow = L.lit ? 1 : 0; this.tintLantern(L); }
+  }
+  /** an errand item's scenery (data.js ERRANDS `item`): shown or hidden, found (a lit lantern) or not */
+  setErrandItem(kind, id, shown, found = false, instant = false) {
+    if (kind === 'shell') this.setShellShown(id, shown);
+    else if (kind === 'lantern') this.setLantern(id, shown, found, instant);
+  }
   setChestOpen(id, open, instant) {
     const ch = this.chests.get(id);
     if (!ch) return;
@@ -488,6 +530,11 @@ export class Scenery {
       if (!s.group.visible) continue;
       s.spin.rotation.y = t * 0.9 + s.ph;
       s.spin.position.y = 0.05 + Math.sin(t * 2.2 + s.ph) * 0.05;
+    }
+    for (const L of this.lanterns.values()) {
+      if (!L.shown) continue;
+      if (L.lit && L.glow < 1) { L.glow = Math.min(1, L.glow + dt * 1.25); this.tintLantern(L); }   // a soft warm-up
+      L.paper.rotation.z = Math.sin(t * 1.3 + L.ph) * 0.03;   // a gentle sway in the breeze
     }
     for (const ch of this.chests.values()) {
       if (ch.open !== ch.target) {

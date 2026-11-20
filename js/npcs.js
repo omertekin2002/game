@@ -4,13 +4,16 @@
 // closer than npcBackHop m when a talk starts hops back a little so the FP framing never crops the face. A stay-at-home
 // villager (wander 0: Miso behind her shop counter) keeps her spot: the world stages her where its colliders (the counter,
 // the shop front) overlap her circle, so she never hops, and anything that moves her walks her straight back.
+// Follow mode (an errand with `follow`: Mayor Ribbit's parade, set by interact.js): the villager trails a little behind
+// Pip with small hops and stops when he stops; far behind or stuck, he hops to a spot just behind Pip; with Pip out of
+// the village circle (TUNE.world.paradeR) he waits at its edge. Leaving it (goHome) walks him back to his spot.
 import * as THREE from 'three';
 import { G, sfx } from './core.js';
 import { makeModel } from './assets.js';
 import { instRig, npcDef } from './models.js';
-import { moveCircle } from './phys.js';
+import { moveCircle, penetration } from './phys.js';
 import { dampAngle, wrapAngle, rand, len2, TAU, angDiff, clamp, damp } from './util.js';
-import { actors as TA } from './tune.js';
+import { actors as TA, world as TW } from './tune.js';
 
 const _box = new THREE.Box3();
 
@@ -34,6 +37,10 @@ export class NPC {
     this.look = 0; this.lookYaw = 0;      // eye contact: 0..1 and the head's turn relative to the body (rad)
     this.waveT = 0; this.waved = false;   // wave: time left (s); waved once until Pip leaves the look range
     this.backHop = null;
+    this.follow = false;                    // follow mode (Ribbit's parade): trails Pip (followUpdate)
+    this.homing = false;                    // walking back to his spot after the parade (homeUpdate)
+    this.followT = 0; this.stuckT = 0;      // follow: time to the next little hop; time spent blocked (s)
+    this.catchUps = 0;                      // follow: catch-up hops so far (tests read it)
     this.root = new THREE.Group();
     const glb = makeModel(def.key);
     if (glb) { this.root.add(glb.group); this.nodes = {}; this.mats = glb.materials; this.glbGroup = glb.group; }
@@ -65,6 +72,82 @@ export class NPC {
     }
   }
   talkEnd() { this.talking = false; this.st = rand(1.5, 3); this.state = 'idle'; this.backHop = null; }
+  /** start / stop following Pip (an errand with `follow`) */
+  setFollow(on) { this.follow = !!on; if (on) this.homing = false; this.stuckT = 0; this.followT = 0; }
+  /** stop following and walk back to his spot */
+  goHome() { this.follow = false; this.homing = true; this.stuckT = 0; }
+  /** back on his spot at once, not following (a new session: Continue puts him home) */
+  resetHome() {
+    this.follow = false; this.homing = false; this.backHop = null; this.talking = false; this.stuckT = 0;
+    this.pos.set(this.home.x, G.world.ground(this.home.x, this.home.z), this.home.z);
+    this.prev.copy(this.pos);
+    this.facing = this.prevFacing = this.homeRot;
+    this.hop = 0; this.hopV = 0; this.state = 'idle'; this.st = rand(1, 3);
+  }
+  /** a small hop up (only from the ground) */
+  bounce(v) { if (this.hop === 0 && this.hopV <= 0) this.hopV = v; }
+  /** a step toward (tx, tz), stopping `stop` m short of it, at TA.followK × the distance left up to TA.followSpeed m/s
+   *  (at least 1.4 m/s); counts time spent blocked */
+  stepToward(dt, tx, tz, stop, pl) {
+    const dx = tx - this.pos.x, dz = tz - this.pos.z, dist = Math.hypot(dx, dz);
+    if (dist <= stop) { this.stuckT = Math.max(0, this.stuckT - dt * 2); return false; }
+    const a = Math.atan2(dx, dz), sp = Math.min(TA.followSpeed, Math.max(1.4, (dist - stop) * TA.followK)), s = Math.min(dist - stop, sp * dt);
+    const x0 = this.pos.x, z0 = this.pos.z;
+    this.facing = dampAngle(this.facing, a, 8, dt);
+    moveCircle(G.world, this, Math.sin(a) * s, Math.cos(a) * s, { r: this.r, extra: pl ? [{ x: pl.pos.x, z: pl.pos.z, r: pl.r }] : null });
+    this.pos.y = G.world.ground(this.pos.x, this.pos.z);
+    const moved = Math.hypot(this.pos.x - x0, this.pos.z - z0);
+    this.stuckT = moved < s * 0.3 ? this.stuckT + dt : Math.max(0, this.stuckT - dt * 2);
+    this.state = 'walk';
+    this.followT -= dt;
+    if (this.followT <= 0) { this.bounce(2.2); this.followT = TA.followHop; }
+    return true;
+  }
+  /** a clear spot just behind Pip (inside the village circle), or null */
+  spotBehind(pl) {
+    const W = G.world, back = pl.facing + Math.PI;
+    for (const d of [TA.followCatch, TA.followCatch + 1]) for (const k of [0, 0.5, -0.5, 1, -1, 1.6, -1.6, 2.3, -2.3, Math.PI]) {
+      const a = back + k, x = pl.pos.x + Math.sin(a) * d, z = pl.pos.z + Math.cos(a) * d;
+      if (Math.hypot(x, z) > TW.paradeR || !W.walkable(x, z) || penetration(W, x, z, this.r) > 0.01) continue;
+      if (Math.abs(W.ground(x, z) - pl.pos.y) > 1.2) continue;   // not up on a ledge or down a bank
+      return { x, z };
+    }
+    return null;
+  }
+  /** follow mode: trail Pip (or wait at the village edge while he is out of it); far behind or stuck, hop up behind him */
+  followUpdate(dt, pl) {
+    const R = TW.paradeR, pr = Math.hypot(pl.pos.x, pl.pos.z), out = pr > R;
+    const dP = len2(pl.pos.x - this.pos.x, pl.pos.z - this.pos.z), toP = Math.atan2(pl.pos.x - this.pos.x, pl.pos.z - this.pos.z);
+    if (!out && (dP > TA.followFar || this.stuckT > TA.followStuck)) {
+      const q = this.spotBehind(pl);
+      if (q) {
+        this.pos.set(q.x, G.world.ground(q.x, q.z), q.z);
+        this.prev.copy(this.pos);   // a hop, not a slide across the village
+        this.facing = this.prevFacing = Math.atan2(pl.pos.x - q.x, pl.pos.z - q.z);
+        this.stuckT = 0; this.hop = 0; this.hopV = 0; this.bounce(3.2); this.catchUps++;
+        this.state = 'idle';
+        return;
+      }
+    }
+    // the target: Pip, or the edge of the village circle on his side while he is out of it
+    const k = out ? (R - 2) / pr : 1;
+    const moving = this.stepToward(dt, pl.pos.x * k, pl.pos.z * k, out ? 0.4 : TA.followGap, pl);
+    if (!moving || (!out && dP < TA.followStop)) {
+      if (!moving) this.state = 'idle';
+      this.facing = dampAngle(this.facing, toP, 6, dt);
+    }
+  }
+  /** after the parade: walk home; blocked for a while, hop there instead */
+  homeUpdate(dt, pl) {
+    const away = len2(this.home.x - this.pos.x, this.home.z - this.pos.z);
+    if (away < 0.6 || this.stuckT > TA.followStuck * 2) {
+      if (away >= 0.6) { this.pos.set(this.home.x, G.world.ground(this.home.x, this.home.z), this.home.z); this.prev.copy(this.pos); this.bounce(3.2); }
+      this.homing = false; this.stuckT = 0; this.state = 'idle'; this.st = rand(1.5, 3);
+      return false;
+    }
+    this.stepToward(dt, this.home.x, this.home.z, 0.4, pl);
+    return true;
+  }
   update(dt) {
     this.prev.copy(this.pos);
     this.prevFacing = this.facing;
@@ -80,7 +163,7 @@ export class NPC {
     this.look = damp(this.look, sees ? 1 : 0, 6, dt);
     this.lookYaw = clamp(angDiff(this.facing, toP), -1.05, 1.05);
     if (d > TA.npcLook + 0.5) this.waved = false;
-    if (!this.talking && !this.waved && d < TA.npcWave) {
+    if (!this.talking && !this.waved && !this.follow && d < TA.npcWave) {   // no hello every time a follower catches up
       this.waved = true; this.waveT = 1.3;
       sfx('hello', { x: this.pos.x, y: this.pos.y + this.height * 0.8, z: this.pos.z, vol: 0.7 });
     }
@@ -90,6 +173,11 @@ export class NPC {
       this.backHop.left -= s;
       this.pos.y = G.world.ground(this.pos.x, this.pos.z);
       if (this.backHop.left <= 0) this.backHop = null;
+    }
+    // follow mode (the parade) and the walk home after it: their own movement, the talk turns him to Pip as usual
+    if (!this.talking && !this.backHop) {
+      if (this.follow) { this.followUpdate(dt, pl); return; }
+      if (this.homing && this.homeUpdate(dt, pl)) return;
     }
     // a stay-at-home villager (wander 0, a shopkeeper) something moved shuffles back to her spot as soon as the talk is
     // over (still facing Pip while he is close), straight back: her spot overlaps the counter's and the shop's colliders,
