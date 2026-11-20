@@ -1596,13 +1596,26 @@ export class World {
       ['cove', a.x, a.z, a.r + 6, a.r + 16],
       ['path', mid.x, mid.z, 3.5, 6.5],
     ];
+    // every 0.5 m of the ring, nearest the spot's centre first (a small islet can have only a sliver of dry sand clear
+    // of its palm, chest and bridge: seed 23's second islet, which random tries missed). Draws nothing
+    const scan = (cx, cz, r0, r1) => {
+      let best = null, bd = Infinity;
+      for (let dz = -r1; dz <= r1; dz += 0.5) for (let dx = -r1; dx <= r1; dx += 0.5) {
+        const d = Math.hypot(dx, dz);
+        if (d < r0 || d > r1 || d >= bd || !ok(cx + dx, cz + dz)) continue;
+        best = { x: cx + dx, z: cz + dz }; bd = d;
+      }
+      return best;
+    };
     for (const [at, cx, cz, r0, r1] of spots) {
       let got = null;
-      // 160 tries in the spot's ring, then twice as far out, then anywhere on the Shores (never seen on the test seeds)
-      for (const [lo, hi] of [[r0, r1], [r0, r1 * 2 + 6], [0, 150]]) {
-        for (let t = 0; t < 160 && !got; t++) {
-          const ang = R.range(0, TAU), d = Math.sqrt(R.range(lo * lo, hi * hi));
-          const x = (hi > 100 ? a.x : cx) + Math.sin(ang) * d, z = (hi > 100 ? a.z : cz) + Math.cos(ang) * d;
+      // 160 tries in the spot's ring, then a scan of the whole ring, so the shell is where Clover says; only then twice as
+      // far out, then anywhere on the Shores (neither seen on seeds 1–150)
+      for (const tier of [{ lo: r0, hi: r1 }, { scan: true }, { lo: r0, hi: r1 * 2 + 6 }, { lo: 0, hi: 150, x: a.x, z: a.z }]) {
+        if (tier.scan) { const q = scan(cx, cz, r0, r1); if (q) got = { x: +q.x.toFixed(3), z: +q.z.toFixed(3) }; }
+        else for (let t = 0; t < 160 && !got; t++) {
+          const ang = R.range(0, TAU), d = Math.sqrt(R.range(tier.lo * tier.lo, tier.hi * tier.hi));
+          const x = (tier.x ?? cx) + Math.sin(ang) * d, z = (tier.z ?? cz) + Math.cos(ang) * d;
           if (ok(x, z)) got = { x: +x.toFixed(3), z: +z.toFixed(3) };
         }
         if (got) break;

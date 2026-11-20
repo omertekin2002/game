@@ -119,6 +119,25 @@ describe.each(SEEDS)('seed %p', (seed) => {
   }, SLOW);
 });
 
+// Clover names the spots (data.js ERRANDS hint), so every shell must be at its own on any island, not just the four
+// above: seeds 1–40 (seed 23's second islet has only a sliver of dry sand clear of its palm, chest and bridge)
+test('on seeds 1–40 every rainbow shell is at the spot Clover names', () => {
+  const off = [];
+  for (let seed = 1; seed <= 40; seed++) {
+    const w = generateWorld(seed), a = w.arenas.shores, lm = w.landmarks.find((l) => l.id === 'shores');
+    if (w.shells.length !== 5) off.push([seed, 'count', w.shells.length]);
+    for (const s of w.shells) {
+      const isle = s.at.startsWith('islet') ? w.islets[+s.at.slice(5) - 1] : null;
+      const near = s.at === 'lighthouse' ? Math.hypot(s.x - lm.x, s.z - lm.z) < 12
+        : isle ? Math.hypot(s.x - isle.x, s.z - isle.z) < isle.r
+          : s.at === 'cove' ? Math.hypot(s.x - a.x, s.z - a.z) < a.r + 16
+            : Math.min(...w.paths.shores.map((p) => Math.hypot(p.x - s.x, p.z - s.z))) < 7;
+      if (!near) off.push([seed, s.at, s.x, s.z]);
+    }
+  }
+  expect(off).toEqual([]);
+}, 120_000);
+
 test('default seed has exactly 14 chests, as documented in docs/DESIGN.md', () => {
   const w = world(CFG.seed);
   expect(w.chests.length).toBe(14);
