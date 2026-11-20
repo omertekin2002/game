@@ -65,16 +65,27 @@ const defCache = {};
 function cached(key, fn) { return defCache[key] || (defCache[key] = fn()); }
 
 // ---------------------------------------------------------------- Pip
+/** Pip's swords (world and first-person): a steel blade, its flat faces a shade darker than the bevelled edges.
+ *  Starter: plain steel, an iron guard and pommel, a brown leather grip. Shiny: bright glowing steel, gold, a gem. */
+export function swordCol(shiny) {
+  const flat = shiny ? 0xc9d8ec : 0x9ca8b6, edge = shiny ? 0xffffff : 0xe6ecf3;
+  return {
+    blade: (x, y, z, nx, ny, nz) => (Math.abs(nz) > 0.95 ? flat : edge),   // the flats face ±Z, the bevels sideways
+    guard: shiny ? 0xf5c040 : 0x6c7581, grip: shiny ? 0x4a6aa8 : 0x6e4428, wrap: shiny ? 0x3a5590 : 0x4e2e1a,
+    pommel: shiny ? 0xff5a7a : 0x7d8792, glow: shiny ? 0.15 : 0,
+  };
+}
+
+/** grip centre at y 0.01, the guard at 0.09, the point at 0.59 (a short, broad chibi blade), the pommel's end at −0.071 */
 export function swordBuilt(shiny) {
   return cached('sword' + (shiny ? 1 : 0), () => {
-    const b = new GB();
-    const blade = shiny ? 0xdcecff : 0xdba468, edge = shiny ? 0xffffff : 0xe8bc84;
-    b.box(0.075, 0.46, 0.028, blade, { y: 0.33, glow: shiny ? 0.25 : 0 });
-    b.box(0.03, 0.44, 0.03, edge, { y: 0.33, z: 0.004, outline: false, glow: shiny ? 0.4 : 0 });
-    b.cone(0.053, 0.1, blade, { y: 0.61, seg: 4, ry: Math.PI / 4, sz: 0.37, glow: shiny ? 0.25 : 0 });
-    b.rbox(0.22, 0.05, 0.06, shiny ? 0xf5c040 : 0x9a6034, { y: 0.09, radius: 0.02 });
-    b.cyl(0.025, 0.025, 0.13, shiny ? 0x4a6aa8 : 0x7a4b2a, { y: 0.01, seg: 6 });
-    b.sphere(0.035, shiny ? 0xff5a7a : 0x9a6034, { y: -0.07, ws: 8, hs: 6, glow: shiny ? 0.4 : 0 });
+    const b = new GB(), C = swordCol(shiny);
+    b.blade(0.5, 0.095, 0.03, 0, { y0: 0.09, olFrom: 0.115, tipLen: 0.15, colorFn: C.blade, glow: C.glow });
+    b.rbox(0.18, 0.05, 0.058, C.guard, { y: 0.09, radius: 0.024, glow: shiny ? 0.15 : 0 });
+    b.cyl(0.024, 0.024, 0.105, C.grip, { y: 0.022, seg: 8 });
+    // a small pommel tucked under the fist: swinging, the sword lies in line with his short arm and a long hilt reached
+    // back under his capelet
+    b.sphere(0.026, C.pommel, { y: -0.045, ws: 10, hs: 8, glow: shiny ? 0.4 : 0 });
     return b.build();
   });
 }

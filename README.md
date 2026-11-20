@@ -25,10 +25,24 @@ No build step and no runtime dependencies. It needs a browser with WebGL2.
 
 `.github/workflows/pages.yml` publishes the game to https://omertekin2002.github.io/game/ on every push to `main`
 (and on demand from the Actions tab via *Run workflow*). It runs `node tools/build-pages.mjs`, which copies only the
-runtime files (`index.html`, `styles.css`, `js/`, `assets/`, `vendor/three/`) into `_site/` and fails if a referenced
-file is missing or a path is root-absolute (`/assets/...`); the game is served from the `/game/` subpath, so every
-path must stay relative. Pull requests run the same build and checks without deploying. The repo's Pages source must
-be set to **GitHub Actions**.
+runtime files (`index.html`, `styles.css`, `manifest.webmanifest`, `js/`, `assets/`, `vendor/three/`) into `_site/` and
+fails if a referenced file is missing or a path is root-absolute (`/assets/...`); the game is served from the `/game/`
+subpath, so every path must stay relative. It then writes the service worker `_site/sw.js` (from
+`tools/sw-template.js`, with a precache list of every site file and a version hashed from their contents), adds the
+marker that lets `js/pwa.js` register it to `_site/index.html`, and fails if a web-manifest icon or a precache entry is
+missing or root-absolute. It prints the precache size (about 25 MiB). Pull requests run the same build and checks
+without deploying. The repo's Pages source must be set to **GitHub Actions**.
+
+### Install / offline
+
+The published game is an installable web app: Chrome, Edge and Android offer *Install*, and Safari offers *Add to
+Home Screen*. It opens full screen with the starseed icon (`manifest.webmanifest`; the icons in `assets/ui/app-icon-*.png`
+come from `node tools/make-app-icons.mjs`). After one online visit, the whole game is stored in the browser (about
+25 MB), so it loads without a network, `?seed=` and the other URL flags included. A new deploy reaches players on
+their next load at the latest. Only files that changed are downloaded again, and the old copy is deleted. Only the
+Pages build has a service worker: `bun run start` and the tests never register one, so local development never serves
+stale files. `?nosw=1` skips the service worker and removes an installed one with its stored files, as an escape hatch
+if a bad version is stuck.
 
 ## Two views
 
@@ -105,11 +119,13 @@ Design: `docs/DESIGN.md`. Code contract: `docs/ARCHITECTURE.md`, with per-area d
 ```sh
 bun install
 bun test             # unit tests: world generation, content tables, save schema, completion tally, settings, key bindings, dynamic resolution
-bun run test:smoke   # headless Chromium: New Game, completion tracker, Continue a valid / corrupt / newer save, stored settings, rebound keys; fails on any error
+bun run test:smoke   # headless Chromium: New Game, completion tracker, Continue a valid / corrupt / newer save, stored settings, rebound keys, no service worker; fails on any error
+bun run test:pwa     # headless Chromium on the Pages build under /game/: install, offline play (and ?seed=7), an update, ?nosw=1
 ```
 
-The smoke test needs Playwright's Chromium once: `bunx playwright install chromium`. On failure it saves a
-screenshot to `test-results/`. CI (`.github/workflows/ci.yml`) runs both on pushes and pull requests.
+The browser tests need Playwright's Chromium once: `bunx playwright install chromium`. On failure they save a
+screenshot to `test-results/` (the PWA test builds its site into `test-results/pwa-site/`). CI
+(`.github/workflows/ci.yml`) runs all three on pushes and pull requests.
 
 The game also has in-page tests that need a real browser window; see the next section.
 
@@ -130,6 +146,7 @@ Without `?debug=1` these keys do nothing.
 | `?noaudio=1` | silence every audio call |
 | `?noassets=textures,models,hd,…` | pretend art is missing (sections, `hd`, `all` or single keys) |
 | `?atmofog=0` | three.js's plain fog instead of the sky-coloured fog (comparison only) |
+| `?nosw=1` | published build only: no service worker; removes an installed one and its stored files |
 
 Console helpers live on `G.debug` (full list in `docs/ARCHITECTURE.md` §17), for example `teleport(x, z, yaw?, pitch?)`,
 `pose('woods')`, `spawn('slime', 4, 0)`, `setTime(21)`, `toBoss('peaks')`, `killBoss()`, `giveSeeds()`,

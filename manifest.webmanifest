@@ -1,0 +1,16 @@
+{
+  "name": "Starseed Isle",
+  "short_name": "Starseed",
+  "description": "A cute, cozy open-world 3D adventure. Bring the three Starseeds home to the Great Tree.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "background_color": "#fff6e2",
+  "theme_color": "#7cc35a",
+  "icons": [
+    { "src": "assets/ui/app-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/ui/app-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/ui/app-icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

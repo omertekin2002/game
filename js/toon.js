@@ -503,6 +503,15 @@ export class GB {
   cone(r, h, color, o = {}) { return this.add(new THREE.ConeGeometry(r, h, o.seg || 14), color, o); }
   capsule(r, l, color, o = {}) { return this.add(new THREE.CapsuleGeometry(r, l, 4, o.seg || 12), color, o); }
   torus(r, t, color, o = {}) { return this.add(new THREE.TorusGeometry(r, t, o.rs || 8, o.ts || 20, o.arc || Math.PI * 2), color, o); }
+  /** a sword blade (bladeGeometry); o.olFrom: its ink line starts there (a guard's top), not inside the guard, where
+   *  the hull poked out along the guard as a spur */
+  blade(len, w, t, color, o = {}) {
+    if (o.olFrom == null) return this.add(bladeGeometry(len, w, t, o), color, o);
+    this.add(bladeGeometry(len, w, t, o), color, { ...o, outline: false });
+    const { y0 = 0, tipLen = w * 1.6, taper = 0.92 } = o, cut = o.olFrom - y0, wc = w * (1 - (1 - taper) * cut / (len - tipLen));
+    this.ol.push(bladeGeometry(len - cut, wc, t, { ...o, y0: o.olFrom, taper: (w * taper) / wc }));
+    return this;
+  }
   lathe(pts, color, o = {}) { return this.add(new THREE.LatheGeometry(pts.map((p) => new THREE.Vector2(p[0], p[1])), o.seg || 18), color, o); }
   tube(points, r, color, o = {}) {
     const curve = new THREE.CatmullRomCurve3(points.map((p) => new THREE.Vector3(p[0], p[1], p[2])));
@@ -554,6 +563,19 @@ export function outlineGeometry(parts) {
   return m;
 }
 
+/** Drop an outline hull's triangles whose centre lies in any ellipsoid [x, y, z, rx, ry, rz] (where a face folds, e.g.
+ *  round painted eyes, the back-faced hull shows through as stray ink). Returns the hull. */
+export function punchHull(g, holes) {
+  const p = g.attributes.position, idx = g.index.array, keep = [];
+  for (let t = 0; t < idx.length; t += 3) {
+    let x = 0, y = 0, z = 0;
+    for (let e = 0; e < 3; e++) { const i = idx[t + e]; x += p.getX(i) / 3; y += p.getY(i) / 3; z += p.getZ(i) / 3; }
+    if (!holes.some(([hx, hy, hz, rx, ry, rz]) => ((x - hx) / rx) ** 2 + ((y - hy) / ry) ** 2 + ((z - hz) / rz) ** 2 < 1)) keep.push(idx[t], idx[t + 1], idx[t + 2]);
+  }
+  g.setIndex(keep);
+  return g;
+}
+
 export function roundedBox(w, h, d, r) {
   // simple rounded box: box with spherical-ish corners via a scaled sphere blend (cheap)
   let g = new THREE.BoxGeometry(w, h, d, 4, 4, 4);
@@ -571,6 +593,31 @@ export function roundedBox(w, h, d, r) {
     pos.setXYZ(i, cx + (dx / l) * r, cy + (dy / l) * r, cz + (dz / l) * r);
   }
   g.computeVertexNormals();
+  return g;
+}
+
+/** A sword blade along +Y as ONE closed, flat-shaded surface: a hexagonal section (flat faces, bevelled edges) from
+ *  y0 that narrows into its point at y0 + len, so there is no separate tip part to misalign. o: { y0, tipLen (the
+ *  narrowing part), taper (width where the point starts / base width), bevel (bevel share of the half-width),
+ *  tipSeg (rings along the point), tipThin (how much thinner it gets at the point) } */
+export function bladeGeometry(len, w, t, o = {}) {
+  const { y0 = 0, tipLen = w * 1.6, taper = 0.92, bevel = 0.45, tipSeg = 3, tipThin = 0.5 } = o;
+  const ring = (y, hw, ht) => { const i = hw * (1 - bevel); return [[-hw, 0], [-i, ht], [i, ht], [hw, 0], [i, -ht], [-i, -ht]].map(([x, z]) => [x, y, z]); };
+  const rings = [ring(y0, w / 2, t / 2)];
+  for (let k = 0; k < tipSeg; k++) {
+    const s = k / tipSeg;
+    rings.push(ring(y0 + len - tipLen * (1 - s), (w / 2) * taper * (1 - s ** 1.5), (t / 2) * (1 - tipThin * s)));
+  }
+  const tip = [0, y0 + len, 0], base = [0, y0, 0], p = [], tri = (a, b, c) => p.push(...a, ...b, ...c);
+  for (let r = 0; r + 1 < rings.length; r++) {
+    const a = rings[r], b = rings[r + 1];
+    for (let i = 0; i < 6; i++) { const j = (i + 1) % 6; tri(a[i], a[j], b[j]); tri(a[i], b[j], b[i]); }
+  }
+  const last = rings[rings.length - 1];
+  for (let i = 0; i < 6; i++) { const j = (i + 1) % 6; tri(last[i], last[j], tip); tri(base, rings[0][j], rings[0][i]); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
+  g.computeVertexNormals();   // non-indexed: one normal per face (crisp facets)
   return g;
 }
 

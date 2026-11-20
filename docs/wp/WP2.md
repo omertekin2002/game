@@ -29,15 +29,17 @@ No edits outside these files.
 - **Rig.** Each arm is ONE skinned mesh + ONE ink hull with two rigid bones (forearm, hand), so an arm is 2 draw calls
   however it bends. The hand bone carries a fist (sword), an open paw (item / chest / seed) and, on the left arm, the
   paw holding the potion bottle, chosen by draw range. Colours (lead + art §1.2): warm peach skin `#ec9e6c`, brown
-  bracer `#6e4026` with a stitched rim, cream cuff `#f4e4c1`, leaf-green sleeve `#86b443` (a lathe that tapers toward
+  bracer `#6e4026` with a stitched rim, cream cuff `#f4e4c1`, his tunic's cream sleeve `#e2c896` (was leaf-green
+  `#86b443`, unlike the sleeve of his world model; a lathe that tapers toward
   the elbow and rounds off 25 cm up the forearm; the elbow puff and the olive capelet sphere are gone: in swings the
   elbow end is the part nearest the eye, and the old tube + puff + capelet ballooned across the frame). Swords:
-  `vmSwordBuilt` (close-up proportions; wood with grain and bevel; shiny steel, gold guard, blue grip, gem pommel).
+  `vmSwordBuilt` (close-up proportions, one-piece steel blade; starter: iron guard, leather grip ending inside the fist;
+  shiny: bright steel, gold guard, blue grip; no pommel: the grip's axis runs into his wrist, a pommel sat on the bracer).
 - **Rest composition.** Solved per aspect from NDC targets: grip `restHand` (0.50, −0.60) at 0.40 m, tip `restTip`
   (0.32, −0.12) = feel §7.2's (0.66 W, 0.56 H), roll `restRoll` 15°. The portrait targets `restHandPortrait` /
   `restTipPortrait` blend in over aspect 1.2 → 0.9 (no jump at a square window). Wider than 16:9 the rest keeps its
   16:9 width, shifted right just enough that the tip stays at ≥ `restTipMinX` NDC (32:9: tip at 0.63 W, out of the box).
-  The forearm points at `shoulderR` (low, to the right, a little ahead of the eye) so bracer, cuff and the green sleeve
+  The forearm points at `shoulderR` (low, to the right, a little ahead of the eye) so bracer, cuff and the sleeve
   run into the bottom-right corner. No blade sample in the centre box at 16:9, 21:9, 32:9, 4:3, 844×390, 390×844 and
   every aspect from 0.9 to 1.25. Swings aim the forearm at `shoulderSwing` (low): the sleeve rises out of the bottom
   edge instead of crossing the screen to the right-hand corner.
@@ -142,15 +144,30 @@ Sound: `sfx('sparkle')` (a presented purchase; a C8 name).
 - GLB hero: `hero.glb` carries its sword arm as its own node `armR` (pivot at the shoulder; at rotation 0 the arm
   hangs along −Y like the rig's, so the same pose angles drive both). The node's own rotation is the baked rest pitch
   (`pl.armRest`) and the sword sits in the baked fist at the node's `extras.hand` (`pl.handPos`). The resting blade
-  leans 0.55 rad forward in either body (`pl.swordRest`) and, on the GLB, 0.3 rad out from his cheek
-  (`pl.swordRestZ`). Its shoulder sits low and close to his head, so A's TP follow-through stays out beside him
-  instead of wrapping up over the far shoulder (`pl.tpWrapK` 0; wrapped, the blade ran through his hood) and a
-  swinging arm splays out 0.7 rad × reach (`pl.armSplay`) so the chop's raise clears it too. With the camera centred
-  behind him the torso twists through A instead (`pl.tpTwistC`: open right at the wind-up, left at the follow-through)
-  so the blade shows beside him. A GLB without `armR` falls back to the rig. The left arm stays baked.
+  leans 0.55 rad forward (`pl.swordRest`); on the GLB 1.2, and 0.5 rad out from his cheek (`pl.swordRestZ`): held
+  upright (0.55, 0.3) it stood across his face seen from his left. Its shoulder sits low and close to his head, so A's
+  TP follow-through stays out beside him instead of wrapping up over the far shoulder (`pl.tpWrapK` 0; wrapped, the
+  blade ran through his hood) and a swinging arm splays out 0.7 rad × reach (`pl.armSplay`), the chop's 0.9
+  (`pl.chopSplay`; less and the raised guard reached into his hood). The arm is short (shoulder → fist 0.135) and his
+  capelet flares wider than that at the shoulder, so A/B turn it at most 0.3 rad out to his right (`pl.armOut`) and
+  0.35 across his chest (`pl.armCross`); the rest of the sweep turns his torso, all of it across his chest, 0.3 of it out
+  to his right (`pl.armTwistK`; all of it spun his back to a camera in front). Past those limits the fist and the hilt sank into his cape and chest (B's pommel
+  5 cm deep for 9 frames). With the camera centred behind him the torso twists through A instead (`pl.tpTwistC`: open
+  right at the wind-up, left at the follow-through) so the blade shows beside him. A GLB without `armR` falls back to the rig. The left arm stays baked.
+- Swords (`models.swordBuilt`, FP `vm/rig.vmSwordBuilt`, colours `models.swordCol`): steel, each blade one closed
+  flat-shaded surface from base to point (`toon.bladeGeometry`: hexagonal section, flats a shade darker than the
+  bevels), its ink line from the guard's top (`olFrom`; from inside the guard it showed as a spur along it). The world
+  blade is short and broad (0.50 × 0.095, point at 0.59) and its pommel a small ball tucked under the fist (swinging,
+  the sword lies in line with his short arm). Starter: plain steel, iron guard and pommel, leather grip; Shiny: bright
+  steel, gold, a gem.
+- Shoulder: `hero.glb`'s sword arm ends in a smooth cream cuff (an ellipsoid at the sleeve's cut end, textured from the
+  sleeve's cream texel, `armR.extras.cuff`): raised for a swing, the cut end showed as a torn patch.
+- Ink on his face: `hero.glb`'s `body` node lists ellipsoids in `extras.olHoles` (eyes, blush) where the outline hull
+  is cut (`toon.punchHull`, applied in `assets.template`): the face folds there, and the back-faced hull showed
+  through as ink rings round his eyes.
 - Item-get in TP: `pl.held` scaled by `heldS` 0.62 (interact.js builds the item at 1.3), it faces the camera, an
   additive rays disc behind it.
-- New fields: `pl.fadeU`, `pl.rimU` (`{ value }` uniforms), `pl.olMat`, `pl.armRest`, `pl.swordRest`, `pl.swordRestZ`, `pl.tpWrapK`, `pl.armSplay`, `pl.tpTwistC`, `pl.heldRays`, `pl.anim`
+- New fields: `pl.fadeU`, `pl.rimU` (`{ value }` uniforms), `pl.olMat`, `pl.armRest`, `pl.swordRest`, `pl.swordRestZ`, `pl.tpWrapK`, `pl.armSplay`, `pl.chopSplay`, `pl.armOut`, `pl.armCross`, `pl.armTwistK`, `pl.tpTwistC`, `pl.heldRays`, `pl.anim`
   (`{ landSq, landV, jumpSq, hurtAt, fwd, side, air }`). `pl.root.userData.cull = { dist: Infinity }` (C10).
 
 `SlashTrail` (`fx-trail.js`): `setReach(r, shiny)`, `start()`, `stop()`, `update(dt, player)` (the head follows

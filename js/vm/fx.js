@@ -107,7 +107,7 @@ export class VmTrail {
     this.life = 0.11;
     this.mesh.visible = false;
   }
-  /** wood: warm cream with a brown edge; shiny: gold with an amber edge (both normal blending) */
+  /** starter: warm cream with a brown edge; shiny: gold with an amber edge (both normal blending) */
   style(shiny, life, peak) {
     this.life = life;
     // normal blending for both: an additive trail washes out to white over the bright sky

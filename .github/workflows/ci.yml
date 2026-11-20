@@ -44,3 +44,24 @@ jobs:
           name: smoke-failure
           path: test-results/
           if-no-files-found: ignore
+
+  pwa:
+    name: Offline / installable build (headless Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+      - run: node tools/build-pages.mjs
+      - run: bun run test:pwa
+      - name: Upload failure screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pwa-failure
+          path: test-results/
+          if-no-files-found: ignore

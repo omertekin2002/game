@@ -21,8 +21,12 @@ import { LAYER } from './util.js';
 import { Boss } from './bosses.js';
 import perfMod, { dprFor } from './perf/perf.js';
 import { perf as TPerf } from './tune.js';
+import { registerServiceWorker } from './pwa.js';
 
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+let titleUp;
+// the service worker registers once the title is up (?nosw=1 removes it right away, even if the boot then fails)
+registerServiceWorker(new Promise((r) => { titleUp = r; }));
 
 async function boot() {
   const canvas = document.getElementById('game');
@@ -145,7 +149,10 @@ async function boot() {
   await nextFrame();
   ui.hideLoading();
   game.showTitle();
-  Assets.loadDeferred();   // HD / deferred textures after the title is up (Assets.onTex listeners swap them in)
+  const deferred = Assets.loadDeferred();   // HD / deferred textures after the title is up (Assets.onTex listeners swap them in)
+  // the Pages build's service worker (js/pwa.js) precaches the whole site for offline play: it registers once the deferred
+  // textures are in (or after 10 s), so it does not compete with them, and mostly reads what the boot already fetched
+  Promise.race([deferred, new Promise((r) => setTimeout(r, 10000))]).then(titleUp);
   window.addEventListener('pointerdown', () => audioInit(), { once: true });
   window.addEventListener('keydown', () => audioInit(), { once: true });
   window.addEventListener('beforeunload', () => game.save(true));

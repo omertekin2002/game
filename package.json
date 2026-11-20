@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node tools/serve.mjs 8080",
     "test": "bun test",
-    "test:smoke": "node tests/smoke.mjs"
+    "test:smoke": "node tests/smoke.mjs",
+    "test:pwa": "node tests/pwa.mjs"
   },
   "devDependencies": {
     "@gltf-transform/core": "4.5.1",

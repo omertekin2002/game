@@ -2,7 +2,8 @@
 // Headless-browser smoke test: serve the repo, boot the game in Chromium (software WebGL via SwiftShader),
 // start a New Game (checking the completion tracker on the pause menu and the map), then continue a valid, a corrupt
 // and a newer-version save from localStorage. The same loads carry stored settings (valid, wrong-typed, not JSON at
-// all) and check that they are applied, repaired and saved. Fails on any page error, console error or failed request.
+// all) and check that they are applied, repaired and saved. Running from the repo registers no service worker and never
+// requests sw.js (only the Pages build has one; tests/pwa.mjs). Fails on any page error, console error or failed request.
 // Usage: node tests/smoke.mjs   (or `bun run test:smoke`). On failure a screenshot lands in test-results/.
 import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
@@ -47,7 +48,7 @@ const step = (msg) => console.log(`[smoke] ${msg}`);
 async function main() {
   const problems = [];
   const server = await startServer();
-  let browser, page;
+  let browser, page, titleAt = 0;
   try {
     browser = await chromium.launch({
       headless: true,
@@ -70,6 +71,7 @@ async function main() {
       page.on('console', (m) => { if (m.type() === 'error') problems.push(`console.error: ${m.text()}`); });
       page.on('requestfailed', (r) => problems.push(`request failed: ${r.url()} (${r.failure()?.errorText})`));
       page.on('response', (r) => { if (r.status() >= 400) problems.push(`HTTP ${r.status()}: ${r.url()}`); });
+      page.on('request', (r) => { if (/\/sw\.js(?:[?#]|$)/.test(r.url())) problems.push(`requested the service worker: ${r.url()}`); });
       step(`open ${server.url}${QUERY}${save !== undefined ? ' with a save in localStorage' : ''}`);
       await page.goto(`${server.url}${QUERY}`, { waitUntil: 'load' });
       const ms = await waitFor('boot (G.world, loading screen gone, title shown)', () => {
@@ -78,6 +80,7 @@ async function main() {
         return !!(G && G.world && G.game && G.game.state === 'title' && (!loading || loading.classList.contains('gone')));
       }, BOOT_TIMEOUT);
       step(`booted to title in ${ms} ms`);
+      titleAt = Date.now();
       await page.locator('#game').focus();
     };
     // Errors are recorded asynchronously; poll them alongside each wait so a broken boot fails fast.
@@ -354,6 +357,16 @@ async function main() {
     if (JSON.stringify(reset.keys) !== '{}' || reset.map !== 'M') fail(`Reset on the Controls tab did not restore the default keys: ${JSON.stringify(reset)}`);
     if (problems.length) fail('errors after rebinding');
     step('rebound keys came back after a reload, worked in play, and Reset restored the defaults');
+
+    // no service worker from the repo: the Pages build would have registered one by 10 s after the title (js/pwa.js)
+    await page.waitForTimeout(Math.max(0, 11_000 - (Date.now() - titleAt)));
+    const sw = await page.evaluate(async () => ({
+      regs: (await navigator.serviceWorker.getRegistrations()).length,
+      controlled: !!navigator.serviceWorker.controller,
+    }));
+    if (sw.regs || sw.controlled || page.context().serviceWorkers().length) fail(`a service worker is registered when running from the repo: ${JSON.stringify(sw)}`);
+    if (problems.length) fail('errors while checking for a service worker');
+    step('no service worker registered and sw.js never requested');
   } catch (e) {
     for (const p of problems) console.error(`  - ${p}`);
     if (page) {
