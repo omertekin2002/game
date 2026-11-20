@@ -69,10 +69,10 @@ export function buildBody(pl, scene) {
     pl.handPos = new THREE.Vector3(-0.075, -0.17, 0.02);
     pl.swordMat = r.mat;
   }
-  // at rest the blade leans the same 0.55 rad forward in either body; the GLB's fist sits in front of his cheek, so
-  // its blade also leans out to the side, clear of the face
-  pl.swordRest = 0.55 - pl.armRest;
-  pl.swordRestZ = pl.glb ? 0.3 : 0;
+  // at rest the blade leans 0.55 rad forward; the GLB's fist sits in front of his cheek, so its blade leans further
+  // forward (1.2) and out to the side, held out in front of him: upright it stood across his face seen from his left
+  pl.swordRest = (pl.glb ? 1.2 : 0.55) - pl.armRest;
+  pl.swordRestZ = pl.glb ? 0.5 : 0;
   // the GLB's shoulder sits low and close to his head: A's TP follow-through stays out beside him (wrapped up over the
   // far shoulder it ran the blade through his hood) and a swinging arm splays out, so the chop's raise clears it too
   pl.tpWrapK = pl.glb ? 0 : 1;
@@ -80,6 +80,14 @@ export function buildBody(pl, scene) {
   // with the camera centred behind him the blade would then stay hidden behind his hood: the torso twists through the
   // swing instead (opening right at the wind-up, left at the follow-through), so it shows beside him
   pl.tpTwistC = pl.glb ? 1 : 0;
+  // its arm is short (shoulder → fist 0.135) and his capelet flares wider than that at the shoulder: turned more than
+  // armOut out to his right (or armCross across his chest) the fist and the hilt sank into the cape, so past that the
+  // torso turns instead; raised overhead for the chop, the guard's inner end reached into his hood, so that arm
+  // splays out further (chopSplay)
+  pl.armOut = pl.glb ? 0.3 : Infinity;
+  pl.armCross = pl.glb ? 0.35 : Infinity;
+  pl.armTwistK = 0.3;   // out to his right only (the rest is dropped: all of it spun his back to a camera in front)
+  pl.chopSplay = pl.glb ? -0.9 : 0;
   pl.arm.rotation.order = 'YXZ';
   pl.swordPivot = new THREE.Group();
   pl.swordPivot.position.copy(pl.handPos);
@@ -191,7 +199,7 @@ export const PlayerBody = {
         else if (t < s1) { e = chopAt(TC, t); reach = 1; }
         else if (t < hold) { e = TC.chopDown * D2R; reach = 1; }
         else { const u = Ease.inOutSine(clamp((t - hold) / (dur - hold), 0, 1)); e = lerp(TC.chopDown * D2R, -1.2, u); reach = 1 - u; }
-        armRx = lerp(armRx, -HALF_PI - e, reach); armRz = this.armSplay * reach;
+        armRx = lerp(armRx, -HALF_PI - e, reach); armRz = this.chopSplay * reach;
         swordRx = lerp(this.swordRest, Math.PI - 0.12, reach); swordRz = this.swordRestZ * (1 - reach);
         const bite = t >= s1 && t < hold ? 1 : 0;
         this.inner.rotation.x = 0.06 + clamp(-e, 0, 1) * 0.35 * reach;
@@ -216,9 +224,11 @@ export const PlayerBody = {
         an.swOpen = -TV.tpOpenA * side * tpk * reach; an.swLift = TV.tpLiftA * tpk; an.swTrail = TV.tpTrailA * tpk;
         const wrap = TV.tpWrapA * this.tpWrapK * tpk * smoothstep(0.45, 1.1, u);
         armRx = lerp(armRx, -HALF_PI + tilt - an.swLift * Math.cos(a) - wrap, reach);
-        armRy = a * reach; armRz = this.armSplay * reach;
+        const ry = a * reach, cy = clamp(ry, -this.armOut, this.armCross);   // (+: toward his left, across his chest)
+        armRy = cy; armRz = this.armSplay * reach;
         swordRx = lerp(this.swordRest, Math.PI - 0.12, reach); swordRz = this.swordRestZ * (1 - reach);
-        this.inner.rotation.y += a * 0.35 * reach + an.swOpen;      // the torso turns into the swing
+        const ex = ry - cy;   // the turn the arm did not make: across his chest the torso takes all of it, out to his right armTwistK
+        this.inner.rotation.y += a * 0.35 * reach + ex * (ex > 0 ? 1 : this.armTwistK) + an.swOpen;      // the torso turns into the swing
         this.inner.rotation.x = 0.08;
         if (rig) { rig.armL.rotation.x = -0.3 * reach; rig.armL.rotation.z = 0.5 * reach; }
       }

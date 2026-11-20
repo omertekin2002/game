@@ -583,7 +583,8 @@ orientation, drawn in `afterRender` after `clearDepth()` with `autoClear` and sh
 canvas size (dynamic resolution only scales the main pass).
 
 - Rig (`js/vm/rig.js`): each arm is one skinned mesh and one ink hull (2 draw calls) with a fist, an open paw and a potion
-  paw; procedural wooden and shiny swords.
+  paw; procedural steel and shiny swords, each blade one closed surface from base to point (`toon.bladeGeometry`,
+  colours from `models.swordCol`, shared with the world sword).
 - Rest pose: solved per aspect from NDC targets (`TUNE.vm.restHand`, `restTip`, portrait variants blended in over aspect
   1.2 → 0.9); no blade pixel in the screen's centre box at any tested aspect. With touch controls up the rest moves until
   the paw clears every thumb button.

@@ -3,7 +3,7 @@
 // The context t and the prepare options are documented at the top of js/debug/tests.js and in docs/ARCHITECTURE.md.
 import * as THREE from 'three';
 import { perfLocations } from '../debug.js';
-import { toonMat, sharedOutline, outlineGeometry, setBufferSize, U } from '../../toon.js';
+import { toonMat, sharedOutline, outlineGeometry, punchHull, setBufferSize, U } from '../../toon.js';
 import { perf as TP } from '../../tune.js';
 import { dprFor } from '../../perf/perf.js';
 import { SHAPE } from '../../fx.js';
@@ -610,15 +610,17 @@ export default function register(suite) {
       t.ok(out.far >= 1.6 && out.far <= 3.3, 'char line at 30 m stays pixel-thin', out.far);
       t.ok(out.phoneK >= TP.outlinePxKMin - 1e-6, 'phone px scale floor', out.phoneK);
     }],
-    ['outline hulls are never decimated: every hull (Pip, NPCs, props) has its source mesh’s triangles', (t) => {
+    ['outline hulls are never decimated: every hull (Pip, NPCs, props) has its source mesh’s triangles (less the GLB’s olHoles)', (t) => {
       const { game } = t, bad = [], seen = { pip: 0, npc: 0, other: 0 };
       const owner = (o) => { for (let p = o; p; p = p.parent) { if (p === game.player.root) return 'pip'; if (game.npcs && game.npcs.some((n) => n.root === p)) return 'npc'; } return 'other'; };
-      const tris = (g) => (g.index ? g.index.count / 3 : g.attributes.position.count / 3);
+      const tris0 = (g) => (g.index ? g.index.count / 3 : g.attributes.position.count / 3);
+      // a mesh whose node marks olHoles (hero.glb: his eyes and cheeks) has a hull cut there on purpose
+      const tris = (g, m) => (m && Array.isArray(m.userData.olHoles) ? tris0(punchHull(outlineGeometry([g]), m.userData.olHoles)) : tris0(g));
       game.scene.traverse((o) => {
         if (o.geometry && o.geometry.userData.decimated) bad.push(['decimated', o.name || o.type]);
         if (!o.isMesh || !o.parent || !o.parent.isMesh || !o.material || o.material.side !== THREE.BackSide || !o.material.isShaderMaterial) return;
         seen[owner(o)]++;
-        if (tris(o.geometry) !== tris(o.parent.geometry)) bad.push([owner(o), tris(o.geometry), tris(o.parent.geometry)]);
+        if (tris(o.geometry) !== tris(o.parent.geometry, o.parent)) bad.push([owner(o), tris(o.geometry), tris(o.parent.geometry, o.parent)]);
       });
       t.note('hulls', seen);
       const glb = Object.keys((window.G.assets && window.G.assets.gltf) || {}).length > 0;   // ?noassets: procedural models only

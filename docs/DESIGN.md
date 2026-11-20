@@ -7,7 +7,7 @@ in the code; `docs/ARCHITECTURE.md` says where each lives, and the detail files 
 ## 1. Pitch
 
 The Great Tree at the heart of Starseed Isle has lost its three Starseeds. Three grumpy guardians are hoarding them in
-three corners of the island. Pip, a tiny kid in a leaf-green, fox-eared hood with a wooden sword, sets off to bring them
+three corners of the island. Pip, a tiny kid in a leaf-green, fox-eared hood with a little steel sword, sets off to bring them
 home. Any order, anywhere: the whole island is open from the first second. Return a Starseed to the pedestal by the
 Great Tree; with all three home, the tree blooms, the ending plays, and free roaming continues.
 
@@ -94,8 +94,9 @@ hide in dialogue, menus and cinematics.
 ## 6. Combat
 
 - **The sword chain.** A forehand (right → left), B backhand (left → right), C overhead chop. A and B take 0.30 s, C
-  0.40 s; press again during a swing to chain. Damage: wooden sword 1 per A / B, 2 for C; Shiny Sword 2 / 3. C knocks
-  harder and breaks a crab's guard. You keep moving at 55 % while swinging, with a short lunge. No block or parry.
+  0.40 s; press again during a swing to chain. Damage: starter sword 1 per A / B, 2 for C; Shiny Sword 2 / 3. (The
+  starter is a plain steel blade since 2026-11; balance notes and `CFG.reachWood` still call it the wooden sword.) C
+  knocks harder and breaks a crab's guard. You keep moving at 55 % while swinging, with a short lunge. No block or parry.
 - **What a swing hits.** A 3D volume from the eye: A / B sweep ±55° across the aim, C chops ±35° from high above the
   crosshair to well below it. Reach 1.6 m (Shiny Sword 2.0 m) to the target's edge. A walking critter on a ledge above or
   below you is out of reach; one right against you is hit in any direction. Swing assist ("magnetism") bends the hit test
