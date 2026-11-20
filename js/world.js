@@ -50,6 +50,7 @@ export class World {
     this.npcSpots = {};
     this.houses = [];
     this.unreachable = [];
+    this.shells = [];     // rainbow shells for Clover's errand (placeShells, a post-pass)
     this.carved = 0;
     // WP9 foundation shadow (scatter()): what the foundation had and WP9 does not (ghost solids and colliders, reservations
     // tagged t = 2) and its terrain before WP9's own edits, so the main stream draws exactly what the foundation drew
@@ -88,7 +89,8 @@ export class World {
   }
 
   // ------------------------------------------------------------------ generation
-  generate() {
+  /** o.shells = false skips the rainbow-shell post-pass (tests compare the island with and without it) */
+  generate(o = {}) {
     const t0 = performance.now();
     const T = (this.genT = {});
     let tl = t0;
@@ -118,6 +120,7 @@ export class World {
     this.computeSplat();
     this.buildColliderHash();
     this.publishAnchors(); lap('splat');
+    if (o.shells !== false) { this.placeShells(); lap('shells'); }
     this.genMs = performance.now() - t0;
   }
 
@@ -1559,6 +1562,69 @@ export class World {
     this.fnd = null; this._gh = null; this._cg = null; this._rg = null;   // the shadow is done
   }
 
+  // ------------------------------------------------------------------ errands
+  /** Clover's errand (data.js ERRANDS): W.shells = five rainbow shells [{ id: 'shell1'…'shell5', kind: 'shell', x, y, z, at }], one
+   *  per Shores spot Clover names: by the lighthouse, on each islet, outside Captain Pinch's cove and beside the beach
+   *  path. A post-pass after everything else: it draws only from its own RNG stream, adds nothing to the world's lists
+   *  (props, deco, colliders, reservations, interactables) and puts W.walk / W.reach back, so every existing placement
+   *  is the same as without it for every seed. A spot is dry Shores sand (not a bridge), flat, clear of solids,
+   *  colliders, reservations, chests and NPC spots, outside the arena and its ring, and reachable from the spawn. */
+  placeShells() {
+    const R = new RNG(this.seed * 41 + 29), keep = [this.walk, this.reach];
+    const reach = this.bfs(this.buildWalk());
+    this.walk = keep[0]; this.reach = keep[1];
+    const shells = [], a = this.arenas.shores, lm = this.landmarks.find((l) => l.id === 'shores');
+    // reservations: the path band, every reserved circle except the islets' own blankets (they keep scatter off the
+    // islets; the islets are where Clover sends Pip) and a margin round every bridge deck
+    const blanket = (c) => this.islets.some((i) => c.x === i.x && c.z === i.z && c.r === i.r);
+    const reserved = (x, z) => this.pathDAt(x, z) < 3.0 || (this.reserved || []).some((c) => !blanket(c) && len2(x - c.x, z - c.z) < c.r + 0.5)
+      || this.bridges.some((b) => distToSeg(x, z, b.ax, b.az, b.bx, b.bz) < b.w / 2 + 1.5);
+    // the Shores: its region, or an islet (islet 2, off the western beach, reads as Meadow on the region map)
+    const shores = (x, z) => this.regionAt(x, z) === REGION.SHORES || this.islets.some((i) => len2(x - i.x, z - i.z) < i.r - 1);
+    const ok = (x, z) => shores(x, z) && this.surfaceAt(x, z) === 'sand' && this.hAt(x, z) > 0.3 && this.slopeAt(x, z) < 0.5
+      && !this.inArena(x, z, 5) && !reserved(x, z) && !this.solidNear(x, z, 1.0) && !this.colliders.some((c) => len2(c.x - x, c.z - z) < c.r + 1.0)
+      && !this.chests.some((c) => len2(c.x - x, c.z - z) < 2.5) && !this.interact.some((it) => len2(it.x - x, it.z - z) < 2.5)
+      && !Object.values(this.npcSpots).some((q) => len2(q.x - x, q.z - z) < 3)
+      && !shells.some((q) => len2(q.x - x, q.z - z) < 8) && this.isReached(reach, x, z, false);
+    // the beach path: the middle of its stretch over Shores sand
+    const sandy = (this.paths.shores || []).filter((p) => this.regionAt(p.x, p.z) === REGION.SHORES && this.hAt(p.x, p.z) < 1.6);
+    const mid = sandy[Math.floor(sandy.length / 2)] || { x: a.x, z: a.z - a.r - 20 };
+    const spots = [
+      ['lighthouse', lm ? lm.x : a.x - 24, lm ? lm.z : a.z, 4, 12],
+      ['islet1', this.islets[0].x, this.islets[0].z, 0, this.islets[0].r - 1.5],
+      ['islet2', this.islets[1].x, this.islets[1].z, 0, this.islets[1].r - 1.5],
+      ['cove', a.x, a.z, a.r + 6, a.r + 16],
+      ['path', mid.x, mid.z, 3.5, 6.5],
+    ];
+    // every 0.5 m of the ring, nearest the spot's centre first (a small islet can have only a sliver of dry sand clear
+    // of its palm, chest and bridge: seed 23's second islet, which random tries missed). Draws nothing
+    const scan = (cx, cz, r0, r1) => {
+      let best = null, bd = Infinity;
+      for (let dz = -r1; dz <= r1; dz += 0.5) for (let dx = -r1; dx <= r1; dx += 0.5) {
+        const d = Math.hypot(dx, dz);
+        if (d < r0 || d > r1 || d >= bd || !ok(cx + dx, cz + dz)) continue;
+        best = { x: cx + dx, z: cz + dz }; bd = d;
+      }
+      return best;
+    };
+    for (const [at, cx, cz, r0, r1] of spots) {
+      let got = null;
+      // 160 tries in the spot's ring, then a scan of the whole ring, so the shell is where Clover says; only then twice as
+      // far out, then anywhere on the Shores (neither seen on seeds 1–150)
+      for (const tier of [{ lo: r0, hi: r1 }, { scan: true }, { lo: r0, hi: r1 * 2 + 6 }, { lo: 0, hi: 150, x: a.x, z: a.z }]) {
+        if (tier.scan) { const q = scan(cx, cz, r0, r1); if (q) got = { x: +q.x.toFixed(3), z: +q.z.toFixed(3) }; }
+        else for (let t = 0; t < 160 && !got; t++) {
+          const ang = R.range(0, TAU), d = Math.sqrt(R.range(tier.lo * tier.lo, tier.hi * tier.hi));
+          const x = (tier.x ?? cx) + Math.sin(ang) * d, z = (tier.z ?? cz) + Math.cos(ang) * d;
+          if (ok(x, z)) got = { x: +x.toFixed(3), z: +z.toFixed(3) };
+        }
+        if (got) break;
+      }
+      if (got) shells.push({ id: 'shell' + (shells.length + 1), kind: 'shell', x: got.x, y: this.hAt(got.x, got.z), z: got.z, at });
+    }
+    this.shells = shells;
+  }
+
   // ------------------------------------------------------------------ reachability
   bfs(W) {
     const R = new Uint8Array(SIZE * SIZE);
@@ -1671,8 +1737,8 @@ export class World {
 
 Object.assign(World.prototype, WorldCollide);
 
-export function generateWorld(seed) {
+export function generateWorld(seed, o = {}) {
   const W = new World(seed);
-  W.generate();
+  W.generate(o);
   return W;
 }

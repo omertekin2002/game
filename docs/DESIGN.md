@@ -171,9 +171,17 @@ player wins about two in three. The wooden sword is the balance reference.
   face is in view; a speaker more than 3.5 m away, like Elder Shellby at the wake-up, keeps it); in third person the
   camera cuts to a two-shot that keeps the speaker's face clear of Pip, and the portrait shows. Lines use the device's keys.
 - **Villagers**: Elder Shellby (turtle, by the pedestal; the intro and hints), Mayor Ribbit (frog; names the landmarks),
-  Miso (cat; runs the shop), Clover (bunny; Captain Pinch tips), Professor Hoot (owl; Grumble Shroom tips), Digby (mole;
+  Miso (cat; runs the shop), Clover (bunny; Captain Pinch tips, then her errand), Professor Hoot (owl; Grumble Shroom tips), Digby (mole;
   Frostbun tips and hidden heart chests). They look at Pip, wave when he comes close and step back if he stands too
   close (Miso stays behind her counter).
+- **Errands**: small favours villagers ask once Pip has done enough (`ERRANDS` in `js/data.js`). The first is Clover's:
+  after Captain Pinch is beaten, talking to her asks Pip to find **5 rainbow shells** on the Sunny Shores (one by the
+  striped lighthouse, one on each islet, one outside Captain Pinch's cove, one beside the beach path). Only then do the
+  shells appear: rainbow-striped, glowing, turning and twinkling, so they stand apart from the plain pink shells on the
+  sand. Use picks one up (the prompt reads `Pick up · Rainbow shell`), a feed line counts "Rainbow shell 2/5" and it is
+  saved at once. With fewer than five Clover cheers Pip on with the count and the hint; with all five she thanks him and
+  gives 50 gems, once, and from then on looks back on it (and on the bloom, after the ending). No quest log: the
+  tracker's Errands chip is the only UI.
 - **Shop (Miso)**: Potion 25 gems (carry 3), Heart Container 120 (once), Shiny Sword 150 (once: double damage, longer
   reach, sparkly). In first person the purchase is held up in Pip's paws.
 - **Chests**: 4 heart-container chests (a ring of sunflowers in the meadow, the islet off the western beach, a nook
@@ -218,7 +226,8 @@ generated icons that each have a drawn fallback.
   backdrop. Everything works with mouse, keyboard, gamepad and touch.
 - **Completion tracker** (pause menu under the seed row, map card under the legend): a row of chips, each an icon and
   found / total, for chests opened, heart containers (the heart chests plus Miso's shop heart), guardians beaten, regions
-  visited and Starseeds home, then the overall percentage of distinct things found. A full chip turns green and gets a
+  visited, Starseeds home and errands done (an errand counts once, not its shells), then the overall percentage of
+  distinct things found. A full chip turns green and gets a
   ✓ badge, and the finished tally reads ★ 100%, so completion never rests on colour alone. It is read-only over the save
   (`js/completion.js`, a pure module): totals come from the generated island and `data.js`, and save keys for things
   this island does not have are not counted. It is filled each time the card opens.
@@ -297,17 +306,21 @@ low 1.0, high 2.0) and dynamic resolution of the main pass between 0.70 and 1.0.
 
 One save slot in the browser (`starseed-isle-save-v2`): autosave every 30 s outside fights and at key moments (seeds,
 chests, purchases, defeats). It keeps the island seed, Pip's place and look, hearts, gems, potions, sword, Starseeds
-(found and placed), chests, defeated bosses, the shop heart, the ending, the time of day, visited regions and your map
-marker. Continue resumes there; Save & Quit returns to the title.
+(found and placed), chests, defeated bosses, the shop heart, the ending, the time of day, visited regions, errands
+(started or done) and the rainbow shells picked up, and your map marker. Continue resumes there; Save & Quit returns to the title.
 
 The schema lives in `js/save.js` (pure, unit-tested in `tests/save.test.js`). Every save carries a `v` field,
-`SAVE_VERSION` (currently 2); the version comes from `v`, not from the storage key, which stays
+`SAVE_VERSION` (currently 3); the version comes from `v`, not from the storage key, which stays
 `starseed-isle-save-v2`. Loading runs `loadSave(raw, seed)`: `migrate` applies the `MIGRATIONS[n]` steps
 (version n → n + 1) up to `SAVE_VERSION` and rejects non-objects, saves without `seed`, saves newer than
 `SAVE_VERSION` or with no migration path; then `normalize` fills missing fields from `freshState` and
 clamps or coerces the rest (hp 1..maxHp, maxHp ≤ `CFG.maxHp`, potions ≤ `CFG.potionMax`, coins ≥ 0,
 swordLevel 1 or 2, map fields always plain objects, position finite or null). A rejected save is treated
 as no save. To change the layout: bump `SAVE_VERSION`, add a `MIGRATIONS[old]` step and a test for it.
+`MIGRATIONS[2]` (v2 → v3, Clover's errand) is the first step: it keeps every v2 field and adds `errands: {}` (errand id →
+1 started, 2 done) and `shells: {}` (rainbow shell id → true); `normalize` clamps errand states to 1 or 2 (0 and junk
+dropped) and turns shells into flags. A build from before v3 treats a v3 save as newer, so as no save: if this ever has
+to be reverted after release, ship a build that accepts v3 and ignores its extra fields rather than a plain revert.
 
 The first-person build adds two optional fields without a version bump (`normalize` keeps unknown fields): `pitch`,
 the look angle, which `Game.startSession` restores clamped; and `controlsV`, the version of the controls card the

@@ -17,7 +17,16 @@ function midGame() {
     visited: { village: true, woods: true, peaks: true },
     introDone: true, controlsSeen: true, playTime: 1834.25,
     px: 12.5, pz: -40.25, facing: -1.25,
+    errands: { clover: 1 }, shells: { shell2: true, shell4: true },
   };
+}
+
+// A v2 save as today's main writes it (SAVE_VERSION 2: no errands or shells yet): mid-game, and after the ending
+function v2Save(ending = false) {
+  const { errands, shells, ...s } = midGame();
+  return ending
+    ? { ...s, v: 2, ending: true, seeds: { woods: 2, peaks: 2, shores: 2 }, bosses: { woods: true, peaks: true, shores: true }, pitch: 0.2, controlsV: 2 }
+    : { ...s, v: 2 };
 }
 
 // Every field the game reads has the right type and is in range.
@@ -36,10 +45,12 @@ function expectPlayable(s) {
   expect(s.potions).toBeGreaterThanOrEqual(0);
   expect(s.potions).toBeLessThanOrEqual(CFG.potionMax);
   expect([1, 2]).toContain(s.swordLevel);
-  for (const k of ['seeds', 'chests', 'bosses', 'visited']) {
+  for (const k of ['seeds', 'chests', 'bosses', 'visited', 'errands', 'shells']) {
     expect(s[k] !== null && typeof s[k] === 'object' && !Array.isArray(s[k])).toBe(true);
   }
   for (const id of SEED_ORDER) expect([0, 1, 2]).toContain(s.seeds[id]);
+  for (const k of Object.keys(s.errands)) expect([1, 2]).toContain(s.errands[k]);
+  for (const k of Object.keys(s.shells)) expect(s.shells[k]).toBe(true);
   for (const k of ['shopHeart', 'ending', 'introDone', 'controlsSeen']) expect(typeof s[k]).toBe('boolean');
   expect(s.tod).toBeGreaterThanOrEqual(0);
   expect(s.tod).toBeLessThan(1);
@@ -78,9 +89,28 @@ describe('round trip', () => {
 
 describe('migrate', () => {
   test('the current version needs no steps', () => {
-    expect(SAVE_VERSION).toBe(2);
-    expect(Object.keys(MIGRATIONS)).toEqual([]);
+    expect(SAVE_VERSION).toBe(3);
+    expect(Object.keys(MIGRATIONS)).toEqual(['2']);
     expect(migrate(roundTrip(midGame()))).toEqual(midGame());
+  });
+
+  test.each([['mid-game', false], ['after the ending', true]])('a v2 save (%s) migrates to v3 with every field kept', (_name, ending) => {
+    const v2 = roundTrip(v2Save(ending));
+    const m = migrate(v2);
+    expect(m).toEqual({ ...v2, v: 3, errands: {}, shells: {} });
+    expect(v2.v).toBe(2); // input untouched
+    const s = loadSave(roundTrip(v2Save(ending)), SEED);
+    expectPlayable(s);
+    expect(s).toEqual({ ...v2, v: 3, errands: {}, shells: {} });   // normalize keeps every v2 field as it was
+  });
+
+  test('a migrated v2 save round-trips as v3', () => {
+    const s = loadSave(roundTrip(v2Save(true)), SEED);
+    expect(loadSave(roundTrip(s), SEED)).toEqual(s);
+  });
+
+  test('a v2 save that already carries errand fields still starts them empty', () => {
+    expect(migrate({ ...roundTrip(v2Save()), errands: { clover: 2 }, shells: { shell1: true } })).toMatchObject({ v: 3, errands: {}, shells: {} });
   });
 
   test('runs an older-version step and stamps the current version', () => {
@@ -88,6 +118,7 @@ describe('migrate', () => {
     const v1 = { v: 1, seed: SEED, hp: 4, gems: 30, chests: ['c1', 'c2'] };
     const calls = [];
     const steps = {
+      ...MIGRATIONS,
       1: (s) => {
         calls.push(s.v);
         const { gems, ...rest } = s;
@@ -97,6 +128,7 @@ describe('migrate', () => {
     const m = migrate(v1, steps);
     expect(calls).toEqual([1]);
     expect(m.v).toBe(SAVE_VERSION);
+    expect(m.errands).toEqual({}); // then the real v2 → v3 step
     expect(m.coins).toBe(30);
     expect(m.chests).toEqual({ c1: true, c2: true });
     expect('gems' in m).toBe(false);
@@ -131,6 +163,7 @@ describe('migrate', () => {
     ['a string v', { v: '2', seed: SEED }],
     ['v of 0', { v: 0, seed: SEED }],
     ['a newer v', { ...freshState(SEED), v: SAVE_VERSION + 1 }],
+    ['a v4 save', { ...freshState(SEED), v: 4 }],
     ['no seed', { ...freshState(SEED), seed: undefined }],
     ['a null seed', { ...freshState(SEED), seed: null }],
   ])('returns null for %s', (_name, raw) => {
@@ -147,12 +180,17 @@ describe('normalize', () => {
     return s;
   };
 
-  test.each(['chests', 'bosses', 'visited'])('null, array or string %s becomes an empty object', (k) => {
+  test.each(['chests', 'bosses', 'visited', 'shells', 'errands'])('null, array or string %s becomes an empty object', (k) => {
     for (const bad of [null, [true, true], 'x', 3]) expect(load({ [k]: bad })[k]).toEqual({});
   });
 
   test('flag maps keep truthy entries as true and drop falsy ones', () => {
     expect(load({ chests: { c1: true, c2: 1, c3: false, c4: null } }).chests).toEqual({ c1: true, c2: true });
+  });
+
+  test('errand states are clamped to 1 / 2 (0 and junk dropped); shells become flags', () => {
+    expect(load({ errands: { clover: 7, ribbit: -1, hoot: 'x', digby: 1.4, miso: 1.6, a: 2, b: 0, c: null } }).errands).toEqual({ clover: 2, digby: 1, miso: 2, a: 2 });
+    expect(load({ shells: { shell1: 1, shell2: 'yes', shell3: false, shell4: 0 } }).shells).toEqual({ shell1: true, shell2: true });
   });
 
   test('null, array or partial seeds become a full seeds object', () => {

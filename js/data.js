@@ -75,6 +75,53 @@ const found = (S) => SEED_ORDER.filter((k) => S.seeds[k] > 0).length;
 const placed = (S) => SEED_ORDER.filter((k) => S.seeds[k] === 2).length;
 export const progress = { found, placed, carried: (S) => found(S) - placed(S) };
 
+// ---------------------------------------------------------------- villager errands
+// One small favour per villager, unlocked by progress. State lives in the save (js/save.js, v3): S.errands[id] is
+// 0 (not started), 1 (started) or 2 (done); each item Pip picks up is a flag in S.shells under its world id ('shell1'…).
+// World spots come from World.placeShells (W.shells), which names the same places as `hint`.
+export const ERRANDS = [
+  {
+    id: 'clover', npc: 'clover', region: 'shores', item: 'shell', name: 'Rainbow shells', count: 5,
+    unlock: (S) => !!(S.bosses && S.bosses.shores), reward: { gems: 50 },
+    hint: 'One by the striped lighthouse, one on each little islet, one outside Captain Pinch\'s cove and one beside the beach path.',
+  },
+];
+const isObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
+export const errands = {
+  /** the ERRANDS entry with this id (or for this NPC), or null */
+  get: (id) => ERRANDS.find((e) => e.id === id) || null,
+  forNpc: (npcId) => ERRANDS.find((e) => e.npc === npcId) || null,
+  /** 0 not started, 1 started, 2 done */
+  state: (S, id) => { const v = isObj(S && S.errands) ? S.errands[id] : 0; return v === 1 || v === 2 ? v : 0; },
+  /** the errand's item ids, matching W.shells: 'shell1' … 'shell' + count */
+  items: (e) => Array.from({ length: e.count }, (_, i) => e.item + (i + 1)),
+  /** items picked up so far */
+  found: (S, e) => errands.items(e).filter((k) => isObj(S && S.shells) && S.shells[k] === true).length,
+  /** is this world item out on the ground: the errand started, not finished, and the item not picked up yet */
+  itemOut: (S, e, itemId) => errands.state(S, e.id) === 1 && errands.items(e).includes(itemId) && !(isObj(S.shells) && S.shells[itemId]),
+  /** Pip picks up an item: marks it and returns the new count, or null when it is not out (no change) */
+  pick(S, e, itemId) {
+    if (!errands.itemOut(S, e, itemId)) return null;
+    S.shells = { ...(isObj(S.shells) ? S.shells : {}), [itemId]: true };
+    return errands.found(S, e);
+  },
+  /** after a talk with the errand's villager: 'start' (unlocked, not started → started), 'done' (every item found →
+   *  done, reward added to S.coins once) or null (no change). Mutates S */
+  talk(S, e) {
+    const st = errands.state(S, e.id);
+    const set = (v) => { S.errands = { ...(isObj(S.errands) ? S.errands : {}), [e.id]: v }; };
+    if (st === 0 && e.unlock(S)) { set(1); return 'start'; }
+    if (st === 1 && errands.found(S, e) >= e.count) {
+      set(2);
+      S.coins = (S.coins || 0) + ((e.reward && e.reward.gems) || 0);
+      return 'done';
+    }
+    return null;
+  },
+  /** errands finished (the tracker's row) */
+  done: (S) => ERRANDS.filter((e) => errands.state(S, e.id) === 2).length,
+};
+
 // WP9: lines rewritten for an eye-level game (art §14): no screen directions, compass words, landmarks you can see
 // over the trees, and boss tips that match the new moves. {tokens} name controls (C7: WP6 swaps in the glyph of the
 // current device at display time; a copy without WP6 shows the raw token).
@@ -126,11 +173,25 @@ export const NPCS = [
   },
   {
     id: 'clover', name: 'Clover', key: 'npc_bunny', wander: 1.4,
+    // after Captain Pinch: the rainbow-shell errand (ERRANDS 'clover'). These lines show the state before the talk;
+    // interact.js advances it (errands.talk) when the talk ends
     lines(S) {
-      if (S.bosses.shores) return [
-        'You beat Captain Pinch?! I knew it! I bet he is only grumpy because his hat is too small.',
-        'The beach is so peaceful now. Want to collect shells with me later?',
-      ];
+      if (S.bosses.shores) {
+        const e = errands.get('clover'), st = errands.state(S, 'clover'), n = errands.found(S, e), left = e.count - n;
+        if (st === 2) {
+          const out = ['My rainbow shells are lined up on my windowsill. They glow pink when the sun goes down!', 'Shell hunting is more fun with a friend. Thanks again, Pip!'];
+          if (S.ending) out.push('And now the Great Tree is blooming too. Best. Summer. Ever!');
+          return out;
+        }
+        if (st === 1 && left <= 0) return ['All five rainbow shells! They are even prettier up close.', 'I found these gems by my sandcastle. They are yours, Pip. Thank you!'];
+        if (st === 1) return [n === 0 ? 'No rainbow shells yet? Look for a little sparkle on the sand!' : n + ' of ' + e.count + ' rainbow shells! ' + (left === 1 ? 'Just one more!' : 'Keep looking, Pip!'), e.hint];
+        return [
+          'You beat Captain Pinch?! I knew it! I bet he is only grumpy because his hat is too small.',
+          'The beach is so peaceful now. Want to collect shells with me?',
+          'After the last big storm, five rainbow shells washed up on the Shores. Could you find them for me?',
+          e.hint + ' They sparkle!',
+        ];
+      }
       return [
         'Going to the Sunny Shores? Follow this path south to the sea. Captain Pinch\'s cove is at its very end, just past the striped lighthouse on the beach, and he charges in a straight line like a runaway cart!',
         'When a glowing stripe runs across the sand in front of him, that is where he will charge. Sidestep out of it, or {dash} sideways, and he bonks the arena wall. Dizzy crab, free hits!',

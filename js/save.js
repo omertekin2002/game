@@ -3,19 +3,23 @@
 import { CFG, SEED_ORDER } from './data.js';
 
 // Bump when the save layout changes, and add a MIGRATIONS step from the previous version.
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
 export function freshState(seed) {
   return {
     v: SAVE_VERSION, seed, hp: CFG.startHp, maxHp: CFG.startHp, coins: 0, potions: 0, swordLevel: 1,
     seeds: { woods: 0, peaks: 0, shores: 0 }, chests: {}, bosses: {}, shopHeart: false, ending: false,
     tod: CFG.startTimeOfDay, visited: {}, introDone: false, controlsSeen: false, playTime: 0, px: null, pz: null, facing: Math.PI,
+    errands: {}, shells: {},   // v3: errand id → 1 started / 2 done (data.js ERRANDS); rainbow shell id → true (picked up)
   };
 }
 
 // MIGRATIONS[n] turns a version-n save into a version-(n + 1) save. Steps run in order up to SAVE_VERSION.
-// Empty today: 2 is the only version that has ever been written.
-export const MIGRATIONS = {};
+// Versions 1 and 2 never had a step: 2 was the first version ever written, so a v1 save has no path and is rejected.
+export const MIGRATIONS = {
+  // v2 → v3: villager errands (Clover's rainbow shells). Every v2 field is kept as it is; nothing has started yet
+  2: (s) => ({ ...s, errands: {}, shells: {} }),
+};
 
 const isObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 const num = (x) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
@@ -60,6 +64,9 @@ export function normalize(s, seed) {
   out.chests = flags(s.chests);
   out.bosses = flags(s.bosses);
   out.visited = flags(s.visited);
+  out.shells = flags(s.shells);
+  out.errands = {};
+  if (isObj(s.errands)) for (const k of Object.keys(s.errands)) { const n = Math.round(clampNum(s.errands[k], 0, 2, 0)); if (n > 0) out.errands[k] = n; }
   for (const k of ['shopHeart', 'ending', 'introDone', 'controlsSeen']) out[k] = !!s[k];
   out.tod = wrap01(num(s.tod) ?? f.tod);
   out.playTime = clampNum(s.playTime, 0, Number.MAX_VALUE, 0);

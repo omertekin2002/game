@@ -1,9 +1,9 @@
-// Gameplay input routing, potions, pickups, item-get, talking, shop, chests, pedestal (Game mixin). Event names and
+// Gameplay input routing, potions, pickups, item-get, talking, shop, chests, pedestal, errands (Game mixin). Event names and
 // function names here are hooks for WP1 (camera), WP2 (hands) and WP6 (UI): keep them stable. Timed beats (the chest
 // freeze) run on sim time (later / tickLater), so they hold while a menu or the shop pauses the world.
 import * as THREE from 'three';
 import { sfx } from './core.js';
-import { CFG, SEED_ORDER, SEEDS, progress } from './data.js';
+import { CFG, SEED_ORDER, SEEDS, progress, errands } from './data.js';
 import { NPC } from './npcs.js';
 import { Pickup } from './entities.js';
 import { toonMat, sharedOutline, meshWithOutline } from './toon.js';
@@ -136,6 +136,7 @@ export const InteractMixin = {
       case 'well': sfx('splash'); this.ui.say(o.lines, {}); break;
       case 'chest': this.openChest(o.chest); break;
       case 'pedestal': this.usePedestal(); break;
+      case 'shell': this.pickShell(o); break;
     }
   },
   talkTo(npc) {
@@ -151,8 +152,60 @@ export const InteractMixin = {
           this.ui.openShop(S, (it) => this.buy(it), () => { npc.talkEnd(); this.events.emit(EV.SHOP_CLOSE, {}); this.events.emit(EV.TALK_END, { npc }); this.ui.updateHud(S); this.save(true); });
           this.events.emit(EV.SHOP_OPEN, {});
         } else { npc.talkEnd(); this.events.emit(EV.TALK_END, { npc }); }
+        const e = errands.forNpc(npc.id);
+        if (e && this.state === 'play' && !this.leaving) this.errandTalk(npc, e);
       },
     });
+  },
+  /** a talk with an errand's villager ended: start the errand (its items appear) or finish it (the reward, once) */
+  errandTalk(npc, e) {
+    const S = this.S, res = errands.talk(S, e);
+    if (!res) return;
+    if (res === 'start') {
+      this.syncShells();
+      this.ui.toast('✿ Find ' + e.count + ' rainbow shells on the Sunny Shores');
+    } else {
+      const gems = (e.reward && e.reward.gems) || 0;   // errands.talk already added them to S.coins
+      sfx('fanfare');
+      this.fx.burst(npc.pos.x, npc.pos.y + 1.2, npc.pos.z, 0xb8fff0, 18, 3);
+      for (let i = 0; i < 10; i++) this.fx.sparkle(npc.pos.x, npc.pos.y + 1, npc.pos.z, pick([0xb8fff0, 0xfff4a0, 0xffc8f0]), 1, 0.8);
+      if (gems) this.events.emit(EV.COLLECT, { kind: 'gem', value: gems });   // the feed's "+50 gems" line and the gem sound
+      this.ui.toast('✿ Errand done: ' + e.name);
+      this.ui.updateHud(S);
+    }
+    this.save(true);
+  },
+  /** show the rainbow shells that are out (errand started, not picked up) and hide the rest */
+  syncShells() {
+    const W = this.world, S = this.S, e = errands.get('clover');
+    if (!e || !W.shells || !this.scenery.setShellShown) return;
+    for (const sh of W.shells) this.scenery.setShellShown(sh.id, !!S && errands.itemOut(S, e, sh.id));
+  },
+  /** Pip picks up a rainbow shell with Use: counted and saved at once, and it disappears */
+  pickShell(sh) {
+    const S = this.S, e = errands.get('clover');
+    const n = e ? errands.pick(S, e, sh.id) : null;
+    if (n == null) return;
+    this.scenery.setShellShown(sh.id, false);
+    sfx('coin');
+    this.fx.burst(sh.x, sh.y + 0.3, sh.z, 0xfff4a0, 10, 2);
+    for (let i = 0; i < 8; i++) this.fx.sparkle(sh.x, sh.y + 0.3, sh.z, pick([0xff9fb6, 0xfff4a0, 0xa8e4ff, 0xb8ffb0, 0xd8b0ff]), 1, 0.5);
+    this.ui.selfFloater('Rainbow shell ' + n + '/' + e.count, '#ffd0f0');
+    if (n >= e.count) this.ui.toast('✿ That\'s all ' + e.count + '! Bring them to Clover');
+    this.save(true);
+  },
+  /** a soft rainbow twinkle over each shell that is out within 40 m (sim time: it holds under menus) */
+  tickShells(dt) {
+    const W = this.world, S = this.S, e = errands.get('clover');
+    if (!e || !S || !W.shells || errands.state(S, e.id) !== 1) return;
+    const pl = this.player;
+    this._shellT = (this._shellT || 0) - dt;
+    if (this._shellT > 0) return;
+    this._shellT = 0.35;
+    for (const sh of W.shells) {
+      if (S.shells[sh.id] || Math.abs(sh.x - pl.pos.x) > 40 || Math.abs(sh.z - pl.pos.z) > 40) continue;
+      this.fx.sparkle(sh.x + rand(-0.15, 0.15), sh.y + rand(0.35, 0.7), sh.z + rand(-0.15, 0.15), pick([0xff9fb6, 0xfff4a0, 0xa8e4ff, 0xb8ffb0, 0xd8b0ff]), 1, 0.3);
+    }
   },
   buy(it) {
     const S = this.S;

@@ -3,10 +3,13 @@
 // localStorage and play it from New Game to the ending, then Continue it after a reload:
 //  1. New Game from the title, through Elder Shellby's intro;
 //  2. each guardian (woods, shores, peaks): walk into its arena so the fight starts, beat it (G.debug.killBoss), walk
-//     onto the Starseed it drops until the game picks it up, and read the item-get through;
+//     onto the Starseed it drops until the game picks it up, and read the item-get through; after Captain Pinch, Clover's
+//     errand: talking to her starts it, Use picks up the five rainbow shells (each saved), talking again gives the reward
+//     once and finishes it;
 //  3. at the pedestal, Use (the interact press) places the three seeds; the ending runs and shows its card, and closing
-//     the card returns to free roam where Pip can walk; the pause menu's tracker reads 3/3 guardians and 3/3 Starseeds;
-//  4. Save & Quit, reload the page, Continue: the bloomed tree and the placed seeds come back.
+//     the card returns to free roam where Pip can walk; the pause menu's tracker reads 3/3 guardians, 3/3 Starseeds and
+//     1/1 errands;
+//  4. Save & Quit, reload the page, Continue: the bloomed tree, the placed seeds and the finished errand come back.
 // The simulation is stepped through the real frame loop (game.runFrame with the manual clock) rather than waited for in
 // real time, because software WebGL runs at about 1–11 fps. Fails on any page error, console error or failed request.
 // Usage: node tests/playthrough.mjs   (or `bun run test:playthrough`). On failure a screenshot lands in test-results/.
@@ -118,6 +121,48 @@ async function main() {
       return !!b && b.style.display !== 'none';
     });
 
+    // talk to Clover: stand in front of her, wait until she is the Use target, Use, read her lines through
+    const talkToClover = async (what) => {
+      if (!(await page.evaluate(() => window.G.debug.standAt('clover')))) fail(`G.debug.standAt('clover') found no spot (${what})`);
+      await framesUntil(`Clover to be the Use target (${what})`, "game.target && game.target.o && game.target.o.id === 'clover'", 2);
+      await pressUse(1);
+      await framesUntil(`Clover's dialogue (${what})`, 'G.ui.dlg', 2);
+      await readDialogue(`Clover's lines (${what})`);
+      await frames(2);
+    };
+    const errandState = () => page.evaluate((k) => {
+      const g = window.G.game, saved = JSON.parse(localStorage.getItem(k) || 'null');
+      return {
+        errand: g.S.errands.clover || 0, shells: Object.keys(g.S.shells).sort(), coins: g.S.coins, world: g.world.shells.length,
+        shown: [...g.scenery.shells.values()].filter((q) => q.shown).map((q) => q.data.id),
+        saved: saved && { errand: (saved.errands || {}).clover || 0, shells: Object.keys(saved.shells || {}).sort(), coins: saved.coins, v: saved.v },
+      };
+    }, SAVE_KEY);
+    // Clover's errand, right after Captain Pinch: start it, pick up the five shells, finish it once
+    const cloverErrand = async () => {
+      let e = await errandState();
+      if (e.errand !== 0 || e.shown.length) fail(`the errand started before Clover asked: ${JSON.stringify(e)}`);
+      if (e.world !== 5) fail(`the island has ${e.world} rainbow shells, expected 5`);
+      await talkToClover('start');
+      e = await errandState();
+      if (e.errand !== 1 || e.shown.length !== 5 || !e.saved || e.saved.errand !== 1) fail(`talking to Clover did not start the errand: ${JSON.stringify(e)}`);
+      for (let i = 0; i < 5; i++) {
+        if (!(await page.evaluate((i) => window.G.debug.standAt('shell', i), i))) fail(`G.debug.standAt('shell', ${i}) found no spot`);
+        await framesUntil(`rainbow shell ${i + 1} to be the Use target`, `game.target && game.target.kind === 'shell' && game.target.o.id === 'shell${i + 1}'`, 2);
+        await pressUse(2);
+        e = await errandState();
+        if (e.shells.length !== i + 1 || e.shown.includes('shell' + (i + 1)) || !e.saved || e.saved.shells.length !== i + 1) fail(`Use did not pick up and save rainbow shell ${i + 1}: ${JSON.stringify(e)}`);
+      }
+      await talkToClover('progress');   // a talk with every shell found finishes it
+      const c0 = e.coins;
+      e = await errandState();
+      if (e.errand !== 2 || e.coins !== c0 + 50 || e.saved.errand !== 2 || e.saved.coins !== e.coins) fail(`returning the shells did not finish the errand once with its reward: ${JSON.stringify({ c0, ...e })}`);
+      await talkToClover('after');
+      const e2 = await errandState();
+      if (e2.errand !== 2 || e2.coins !== e.coins) fail(`a second talk changed the errand or the gems: ${JSON.stringify(e2)}`);
+      step(`Clover's errand: started, 5 rainbow shells picked up and saved, finished once (+50 gems, ${e.coins} total)`);
+    };
+
     // ---- 1. New Game from a clean localStorage, through Shellby's intro
     step(`open ${server.url}${QUERY}`);
     await page.goto(`${server.url}${QUERY}`, { waitUntil: 'load', timeout: BOOT_TIMEOUT });
@@ -166,6 +211,7 @@ async function main() {
       if (!s.playing) fail(`not back in free play after the ${id} Starseed: ${JSON.stringify(s)}`);
       if (await page.evaluate((id) => !!window.G.game.bosses[id], id)) fail(`the ${id} guardian is still on the island`);
       step(`${id}: walked into the arena (${walk} frames), beaten, Starseed picked up and carried`);
+      if (id === 'shores') await cloverErrand();
     }
 
     // ---- 3. The pedestal: Use places the seeds, the ending plays, then free roam
@@ -207,7 +253,8 @@ async function main() {
       return Object.fromEntries(chips.map((c) => [c.dataset.k, { text: c.querySelector('b').textContent.trim(), full: c.classList.contains('full') }]));
     });
     for (const k of ['guardians', 'seeds']) if (!tally[k] || tally[k].text !== '3/3' || !tally[k].full) fail(`pause tracker ${k}: ${JSON.stringify(tally[k])}, expected 3/3`);
-    step(`pause tracker: guardians ${tally.guardians.text}, Starseeds ${tally.seeds.text}`);
+    if (!tally.errands || tally.errands.text !== '1/1' || !tally.errands.full) fail(`pause tracker errands: ${JSON.stringify(tally.errands)}, expected 1/1`);
+    step(`pause tracker: guardians ${tally.guardians.text}, Starseeds ${tally.seeds.text}, errands ${tally.errands.text}`);
 
     // ---- 4. Save & Quit (from the pause menu), reload, Continue: the bloom comes back
     await page.evaluate(() => window.G.ui.onPauseChoice(5));
@@ -231,7 +278,8 @@ async function main() {
       // the bloomed tree: the blossom model when the tree is the GLB pair, else the built canopy's bloom group
       const bloom = T.glb ? (T.glb.b ? T.glb.b.visible && !T.glb.a.visible : null) : T.bloom.visible && !T.canopy.visible;
       return {
-        ending: S.ending, seeds: S.seeds, bosses: S.bosses, bloom, liveBosses: Object.keys(g.bosses),
+        ending: S.ending, seeds: S.seeds, bosses: S.bosses, bloom, liveBosses: Object.keys(g.bosses), errands: S.errands, shells: S.shells,
+        shellsShown: [...g.scenery.shells.values()].filter((q) => q.shown).length,
         pedSeeds: g.pedSeeds.map((m) => m.visible), treeSeeds: g.treeSeedsWanted() ? g.treeSeeds.every((m) => m.visible) : null,
       };
     });
@@ -241,8 +289,9 @@ async function main() {
     if (back.bloom === false) fail(`the Great Tree is not bloomed after Continue: ${JSON.stringify(back)}`);
     if (back.bloom === null && back.treeSeeds !== true) fail(`no bloom shown after Continue: ${JSON.stringify(back)}`);
     if (!back.pedSeeds.every(Boolean)) fail(`pedestal seeds not shown after Continue: ${JSON.stringify(back.pedSeeds)}`);
+    if (back.errands.clover !== 2 || Object.keys(back.shells).length !== 5 || back.shellsShown !== 0) fail(`Clover's errand not restored: ${JSON.stringify({ errands: back.errands, shells: back.shells, shown: back.shellsShown })}`);
     if (problems.length) fail('errors after Continue');
-    step(`Continue restored the ending: bloomed tree, ${back.pedSeeds.length} seeds on the pedestal, no guardians left`);
+    step(`Continue restored the ending: bloomed tree, ${back.pedSeeds.length} seeds on the pedestal, no guardians left, Clover's errand done`);
   } catch (e) {
     for (const p of problems) console.error(`  - ${p}`);
     if (page) {

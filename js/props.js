@@ -226,6 +226,16 @@ function shell() {
   }
   return b.build();
 }
+/** Clover's errand: the decorative shell's spiral and body (no starfish), striped in rainbow hues along its length and
+ *  softly glowing, so it reads apart from the plain pink shells scattered on the sand. Model units, ≈ 0.2 m long */
+function rainbowShell() {
+  const b = new GB(), col = new THREE.Color();
+  const hue = (x, y, z) => col.setHSL((((z + 0.2) * 3.2) % 1 + 1) % 1, 0.9, 0.6).getHex();
+  b.cone(0.09, 0.2, 0, { y: 0.07, rx: Math.PI / 2 - 0.2, seg: 10, colorFn: hue, glow: 0.45 });
+  b.sphere(0.08, 0, { z: -0.08, y: 0.06, ws: 10, hs: 8, colorFn: hue, glow: 0.45 });
+  return b.build();
+}
+export function rainbowShellModel() { return cache.rainbowShell || (cache.rainbowShell = rainbowShell()); }
 function crystal() {
   const b = new GB();
   b.add(new THREE.OctahedronGeometry(0.16, 0), 0xa8e4ff, { y: 0.22, sy: 1.8, glow: 0.35, flat: true, outline: false });

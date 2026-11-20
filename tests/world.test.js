@@ -1,7 +1,9 @@
 // Unit tests for deterministic island generation (js/world.js). Run with `bun test`.
 import { describe, expect, test } from 'bun:test';
 import { generateWorld } from '../js/world.js';
-import { CFG } from '../js/data.js';
+import { CFG, REGION } from '../js/data.js';
+import { placementPrint } from './lib/world-print.js';
+import PRINTS from './fixtures/world-prints.json';
 
 const HEART_IDS = ['hc_meadow', 'hc_shores', 'hc_peaks', 'hc_woods'];
 const SEEDS = [CFG.seed, 1, 42, 1234];
@@ -66,11 +68,75 @@ describe.each(SEEDS)('seed %p', (seed) => {
     expect(new Set(ids).size).toBe(ids.length);
   }, SLOW);
 
+  test('every existing placement matches the fingerprint taken before the rainbow-shell pass', () => {
+    // tests/fixtures/world-prints.json: placementPrint of each seed on the code before Clover's errand (issue #32)
+    expect(placementPrint(world(seed))).toEqual(PRINTS[seed]);
+  }, SLOW);
+
+  test('the rainbow-shell pass changes nothing else in the world', () => {
+    const w = world(seed), bare = generateWorld(seed, { shells: false });
+    expect(bare.shells).toEqual([]);
+    expect(placementPrint(w)).toEqual(placementPrint(bare));
+    expect(fingerprint(w)).toEqual(fingerprint(bare));
+    expect(fnv(w.walk)).toBe(fnv(bare.walk));
+    expect(fnv(w.reach)).toBe(fnv(bare.reach));
+    expect(w.unreachable).toEqual(bare.unreachable);
+  }, SLOW);
+
+  test('five rainbow shells on dry Shores sand: flat, clear, outside the arena, reachable, at the spots Clover names', () => {
+    const w = world(seed), a = w.arenas.shores;
+    expect(w.shells.map((s) => s.id)).toEqual(['shell1', 'shell2', 'shell3', 'shell4', 'shell5']);
+    expect(w.shells.map((s) => s.at)).toEqual(['lighthouse', 'islet1', 'islet2', 'cove', 'path']);
+    const reach = w.bfs(w.buildWalk());
+    const lm = w.landmarks.find((l) => l.id === 'shores');
+    for (const s of w.shells) {
+      const isle = w.islets.find((i) => Math.hypot(s.x - i.x, s.z - i.z) < i.r);
+      const at = { id: s.id, shores: w.regionAt(s.x, s.z) === REGION.SHORES || !!isle, sand: w.surfaceAt(s.x, s.z), dry: w.hAt(s.x, s.z) > 0.3 };
+      expect(at).toEqual({ id: s.id, shores: true, sand: 'sand', dry: true });
+      expect(s.y).toBeCloseTo(w.hAt(s.x, s.z), 5);
+      expect(w.slopeAt(s.x, s.z)).toBeLessThan(0.5);
+      expect(w.bridgeAt(s.x, s.z)).toBeNull();
+      expect(Math.hypot(s.x - a.x, s.z - a.z)).toBeGreaterThan(a.r + 5);   // outside the arena and its stone ring
+      expect(w.inArena(s.x, s.z, 5)).toBeNull();
+      expect(w.solidNear(s.x, s.z, 1.0)).toBeNull();
+      expect(w.colliders.filter((c) => Math.hypot(c.x - s.x, c.z - s.z) < c.r + 1.0)).toEqual([]);
+      expect(w.pathDAt(s.x, s.z)).toBeGreaterThanOrEqual(3);
+      expect(w.chests.filter((c) => Math.hypot(c.x - s.x, c.z - s.z) < 2.5)).toEqual([]);
+      expect({ id: s.id, reached: w.isReached(reach, s.x, s.z, false) }).toEqual({ id: s.id, reached: true });
+      for (const t of w.shells) if (t !== s) expect(Math.hypot(t.x - s.x, t.z - s.z)).toBeGreaterThanOrEqual(8);
+      // where Clover says they are
+      if (s.at === 'lighthouse') expect(Math.hypot(s.x - lm.x, s.z - lm.z)).toBeLessThan(12);
+      if (s.at === 'islet1') expect(isle).toBe(w.islets[0]);
+      if (s.at === 'islet2') expect(isle).toBe(w.islets[1]);
+      if (s.at === 'cove') expect(Math.hypot(s.x - a.x, s.z - a.z)).toBeLessThan(a.r + 16);
+      if (s.at === 'path') expect(Math.min(...w.paths.shores.map((p) => Math.hypot(p.x - s.x, p.z - s.z)))).toBeLessThan(7);
+    }
+  }, SLOW);
+
   test('spawn point is on dry land', () => {
     const w = world(seed);
     expect(w.hAt(w.spawn.x, w.spawn.z)).toBeGreaterThan(0);
   }, SLOW);
 });
+
+// Clover names the spots (data.js ERRANDS hint), so every shell must be at its own on any island, not just the four
+// above: seeds 1–40 (seed 23's second islet has only a sliver of dry sand clear of its palm, chest and bridge)
+test('on seeds 1–40 every rainbow shell is at the spot Clover names', () => {
+  const off = [];
+  for (let seed = 1; seed <= 40; seed++) {
+    const w = generateWorld(seed), a = w.arenas.shores, lm = w.landmarks.find((l) => l.id === 'shores');
+    if (w.shells.length !== 5) off.push([seed, 'count', w.shells.length]);
+    for (const s of w.shells) {
+      const isle = s.at.startsWith('islet') ? w.islets[+s.at.slice(5) - 1] : null;
+      const near = s.at === 'lighthouse' ? Math.hypot(s.x - lm.x, s.z - lm.z) < 12
+        : isle ? Math.hypot(s.x - isle.x, s.z - isle.z) < isle.r
+          : s.at === 'cove' ? Math.hypot(s.x - a.x, s.z - a.z) < a.r + 16
+            : Math.min(...w.paths.shores.map((p) => Math.hypot(p.x - s.x, p.z - s.z))) < 7;
+      if (!near) off.push([seed, s.at, s.x, s.z]);
+    }
+  }
+  expect(off).toEqual([]);
+}, 120_000);
 
 test('default seed has exactly 14 chests, as documented in docs/DESIGN.md', () => {
   const w = world(CFG.seed);
