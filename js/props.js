@@ -236,6 +236,27 @@ function rainbowShell() {
   return b.build();
 }
 export function rainbowShellModel() { return cache.rainbowShell || (cache.rainbowShell = rainbowShell()); }
+/** Ribbit's parade: a paper lantern hung from a short shepherd's-crook post. Two models so the paper can light on its
+ *  own material: the post and the lantern's wooden cap and base (model units ≈ m, 1.5 m tall), and the round paper
+ *  body (white vertex colour: the scenery tints it, unlit cream to lit warm, and ramps its glow) */
+function paradePost() {
+  const b = new GB();
+  b.cyl(0.05, 0.065, 1.42, 0x8a5a30, { y: 0.71, seg: 7 });
+  b.box(0.46, 0.05, 0.05, 0x8a5a30, { x: 0.2, y: 1.42 });
+  b.sphere(0.05, 0x9a6438, { x: 0.42, y: 1.42, ws: 7, hs: 5 });
+  b.cyl(0.012, 0.012, 0.12, 0x5a3a24, { x: 0.38, y: 1.36, seg: 4, outline: false });
+  b.cyl(0.085, 0.11, 0.05, 0xd0503a, { x: 0.38, y: 1.29, seg: 8 });
+  b.cyl(0.11, 0.085, 0.05, 0xd0503a, { x: 0.38, y: 0.95, seg: 8 });
+  for (let i = 0; i < 2; i++) b.sphere(0.1, 0x7cbf4a, { x: (i ? -1 : 1) * 0.16, y: 0.06, z: 0.1, sy: 0.6, ws: 8, hs: 6 });
+  return b.build();
+}
+export const PARADE_PAPER = { x: 0.38, y: 1.12 };   // the paper's centre in model space (the post at the origin)
+function paradePaper() {
+  const b = new GB();
+  b.sphere(0.2, 0xffffff, { x: PARADE_PAPER.x, y: PARADE_PAPER.y, sy: 0.85, ws: 12, hs: 9, glow: 1 });
+  return b.build();
+}
+export function paradeLanternModels() { return cache.paradeLantern || (cache.paradeLantern = { post: paradePost(), paper: paradePaper() }); }
 function crystal() {
   const b = new GB();
   b.add(new THREE.OctahedronGeometry(0.16, 0), 0xa8e4ff, { y: 0.22, sy: 1.8, glow: 0.35, flat: true, outline: false });

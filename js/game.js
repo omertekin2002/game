@@ -163,7 +163,8 @@ export class Game {
     const W = this.world;
     // world state from save
     for (const c of W.chests) this.scenery.setChestOpen(c.id, !!S.chests[c.id], true);
-    this.syncShells();   // Clover's rainbow shells that are out (interact.js)
+    this.syncErrands();      // errand items (Clover's rainbow shells that are out, Ribbit's parade lanterns; interact.js)
+    this.resetErrandNpcs();  // a parade villager is back home, not following, until Pip talks to him again
     this.scenery.setBloom(!!S.ending);
     this.treeSeeds.forEach((g) => (g.visible = !!S.ending && this.treeSeedsWanted()));
     this.pedSeeds.forEach((g, i) => (g.visible = S.seeds[SEED_ORDER[i]] === 2));
@@ -272,7 +273,9 @@ export class Game {
   dynamicColliders(pl) {
     const out = this._dyn || (this._dyn = []);
     out.length = 0;
-    for (const n of this.npcs) out.push({ x: n.pos.x, z: n.pos.z, r: n.r });
+    // a villager following Pip (Ribbit's parade) is not solid for him: he trails right behind, so Pip turning back in a
+    // narrow spot would find the way out blocked (he also steps aside, npcs.js followUpdate)
+    for (const n of this.npcs) if (!n.follow) out.push({ x: n.pos.x, z: n.pos.z, r: n.r });
     // r2 actors: the boss body stays solid while it dies (until it is gone), sized to keep the FP eye out of its mesh
     const fb = this.fight && this.fight.boss;
     if (fb && !fb.dead && fb.lift < 1) out.push({ x: fb.pos.x, z: fb.pos.z, r: fb.colliderR ?? fb.r * 0.85 });
@@ -373,6 +376,7 @@ export class Game {
       for (const id in this.bosses) settle(this.bosses[id]);
     }
     for (const n of this.npcs) n.update(dt);
+    this.tickErrands();   // parade lanterns Pip walks past with Ribbit close behind (interact.js)
     if (this.cutscene) this.updateCutscene(dt);
     this.updateSpawning(dt);
     this.updateRegrowth(dt);
@@ -427,7 +431,7 @@ export class Game {
     for (const p of this.pickups) p.render(alpha, t);
     this.scenery.update(dt);
     this.animateSeeds(t);
-    if (!this.clock.hold && !this.ui.dlg) this.tickShells(dt);
+    if (!this.clock.hold && !this.ui.dlg) this.tickErrandFx(dt);
     // blob shadows: each actor's blob(out) says where and how big (or null); Pip's own only while the camera is out of
     // his head, never under the FP eye
     const B = this.blobs, o = _blob;

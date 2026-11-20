@@ -77,29 +77,51 @@ export const progress = { found, placed, carried: (S) => found(S) - placed(S) };
 
 // ---------------------------------------------------------------- villager errands
 // One small favour per villager, unlocked by progress. State lives in the save (js/save.js, v3): S.errands[id] is
-// 0 (not started), 1 (started) or 2 (done); each item Pip picks up is a flag in S.shells under its world id ('shell1'…).
-// World spots come from World.placeShells (W.shells), which names the same places as `hint`.
+// 0 (not started), 1 (started) or 2 (done); each item is a flag in S.shells (the save's errand item flags) under its
+// world id ('shell1'…, 'lantern1'…): true once picked up / lit. Every errand item's world spots are a W list (`list`)
+// from a world post-pass (World.placeShells, World.placeLanterns) naming the same places as `hint`.
+//  how: 'use' — Pip picks the item up with Use (a crosshair target, the item disappears);
+//       'walk' — Pip lights it by walking past (within TUNE.actors.paradeLight m) while the villager follows close
+//       behind (`follow`: the villager hops after Pip while the errand is under way, js/npcs.js). `keep`: the item stays
+//       in the world, shown in its done look, once found (lanterns stay lit for good).
+//  startToast / allToast: the feed note when it starts / when the last item is found; itemLabel: the floater per item
 export const ERRANDS = [
   {
-    id: 'clover', npc: 'clover', region: 'shores', item: 'shell', name: 'Rainbow shells', count: 5,
+    id: 'clover', npc: 'clover', region: 'shores', item: 'shell', list: 'shells', how: 'use', name: 'Rainbow shells', count: 5,
     unlock: (S) => !!(S.bosses && S.bosses.shores), reward: { gems: 50 },
     hint: 'One by the striped lighthouse, one on each little islet, one outside Captain Pinch\'s cove and one beside the beach path.',
+    startToast: 'Find 5 rainbow shells on the Sunny Shores', allToast: 'That\'s all 5! Bring them to Clover',
+    itemLabel: 'Rainbow shell', itemColor: '#ffd0f0',
+  },
+  {
+    id: 'ribbit', npc: 'ribbit', region: 'village', item: 'lantern', list: 'lanterns', how: 'walk', keep: true, follow: true,
+    name: 'Bloom parade', count: 4, unlock: (S) => !!S.ending, reward: { gems: 50 },
+    hint: 'One beside the walk up to the Great Tree\'s altar, one by the plaza signpost, one in front of Miso\'s shop and one at the village edge on the Meadow path.',
+    startToast: 'Lead Mayor Ribbit past the 4 parade lanterns', allToast: 'All 4 lanterns lit! Mayor Ribbit hops home',
+    itemLabel: 'Parade lantern', itemColor: '#ffe2a8',
   },
 ];
 const isObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
+const flagged = (S, k) => isObj(S && S.shells) && S.shells[k] === true;
 export const errands = {
   /** the ERRANDS entry with this id (or for this NPC), or null */
   get: (id) => ERRANDS.find((e) => e.id === id) || null,
   forNpc: (npcId) => ERRANDS.find((e) => e.npc === npcId) || null,
+  /** the ERRANDS entry whose world items are of this kind ('shell', 'lantern'), or null */
+  forItem: (kind) => ERRANDS.find((e) => e.item === kind) || null,
   /** 0 not started, 1 started, 2 done */
   state: (S, id) => { const v = isObj(S && S.errands) ? S.errands[id] : 0; return v === 1 || v === 2 ? v : 0; },
-  /** the errand's item ids, matching W.shells: 'shell1' … 'shell' + count */
+  /** the errand's item ids, matching its W list (W.shells, W.lanterns): e.item + '1' … e.item + count */
   items: (e) => Array.from({ length: e.count }, (_, i) => e.item + (i + 1)),
-  /** items picked up so far */
-  found: (S, e) => errands.items(e).filter((k) => isObj(S && S.shells) && S.shells[k] === true).length,
-  /** is this world item out on the ground: the errand started, not finished, and the item not picked up yet */
-  itemOut: (S, e, itemId) => errands.state(S, e.id) === 1 && errands.items(e).includes(itemId) && !(isObj(S.shells) && S.shells[itemId]),
-  /** Pip picks up an item: marks it and returns the new count, or null when it is not out (no change) */
+  /** items found (picked up / lit) so far */
+  found: (S, e) => errands.items(e).filter((k) => flagged(S, k)).length,
+  /** is this world item still to find: the errand started, not finished, and the item not picked up / lit yet */
+  itemOut: (S, e, itemId) => errands.state(S, e.id) === 1 && errands.items(e).includes(itemId) && !flagged(S, itemId),
+  /** is this world item shown: while it is out, and for a `keep` errand also once found (from the start on, for good) */
+  itemShown: (S, e, itemId) => errands.itemOut(S, e, itemId) || (!!e.keep && errands.state(S, e.id) > 0 && errands.items(e).includes(itemId)),
+  /** is this world item found (picked up / lit) */
+  itemFound: (S, e, itemId) => errands.items(e).includes(itemId) && flagged(S, itemId),
+  /** Pip finds an item (picks it up / lights it): marks it and returns the new count, or null when it is not out (no change) */
   pick(S, e, itemId) {
     if (!errands.itemOut(S, e, itemId)) return null;
     S.shells = { ...(isObj(S.shells) ? S.shells : {}), [itemId]: true };
@@ -118,6 +140,8 @@ export const errands = {
     }
     return null;
   },
+  /** should the errand's villager follow Pip now: a `follow` errand under way with an item still to find */
+  following: (S, e) => !!e.follow && errands.state(S, e.id) === 1 && errands.found(S, e) < e.count,
   /** errands finished (the tracker's row) */
   done: (S) => ERRANDS.filter((e) => errands.state(S, e.id) === 2).length,
 };
@@ -150,7 +174,26 @@ export const NPCS = [
     id: 'ribbit', name: 'Mayor Ribbit', key: 'npc_frog', wander: 2.2,
     lines(S) {
       const n = found(S);
-      if (S.ending) return ['A blooming Great Tree! This calls for a parade. You lead, I will hop behind.'];
+      // after the bloom: the parade (ERRANDS 'ribbit'). These lines show the state before the talk; interact.js
+      // advances it (errands.talk) and sets him following when the talk ends
+      if (S.ending) {
+        const e = errands.get('ribbit'), st = errands.state(S, 'ribbit'), lit = errands.found(S, e), left = e.count - lit;
+        if (st === 2) return [
+          'The parade lanterns will glow over Sprout Village for good. Mayor\'s orders!',
+          'RIBBIT! Still works. I have been croaking all day. The ducks are jealous.',
+        ];
+        if (st === 1 && left <= 0) return [
+          'All four lanterns glowing! Best parade this isle has ever seen.',
+          'And listen: RIBBIT! ...Did you hear that? My victory croak finally works!',
+          'Here, gems from the town treasury. Thank you, Pip!',
+        ];
+        if (st === 1) return [lit === 0 ? 'Lead on, Pip! I am right behind you. Walk past a lantern and it lights up.' : lit + ' of ' + e.count + ' lanterns lit! ' + (left === 1 ? 'Just one more!' : 'Lead on, Pip!'), e.hint];
+        return [
+          'A blooming Great Tree! This calls for a parade. You lead, I will hop behind.',
+          'I hung four paper lanterns around the village. Walk past each one with me close behind, and it lights up!',
+          e.hint,
+        ];
+      }
       if (n === 0) return [
         'Ribbit! Welcome, welcome! Mayor Ribbit, at your service. Best lily pad in town, ask anyone.',
         'Every corner of our isle has something tall to aim for. North, a giant purple mushroom pokes over the Whispering Woods.',

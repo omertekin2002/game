@@ -7,9 +7,13 @@
 //     errand: talking to her starts it, Use picks up the five rainbow shells (each saved), talking again gives the reward
 //     once and finishes it;
 //  3. at the pedestal, Use (the interact press) places the three seeds; the ending runs and shows its card, and closing
-//     the card returns to free roam where Pip can walk; the pause menu's tracker reads 3/3 guardians, 3/3 Starseeds and
-//     1/1 errands;
-//  4. Save & Quit, reload the page, Continue: the bloomed tree, the placed seeds and the finished errand come back.
+//     the card returns to free roam where Pip can walk; then Mayor Ribbit's parade: talking to him (Use) starts it and
+//     shows four unlit lanterns; for each lantern Pip is put about 9 m out and walks to it, and it lights only once
+//     Ribbit, following on his own (walking or a catch-up hop, never moved by the test), is close behind; mid-parade
+//     Save & Quit → Continue keeps the lit lanterns and sends Ribbit home, and a talk picks the parade up again; with Pip
+//     out of the village Ribbit waits at its edge; with all four lit he goes home and a talk finishes it once (+50
+//     gems); the pause menu's tracker reads 3/3 guardians, 3/3 Starseeds and 2/2 errands;
+//  4. Save & Quit, reload the page, Continue: the bloomed tree, the placed seeds and the finished errands come back.
 // The simulation is stepped through the real frame loop (game.runFrame with the manual clock) rather than waited for in
 // real time, because software WebGL runs at about 1–11 fps. Fails on any page error, console error or failed request.
 // Usage: node tests/playthrough.mjs   (or `bun run test:playthrough`). On failure a screenshot lands in test-results/.
@@ -163,6 +167,134 @@ async function main() {
       step(`Clover's errand: started, 5 rainbow shells picked up and saved, finished once (+50 gems, ${e.coins} total)`);
     };
 
+    // talk to a villager by id through real Use input: stand in front of him, wait until he is the target, Use, read
+    // his lines through
+    const talkToNpc = async (id, what) => {
+      if (!(await page.evaluate((id) => window.G.debug.standAt(id), id))) fail(`G.debug.standAt('${id}') found no spot (${what})`);
+      await framesUntil(`${id} to be the Use target (${what})`, `game.target && game.target.o && game.target.o.id === '${id}'`, 2);
+      await pressUse(1);
+      await framesUntil(`${id}'s dialogue (${what})`, 'G.ui.dlg', 2);
+      await readDialogue(`${id}'s lines (${what})`);
+      await frames(2);
+    };
+    const paradeState = () => page.evaluate((k) => {
+      const g = window.G.game, S = g.S, saved = JSON.parse(localStorage.getItem(k) || 'null');
+      const r = g.npcs.find((n) => n.id === 'ribbit'), p = g.player.pos, L = [...g.scenery.lanterns.values()];
+      const lit = (o) => Object.keys((o && o.shells) || {}).filter((q) => q.startsWith('lantern')).sort();
+      return {
+        errand: S.errands.ribbit || 0, lit: lit(S), coins: S.coins, world: g.world.lanterns.length,
+        shown: L.filter((q) => q.shown).map((q) => q.data.id), litShown: L.filter((q) => q.shown && q.lit).map((q) => q.data.id),
+        follow: r.follow, homing: r.homing, catchUps: r.catchUps, rib: [r.pos.x, r.pos.z], pip: [p.x, p.z],
+        gap: Math.hypot(r.pos.x - p.x, r.pos.z - p.z), home: Math.hypot(r.pos.x - r.home.x, r.pos.z - r.home.z), ribR: Math.hypot(r.pos.x, r.pos.z),
+        saved: saved && { errand: (saved.errands || {}).ribbit || 0, lit: lit(saved), coins: saved.coins },
+      };
+    }, SAVE_KEY);
+    // a spot about 9 m from lantern i with a clear, walkable straight line to it that passes no other lantern (inside
+    // the village circle) → { x, z, yaw } facing the lantern
+    const lanternApproach = (i) => page.evaluate(async (i) => {
+      const { penetration } = await import('/js/phys.js'), { world: TW } = await import('/js/tune.js');
+      const W = window.G.world, it = W.lanterns[i];
+      const clear = (x, z) => W.walkable(x, z) && penetration(W, x, z, 0.5) <= 0 && Math.hypot(x, z) < TW.paradeR - 2
+        && W.lanterns.every((q) => q === it || Math.hypot(q.x - x, q.z - z) > 3.5);
+      for (const d of [9, 8, 10, 7]) for (let k = 0; k < 24; k++) {
+        const a = (k / 24) * Math.PI * 2, x0 = it.x + Math.sin(a) * d, z0 = it.z + Math.cos(a) * d;
+        let ok = true;
+        for (let t = 0; t <= d - 0.8 && ok; t += 0.4) ok = clear(x0 + ((it.x - x0) * t) / d, z0 + ((it.z - z0) * t) / d);
+        if (ok) return { x: x0, z: z0, yaw: Math.atan2(it.x - x0, it.z - z0) };
+      }
+      return null;
+    }, i);
+    // walk Pip to lantern i from its approach spot (steering at it every chunk); it must light only with Ribbit close
+    // behind, having moved there himself (walking with Pip or a catch-up hop) → { before, after, frames }
+    const walkToLantern = async (i) => {
+      const ap = await lanternApproach(i);
+      if (!ap) fail(`no clear approach to parade lantern ${i + 1}`);
+      await page.evaluate(([x, z, yaw]) => window.G.debug.teleport(x, z, yaw, 0), [ap.x, ap.z, ap.yaw]);
+      const before = await paradeState();
+      if (before.lit.includes('lantern' + (i + 1))) fail(`parade lantern ${i + 1} lit before Pip got there: ${JSON.stringify(before)}`);
+      await page.evaluate(() => window.G.debug.move(0, 1));
+      const n = await framesUntil(`parade lantern ${i + 1} to light`, `S.shells['lantern${i + 1}'] === true`, 25,
+        `{ const q = G.world.lanterns[${i}], p = game.player.pos; G.debug.look(Math.atan2(q.x - p.x, q.z - p.z), 0); G.debug.move(0, Math.hypot(q.x - p.x, q.z - p.z) > 0.8 ? 1 : 0); }`);
+      await page.evaluate(() => window.G.debug.move(0, 0));
+      const after = await paradeState();
+      const it = await page.evaluate((i) => { const q = window.G.world.lanterns[i]; return [q.x, q.z]; }, i);
+      const pipToLantern = Math.hypot(after.pip[0] - it[0], after.pip[1] - it[1]);
+      const ribMoved = Math.hypot(after.rib[0] - before.rib[0], after.rib[1] - before.rib[1]);
+      if (pipToLantern > 2.6) fail(`parade lantern ${i + 1} lit with Pip ${pipToLantern.toFixed(2)} m away`);
+      if (after.gap > 6.05) fail(`parade lantern ${i + 1} lit with Ribbit ${after.gap.toFixed(2)} m behind`);
+      if (!(ribMoved > 3) && after.catchUps === before.catchUps) fail(`Ribbit did not follow to lantern ${i + 1} (moved ${ribMoved.toFixed(2)} m, no catch-up hop)`);
+      if (!after.litShown.includes('lantern' + (i + 1)) || !after.saved || !after.saved.lit.includes('lantern' + (i + 1))) fail(`parade lantern ${i + 1} not shown lit and saved at once: ${JSON.stringify(after)}`);
+      return { before, after, frames: n, ribMoved };
+    };
+    // Mayor Ribbit's parade, after the bloom
+    const ribbitParade = async () => {
+      let e = await paradeState();
+      if (e.errand !== 0 || e.shown.length || e.follow) fail(`the parade started before Ribbit asked: ${JSON.stringify(e)}`);
+      if (e.world !== 4) fail(`the village has ${e.world} parade lanterns, expected 4`);
+      await talkToNpc('ribbit', 'start');
+      e = await paradeState();
+      if (e.errand !== 1 || e.shown.length !== 4 || e.litShown.length || !e.follow || !e.saved || e.saved.errand !== 1) fail(`talking to Ribbit did not start the parade: ${JSON.stringify(e)}`);
+      step('Ribbit\'s parade: started by a talk, four unlit lanterns shown, Ribbit following');
+      for (let i = 0; i < 4; i++) {
+        if (i === 2) {
+          // mid-parade Save & Quit → Continue: the two lit lanterns stay lit, Ribbit is home and not following
+          await page.evaluate(() => { window.G.ui.openPause(); window.G.ui.onPauseChoice(5); });
+          await framesUntil('the title after Save & Quit (mid-parade)', "game.state === 'title'", 5);
+          if (!(await continueVisible())) fail('Continue is hidden after Save & Quit mid-parade');
+          await page.locator('[data-a="continue"]').click();
+          await waitFor("G.game.state === 'play' after Continue (mid-parade)", () => window.G.game.state === 'play');
+          await framesUntil('the session fade-in after Continue (mid-parade)', '!game.trans', 5);
+          await frames(30);
+          e = await paradeState();
+          if (e.errand !== 1 || e.lit.join() !== 'lantern1,lantern2' || e.litShown.join() !== 'lantern1,lantern2' || e.shown.length !== 4 || e.follow || e.home > 0.7) fail(`Continue mid-parade did not keep the lit lanterns and send Ribbit home: ${JSON.stringify(e)}`);
+          // without Ribbit (home, not following) Pip standing right at a lantern does not light it
+          await page.evaluate(() => { const q = window.G.world.lanterns[2]; window.G.debug.teleport(q.x + 1, q.z); });
+          await frames(90);
+          e = await paradeState();
+          if (e.lit.includes('lantern3') || e.follow) fail(`a lantern lit without Ribbit following: ${JSON.stringify(e)}`);
+          await talkToNpc('ribbit', 'resume');
+          e = await paradeState();
+          if (e.errand !== 1 || !e.follow || e.lit.length !== 2) fail(`a talk did not pick the parade up again after Continue: ${JSON.stringify(e)}`);
+          // Pip leaves the village: Ribbit waits at its edge
+          await page.evaluate(() => { const W = window.G.world, p = W.pathAtDist('meadow', 75); window.G.debug.teleport(p.x, p.z); });
+          await frames(240);
+          e = await paradeState();
+          const edge = await page.evaluate(async () => (await import('/js/tune.js')).world.paradeR);
+          if (!e.follow || e.ribR > edge + 0.5 || e.gap < 10 || e.lit.length !== 2) fail(`with Pip out of the village Ribbit did not wait at its edge: ${JSON.stringify(e)}`);
+          step(`mid-parade Save & Quit → Continue kept 2 lit lanterns, Ribbit went home and followed again after a talk; with Pip out of the village he waited at its edge (${e.ribR.toFixed(1)} m from the plaza, ${e.gap.toFixed(1)} m from Pip)`);
+        }
+        const w = await walkToLantern(i);
+        if (i === 0) {
+          // Pip stops: Ribbit stops too, close behind, standing (no walking or hopping on the spot)
+          await frames(90);
+          const still = await page.evaluate((n) => {
+            const g = window.G.game, r = g.npcs.find((q) => q.id === 'ribbit'), p0 = r.pos.clone();
+            let hop = 0, walk = 0;
+            for (let k = 0; k < n; k++) { g.runFrame(1 / 60, true, false); hop = Math.max(hop, r.hop); if (r.state === 'walk') walk++; }
+            return { moved: r.pos.distanceTo(p0), hop, walk, gap: Math.hypot(r.pos.x - g.player.pos.x, r.pos.z - g.player.pos.z), follow: r.follow };
+          }, 60);
+          if (!still.follow || still.moved > 0.05 || still.hop > 0.01 || still.walk || still.gap > 6) fail(`Ribbit did not stop when Pip stopped: ${JSON.stringify(still)}`);
+          // a talk while he follows keeps the parade going
+          await talkToNpc('ribbit', 'mid-parade');
+          const t = await paradeState();
+          if (t.errand !== 1 || !t.follow || t.lit.join() !== 'lantern1') fail(`a talk mid-parade changed it: ${JSON.stringify(t)}`);
+          step(`Pip stopped and Ribbit stood ${still.gap.toFixed(1)} m behind him; a talk mid-parade kept him following`);
+        }
+        step(`parade lantern ${i + 1} (${await page.evaluate((i) => window.G.world.lanterns[i].at, i)}) lit after ${w.frames} frames: Ribbit ${w.after.gap.toFixed(1)} m behind, moved ${w.ribMoved.toFixed(1)} m${w.after.catchUps > w.before.catchUps ? ' (a catch-up hop)' : ''}`);
+      }
+      e = await paradeState();
+      if (e.follow || e.lit.length !== 4 || e.litShown.length !== 4) fail(`all four lit but the parade did not end: ${JSON.stringify(e)}`);
+      await framesUntil('Ribbit to hop home after the parade', "!game.npcs.find((n) => n.id === 'ribbit').homing", 30);
+      const c0 = e.coins;
+      await talkToNpc('ribbit', 'finish');
+      e = await paradeState();
+      if (e.errand !== 2 || e.coins !== c0 + 50 || e.saved.errand !== 2 || e.saved.coins !== e.coins || e.follow) fail(`the parade did not finish once with its reward: ${JSON.stringify({ c0, ...e })}`);
+      await talkToNpc('ribbit', 'after');
+      const e2 = await paradeState();
+      if (e2.errand !== 2 || e2.coins !== e.coins || e2.follow || e2.litShown.length !== 4) fail(`a second talk changed the parade or the gems: ${JSON.stringify(e2)}`);
+      step(`Ribbit's parade: 4 lanterns lit and saved, finished once (+50 gems, ${e.coins} total), lanterns stay lit`);
+    };
+
     // ---- 1. New Game from a clean localStorage, through Shellby's intro
     step(`open ${server.url}${QUERY}`);
     await page.goto(`${server.url}${QUERY}`, { waitUntil: 'load', timeout: BOOT_TIMEOUT });
@@ -182,6 +314,7 @@ async function main() {
     if (!s.playing) fail(`not in free play after the intro: ${JSON.stringify(s)}`);
     if (!(await page.evaluate(() => window.G.game.S.introDone))) fail('the intro is not recorded as done');
     step('new game started and Shellby\'s intro read through');
+    { const e = await paradeState(); if (e.world !== 4 || e.shown.length || e.errand !== 0) fail(`parade lanterns before the bloom: ${JSON.stringify(e)}`); }
 
     // ---- 2. The three guardians
     for (const id of GUARDIANS) {
@@ -245,6 +378,7 @@ async function main() {
     if (s.state !== 'play' || !s.playing) fail(`not in free roam after the ending: ${JSON.stringify(s)}`);
     if (!(moved > 0.5)) fail(`Pip did not move after the ending (${moved.toFixed(2)} m)`);
     step(`ending card shown and closed; free roam, Pip walked ${moved.toFixed(2)} m`);
+    await ribbitParade();
 
     // the completion tracker on the pause menu
     const tally = await page.evaluate(() => {
@@ -253,7 +387,7 @@ async function main() {
       return Object.fromEntries(chips.map((c) => [c.dataset.k, { text: c.querySelector('b').textContent.trim(), full: c.classList.contains('full') }]));
     });
     for (const k of ['guardians', 'seeds']) if (!tally[k] || tally[k].text !== '3/3' || !tally[k].full) fail(`pause tracker ${k}: ${JSON.stringify(tally[k])}, expected 3/3`);
-    if (!tally.errands || tally.errands.text !== '1/1' || !tally.errands.full) fail(`pause tracker errands: ${JSON.stringify(tally.errands)}, expected 1/1`);
+    if (!tally.errands || tally.errands.text !== '2/2' || !tally.errands.full) fail(`pause tracker errands: ${JSON.stringify(tally.errands)}, expected 2/2`);
     step(`pause tracker: guardians ${tally.guardians.text}, Starseeds ${tally.seeds.text}, errands ${tally.errands.text}`);
 
     // ---- 4. Save & Quit (from the pause menu), reload, Continue: the bloom comes back
@@ -280,6 +414,7 @@ async function main() {
       return {
         ending: S.ending, seeds: S.seeds, bosses: S.bosses, bloom, liveBosses: Object.keys(g.bosses), errands: S.errands, shells: S.shells,
         shellsShown: [...g.scenery.shells.values()].filter((q) => q.shown).length,
+        lanternsLit: [...g.scenery.lanterns.values()].filter((q) => q.shown && q.lit && q.glow === 1).length, ribbitFollows: g.npcs.find((n) => n.id === 'ribbit').follow,
         pedSeeds: g.pedSeeds.map((m) => m.visible), treeSeeds: g.treeSeedsWanted() ? g.treeSeeds.every((m) => m.visible) : null,
       };
     });
@@ -289,9 +424,10 @@ async function main() {
     if (back.bloom === false) fail(`the Great Tree is not bloomed after Continue: ${JSON.stringify(back)}`);
     if (back.bloom === null && back.treeSeeds !== true) fail(`no bloom shown after Continue: ${JSON.stringify(back)}`);
     if (!back.pedSeeds.every(Boolean)) fail(`pedestal seeds not shown after Continue: ${JSON.stringify(back.pedSeeds)}`);
-    if (back.errands.clover !== 2 || Object.keys(back.shells).length !== 5 || back.shellsShown !== 0) fail(`Clover's errand not restored: ${JSON.stringify({ errands: back.errands, shells: back.shells, shown: back.shellsShown })}`);
+    if (back.errands.clover !== 2 || Object.keys(back.shells).filter((k) => k.startsWith('shell')).length !== 5 || back.shellsShown !== 0) fail(`Clover's errand not restored: ${JSON.stringify({ errands: back.errands, shells: back.shells, shown: back.shellsShown })}`);
+    if (back.errands.ribbit !== 2 || ['lantern1', 'lantern2', 'lantern3', 'lantern4'].some((k) => back.shells[k] !== true) || back.lanternsLit !== 4 || back.ribbitFollows) fail(`Ribbit's parade not restored: ${JSON.stringify({ errands: back.errands, shells: back.shells, lit: back.lanternsLit, follows: back.ribbitFollows })}`);
     if (problems.length) fail('errors after Continue');
-    step(`Continue restored the ending: bloomed tree, ${back.pedSeeds.length} seeds on the pedestal, no guardians left, Clover's errand done`);
+    step(`Continue restored the ending: bloomed tree, ${back.pedSeeds.length} seeds on the pedestal, no guardians left, Clover's errand done, Ribbit's parade done with 4 lanterns lit`);
   } catch (e) {
     for (const p of problems) console.error(`  - ${p}`);
     if (page) {

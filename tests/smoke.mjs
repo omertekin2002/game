@@ -107,7 +107,7 @@ async function main() {
     if (await openPause() !== 'pause') fail('the pause menu did not open');
     let t = await tally('#pause .ptrack');
     const r0 = await regionsSeen();
-    const want0 = { chests: `0/${nChests}`, hearts: '0/5', guardians: '0/3', regions: `${r0}/5`, seeds: '0/3', errands: '0/1' };
+    const want0 = { chests: `0/${nChests}`, hearts: '0/5', guardians: '0/3', regions: `${r0}/5`, seeds: '0/3', errands: '0/2' };
     for (const [k, v] of Object.entries(want0)) if (!t[k] || t[k].text !== v || t[k].full) fail(`pause tracker ${k} on a new game: ${JSON.stringify(t[k])}, expected ${v}`);
     await closeMenus();
     const had3 = await page.evaluate(() => {
@@ -134,20 +134,25 @@ async function main() {
       for (let i = 0; i < 5; i++) S.visited[i] = true;
       S.shopHeart = true;
     });
-    // everything but Clover's errand: its chip and the total are not complete yet
+    // everything but the errands: their chip and the total are not complete yet; with Clover's done, still not
     await openPause();
     t = await tally('#pause .ptrack');
-    if (!t.errands || t.errands.text !== '0/1' || t.errands.full || t.errands.tick || !t.pct || t.pct.full) fail(`pause tracker without the errand: ${JSON.stringify({ errands: t.errands, pct: t.pct })}`);
+    if (!t.errands || t.errands.text !== '0/2' || t.errands.full || t.errands.tick || !t.pct || t.pct.full) fail(`pause tracker without the errands: ${JSON.stringify({ errands: t.errands, pct: t.pct })}`);
     await closeMenus();
     await page.evaluate(() => { window.G.game.S.errands.clover = 2; });
     await openPause();
     t = await tally('#pause .ptrack');
-    if (!t.errands || t.errands.text !== '1/1') fail(`pause tracker errands on a finished save: ${JSON.stringify(t.errands)}`);
+    if (!t.errands || t.errands.text !== '1/2' || t.errands.full || t.errands.tick || !t.pct || t.pct.full) fail(`pause tracker with one errand done: ${JSON.stringify({ errands: t.errands, pct: t.pct })}`);
+    await closeMenus();
+    await page.evaluate(() => { window.G.game.S.errands.ribbit = 2; });
+    await openPause();
+    t = await tally('#pause .ptrack');
+    if (!t.errands || t.errands.text !== '2/2') fail(`pause tracker errands on a finished save: ${JSON.stringify(t.errands)}`);
     for (const [k, v] of Object.entries(t)) if (!v.full || (k !== 'pct' && !v.tick)) fail(`pause tracker ${k} not marked complete: ${JSON.stringify(v)}`);
     if (!t.pct || t.pct.text !== '★ 100%') fail(`pause tracker total on a finished save: ${JSON.stringify(t.pct)}`);
     await closeMenus();
     if (problems.length) fail('errors with the completion tracker');
-    step(`completion tracker on the pause menu and the map: 0/${nChests} → 1/${nChests} chests, 1/3 guardians, ${r1}/5 regions, errands 0/1 → 1/1, ✓ and ★ 100% when finished`);
+    step(`completion tracker on the pause menu and the map: 0/${nChests} → 1/${nChests} chests, 1/3 guardians, ${r1}/5 regions, errands 0/2 → 1/2 → 2/2, ✓ and ★ 100% when finished`);
 
     // 2. Continue a valid v2 save (one chest open, one boss beaten and its seed placed, a saved position).
     // controlsV is the controls-card version the player has seen (CONTROLS_V in js/game.js); a save without it

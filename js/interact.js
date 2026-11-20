@@ -3,14 +3,14 @@
 // freeze) run on sim time (later / tickLater), so they hold while a menu or the shop pauses the world.
 import * as THREE from 'three';
 import { sfx } from './core.js';
-import { CFG, SEED_ORDER, SEEDS, progress, errands } from './data.js';
+import { CFG, SEED_ORDER, SEEDS, ERRANDS, progress, errands } from './data.js';
 import { NPC } from './npcs.js';
 import { Pickup } from './entities.js';
 import { toonMat, sharedOutline, meshWithOutline } from './toon.js';
 import { seedBuilt, heartContainerBuilt } from './models.js';
-import { rand, pick, LAYER, setLayer } from './util.js';
+import { rand, pick, len2, LAYER, setLayer } from './util.js';
 import { EV } from './events.js';
-import { combat as TC } from './tune.js';
+import { combat as TC, actors as TA } from './tune.js';
 
 const _v = new THREE.Vector3(), _a = new THREE.Vector3();
 
@@ -136,7 +136,7 @@ export const InteractMixin = {
       case 'well': sfx('splash'); this.ui.say(o.lines, {}); break;
       case 'chest': this.openChest(o.chest); break;
       case 'pedestal': this.usePedestal(); break;
-      case 'shell': this.pickShell(o); break;
+      default: { const e = errands.forItem(o.kind); if (e && e.how === 'use') this.findErrandItem(e, o); }   // a rainbow shell
     }
   },
   talkTo(npc) {
@@ -157,13 +157,15 @@ export const InteractMixin = {
       },
     });
   },
-  /** a talk with an errand's villager ended: start the errand (its items appear) or finish it (the reward, once) */
+  /** a talk with an errand's villager ended: start the errand (its items appear) or finish it (the reward, once). A
+   *  `follow` errand under way sets the villager following Pip (again after a Continue, which sends him home) */
   errandTalk(npc, e) {
     const S = this.S, res = errands.talk(S, e);
+    if (e.follow) npc.setFollow(errands.following(S, e));
     if (!res) return;
     if (res === 'start') {
-      this.syncShells();
-      this.ui.toast('✿ Find ' + e.count + ' rainbow shells on the Sunny Shores');
+      this.syncErrands();
+      this.ui.toast('✿ ' + e.startToast);
     } else {
       const gems = (e.reward && e.reward.gems) || 0;   // errands.talk already added them to S.coins
       sfx('fanfare');
@@ -175,36 +177,87 @@ export const InteractMixin = {
     }
     this.save(true);
   },
-  /** show the rainbow shells that are out (errand started, not picked up) and hide the rest */
-  syncShells() {
-    const W = this.world, S = this.S, e = errands.get('clover');
-    if (!e || !W.shells || !this.scenery.setShellShown) return;
-    for (const sh of W.shells) this.scenery.setShellShown(sh.id, !!S && errands.itemOut(S, e, sh.id));
+  /** every errand item's scenery from the save: shown while it is out (a `keep` item also once found, in its found look:
+   *  a lit lantern), hidden otherwise. `instant`: no warm-up (a session start) */
+  syncErrands(instant = true) {
+    const W = this.world, S = this.S;
+    if (!this.scenery.setErrandItem) return;
+    for (const e of ERRANDS) for (const it of W[e.list] || []) {
+      this.scenery.setErrandItem(e.item, it.id, !!S && errands.itemShown(S, e, it.id), !!S && errands.itemFound(S, e, it.id), instant);
+    }
   },
-  /** Pip picks up a rainbow shell with Use: counted and saved at once, and it disappears */
-  pickShell(sh) {
-    const S = this.S, e = errands.get('clover');
-    const n = e ? errands.pick(S, e, sh.id) : null;
-    if (n == null) return;
-    this.scenery.setShellShown(sh.id, false);
-    sfx('coin');
-    this.fx.burst(sh.x, sh.y + 0.3, sh.z, 0xfff4a0, 10, 2);
-    for (let i = 0; i < 8; i++) this.fx.sparkle(sh.x, sh.y + 0.3, sh.z, pick([0xff9fb6, 0xfff4a0, 0xa8e4ff, 0xb8ffb0, 0xd8b0ff]), 1, 0.5);
-    this.ui.selfFloater('Rainbow shell ' + n + '/' + e.count, '#ffd0f0');
-    if (n >= e.count) this.ui.toast('✿ That\'s all ' + e.count + '! Bring them to Clover');
+  /** a new session: a villager who was following (the parade) or walking home is back on his spot, not following;
+   *  talking to him picks the parade up again */
+  resetErrandNpcs() {
+    for (const n of this.npcs) if (n.follow || n.homing) n.resetHome();
+  },
+  /** Pip finds an errand item: a rainbow shell picked up with Use (it disappears) or a parade lantern lit by walking past
+   *  (it warms up and stays lit). Counted and saved at once; the last one sends a parade villager home */
+  findErrandItem(e, it) {
+    const S = this.S;
+    const n = e ? errands.pick(S, e, it.id) : null;
+    if (n == null) return false;
+    this.scenery.setErrandItem(e.item, it.id, !!e.keep, true, false);
+    if (e.how === 'use') {
+      sfx('coin');
+      this.fx.burst(it.x, it.y + 0.3, it.z, 0xfff4a0, 10, 2);
+      for (let i = 0; i < 8; i++) this.fx.sparkle(it.x, it.y + 0.3, it.z, pick([0xff9fb6, 0xfff4a0, 0xa8e4ff, 0xb8ffb0, 0xd8b0ff]), 1, 0.5);
+    } else {
+      // a soft light-up: a warm chime and a few slow motes (fewer with motion comfort), no flash or burst
+      sfx('sparkle', it.paper || { x: it.x, y: it.y + 1.1, z: it.z });
+      const k = this.calmFx() ? 2 : 5, c = it.paper || { x: it.x, y: it.y + 1.1, z: it.z };
+      for (let i = 0; i < k; i++) this.fx.sparkle(c.x + rand(-0.2, 0.2), c.y + rand(-0.1, 0.3), c.z + rand(-0.2, 0.2), pick([0xfff4a0, 0xffd38a]), 1, 0.25);
+    }
+    this.ui.selfFloater(e.itemLabel + ' ' + n + '/' + e.count, e.itemColor);
+    if (n >= e.count) {
+      this.ui.toast('✿ ' + e.allToast);
+      const npc = e.follow ? this.errandNpc(e) : null;
+      if (npc) npc.goHome();
+    }
     this.save(true);
+    return true;
   },
-  /** a soft rainbow twinkle over each shell that is out within 40 m (sim time: it holds under menus) */
-  tickShells(dt) {
-    const W = this.world, S = this.S, e = errands.get('clover');
-    if (!e || !S || !W.shells || errands.state(S, e.id) !== 1) return;
-    const pl = this.player;
+  /** Motion comfort is on: errand effects stay calm (fewer motes, no lantern sway) */
+  calmFx() { return !!(this.settings && this.settings.get('reduceMotion')); },
+  /** the villager an errand belongs to (looked up once) */
+  errandNpc(e) {
+    const m = this._errandNpcs || (this._errandNpcs = new Map());
+    if (!m.has(e.id)) m.set(e.id, this.npcs.find((q) => q.id === e.npc) || null);
+    return m.get(e.id);
+  },
+  /** fixed step: a 'walk' errand item lights when Pip passes within TA.paradeLight m (XZ) of it while its villager
+   *  follows close behind (within TA.paradeNear m of Pip). Free play only: never during a talk, a menu or a cutscene */
+  tickErrands() {
+    const S = this.S, W = this.world, pl = this.player;
+    if (!S || !this.playing) return;
+    for (const e of ERRANDS) {
+      if (e.how !== 'walk' || errands.state(S, e.id) !== 1) continue;
+      if (e.follow) {
+        const npc = this.errandNpc(e);
+        if (!npc || !npc.follow || len2(npc.pos.x - pl.pos.x, npc.pos.z - pl.pos.z) > TA.paradeNear) continue;
+      }
+      for (const it of W[e.list] || []) {
+        if (len2(it.x - pl.pos.x, it.z - pl.pos.z) <= TA.paradeLight && errands.itemOut(S, e, it.id)) this.findErrandItem(e, it);
+      }
+    }
+  },
+  /** a soft twinkle over each errand item that is still out within 40 m (rainbow over a shell, warm over an unlit
+   *  lantern, fewer with Motion comfort). Called each render frame, skipped while the clock holds or a dialogue is up */
+  tickErrandFx(dt) {
+    const W = this.world, S = this.S, pl = this.player, calm = this.calmFx();
+    this.scenery.calm = calm;   // the lanterns' sway
+    if (!S) return;
     this._shellT = (this._shellT || 0) - dt;
     if (this._shellT > 0) return;
     this._shellT = 0.35;
-    for (const sh of W.shells) {
-      if (S.shells[sh.id] || Math.abs(sh.x - pl.pos.x) > 40 || Math.abs(sh.z - pl.pos.z) > 40) continue;
-      this.fx.sparkle(sh.x + rand(-0.15, 0.15), sh.y + rand(0.35, 0.7), sh.z + rand(-0.15, 0.15), pick([0xff9fb6, 0xfff4a0, 0xa8e4ff, 0xb8ffb0, 0xd8b0ff]), 1, 0.3);
+    for (const e of ERRANDS) {
+      if (errands.state(S, e.id) !== 1) continue;
+      const lantern = e.how === 'walk';
+      for (const it of W[e.list] || []) {
+        if (!errands.itemOut(S, e, it.id) || Math.abs(it.x - pl.pos.x) > 40 || Math.abs(it.z - pl.pos.z) > 40) continue;
+        if (lantern) { const c = it.paper || it; if (Math.random() < (calm ? 0.2 : 0.5)) this.fx.sparkle(c.x + rand(-0.12, 0.12), c.y + rand(-0.12, 0.18), c.z + rand(-0.12, 0.12), pick([0xfff4a0, 0xffe2a8]), 1, 0.25); }
+        else this.fx.sparkle(it.x + rand(-0.15, 0.15), it.y + rand(0.35, 0.7), it.z + rand(-0.15, 0.15), pick([0xff9fb6, 0xfff4a0, 0xa8e4ff, 0xb8ffb0, 0xd8b0ff]), 1, 0.3);
+      }
     }
   },
   buy(it) {

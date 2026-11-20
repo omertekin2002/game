@@ -2,6 +2,7 @@
 import { describe, expect, test } from 'bun:test';
 import { generateWorld } from '../js/world.js';
 import { CFG, REGION } from '../js/data.js';
+import { world as TW } from '../js/tune.js';
 import { placementPrint } from './lib/world-print.js';
 import PRINTS from './fixtures/world-prints.json';
 
@@ -27,6 +28,16 @@ function fingerprint(w) {
     heights: fnv(w.H),
     regions: fnv(w.reg),
   };
+}
+
+// where Ribbit says a parade lantern is (data.js ERRANDS 'ribbit' hint)
+function lanternNear(w, s) {
+  const d = (x, z) => Math.hypot(s.x - x, s.z - z);
+  if (s.at === 'altar') return d(w.pedestal.x, (w.pedestal.z + w.spawn.z) / 2) <= 6.6;
+  if (s.at === 'signpost') return d(w.signpost.x, w.signpost.z) <= 6.1;
+  if (s.at === 'shop') return d(w.shop.x, w.shop.z) <= 11.5;
+  if (s.at === 'meadow') return Math.min(...w.paths.meadow.map((p) => d(p.x, p.z))) <= 6.5 && Math.hypot(s.x, s.z) > 18;
+  return false;
 }
 
 const worlds = new Map();
@@ -113,6 +124,46 @@ describe.each(SEEDS)('seed %p', (seed) => {
     }
   }, SLOW);
 
+  test('the parade-lantern pass changes nothing else in the world, with or without the shell pass', () => {
+    const w = world(seed), noLanterns = generateWorld(seed, { lanterns: false }), bare = generateWorld(seed, { shells: false, lanterns: false });
+    expect(noLanterns.lanterns).toEqual([]);
+    expect(noLanterns.shells).toEqual(w.shells);   // its own RNG stream: the shells stay where they were
+    for (const o of [noLanterns, bare]) {
+      expect(placementPrint(w)).toEqual(placementPrint(o));
+      expect(fingerprint(w)).toEqual(fingerprint(o));
+      expect(fnv(w.walk)).toBe(fnv(o.walk));
+      expect(fnv(w.reach)).toBe(fnv(o.reach));
+      expect(w.unreachable).toEqual(o.unreachable);
+    }
+    expect(generateWorld(seed).lanterns).toEqual(w.lanterns);   // deterministic per seed
+  }, SLOW);
+
+  test('four parade lanterns in the village: flat, clear, off the paths, reachable, at the spots Ribbit names', () => {
+    const w = world(seed);
+    expect(w.lanterns.map((s) => s.id)).toEqual(['lantern1', 'lantern2', 'lantern3', 'lantern4']);
+    expect(w.lanterns.map((s) => s.at)).toEqual(['altar', 'signpost', 'shop', 'meadow']);
+    const reach = w.bfs(w.buildWalk());
+    for (const s of w.lanterns) {
+      expect(s.kind).toBe('lantern');
+      expect(Math.hypot(s.x, s.z)).toBeLessThan(TW.paradeR - 6);   // well inside the village circle Ribbit follows in
+      expect(s.y).toBeCloseTo(w.hAt(s.x, s.z), 5);
+      expect(w.hAt(s.x, s.z)).toBeGreaterThan(0.6);
+      expect(w.slopeAt(s.x, s.z)).toBeLessThan(0.45);
+      expect(w.bridgeAt(s.x, s.z)).toBeNull();
+      expect(w.pathDAt(s.x, s.z)).toBeGreaterThanOrEqual(2.2);
+      expect(w.solidNear(s.x, s.z, 1.2)).toBeNull();
+      expect(w.colliders.filter((c) => Math.hypot(c.x - s.x, c.z - s.z) < c.r + 0.9)).toEqual([]);
+      expect(w.chests.filter((c) => Math.hypot(c.x - s.x, c.z - s.z) < 2.5)).toEqual([]);
+      expect(Object.values(w.npcSpots).filter((q) => Math.hypot(q.x - s.x, q.z - s.z) < 3)).toEqual([]);
+      expect({ id: s.id, reached: w.isReached(reach, s.x, s.z, false) }).toEqual({ id: s.id, reached: true });
+      for (const t of w.lanterns) if (t !== s) expect(Math.hypot(t.x - s.x, t.z - s.z)).toBeGreaterThanOrEqual(8);
+      for (const t of w.shells) expect(t.id).not.toBe(s.id);
+      expect(lanternNear(w, s)).toBe(true);
+      expect(Math.hypot(s.paper.x - s.x, s.paper.z - s.z)).toBeCloseTo(0.38, 5);   // the hanging paper, out along the arm
+      expect(s.paper.y).toBeGreaterThan(s.y + 1);
+    }
+  }, SLOW);
+
   test('spawn point is on dry land', () => {
     const w = world(seed);
     expect(w.hAt(w.spawn.x, w.spawn.z)).toBeGreaterThan(0);
@@ -143,3 +194,15 @@ test('default seed has exactly 14 chests, as documented in docs/DESIGN.md', () =
   expect(w.chests.length).toBe(14);
   expect(w.chests.filter((c) => c.kind === 'coins').length).toBe(10);
 }, SLOW);
+
+// Ribbit names the spots, so every lantern must be at its own on any island: seeds 1–40
+test('on seeds 1–40 there are four parade lanterns, each at the spot Ribbit names and reachable', () => {
+  const off = [];
+  for (let seed = 1; seed <= 40; seed++) {
+    const w = generateWorld(seed);
+    if (w.lanterns.length !== 4) off.push([seed, 'count', w.lanterns.length]);
+    const reach = w.bfs(w.buildWalk());
+    for (const s of w.lanterns) if (!lanternNear(w, s) || !w.isReached(reach, s.x, s.z, false)) off.push([seed, s.at, s.x, s.z]);
+  }
+  expect(off).toEqual([]);
+}, 120_000);

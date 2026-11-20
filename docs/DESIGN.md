@@ -170,7 +170,7 @@ player wins about two in three. The wooden sword is the balance reference.
 - **Dialogue** pauses the world. In first person the view eases onto the speaker's face and the portrait hides (their real
   face is in view; a speaker more than 3.5 m away, like Elder Shellby at the wake-up, keeps it); in third person the
   camera cuts to a two-shot that keeps the speaker's face clear of Pip, and the portrait shows. Lines use the device's keys.
-- **Villagers**: Elder Shellby (turtle, by the pedestal; the three-page intro and hints), Mayor Ribbit (frog; names the landmarks),
+- **Villagers**: Elder Shellby (turtle, by the pedestal; the three-page intro and hints), Mayor Ribbit (frog; names the landmarks, then his parade),
   Miso (cat; runs the shop), Clover (bunny; Captain Pinch tips, then her errand), Professor Hoot (owl; Grumble Shroom tips), Digby (mole;
   Frostbun tips and hidden heart chests). They look at Pip, wave when he comes close and step back if he stands too
   close (Miso stays behind her counter).
@@ -182,6 +182,16 @@ player wins about two in three. The wooden sword is the balance reference.
   saved at once. With fewer than five Clover cheers Pip on with the count and the hint; with all five she thanks him and
   gives 50 gems, once, and from then on looks back on it (and on the bloom, after the ending). No quest log: the
   tracker's Errands chip is the only UI.
+  The second is **Mayor Ribbit's bloom parade**: after the ending, his old "This calls for a parade. You lead, I will hop
+  behind" is the start of it. Talking to him puts out **4 paper lanterns** around Sprout Village (one beside the walk up
+  to the Great Tree's altar, one by the plaza signpost, one in front of Miso's shop, one at the village edge on the Meadow
+  path; he says where) and he hops along a few metres behind Pip, stopping when Pip stops and stepping aside if Pip turns back into him. Far behind or stuck, he hops
+  to a spot just behind Pip; if Pip leaves the village he waits at its edge and follows again when Pip comes back. A
+  lantern lights when Pip walks within 2.5 m of it with Ribbit within 6 m of Pip: no button, the paper warms from cream
+  to a soft amber glow over a moment (a chime and a few slow motes; Motion comfort thins them and stills the lanterns' sway), a feed line counts "Parade
+  lantern 2/4" and it is saved at once. With all four lit Ribbit hops home, and a talk there finishes the parade: his
+  victory croak finally works and he gives 50 gems, once. The lanterns stay lit for good. Following is not saved: after
+  Continue Ribbit is home again, the lit lanterns still lit, and a talk picks the parade up again.
 - **Shop (Miso)**: Potion 25 gems (carry 3), Heart Container 120 (once), Shiny Sword 150 (once: double damage, longer
   reach, sparkly). In first person the purchase is held up in Pip's paws.
 - **Chests**: 4 heart-container chests (a ring of sunflowers in the meadow, the islet off the western beach, a nook
@@ -307,7 +317,7 @@ low 1.0, high 2.0) and dynamic resolution of the main pass between 0.70 and 1.0.
 One save slot in the browser (`starseed-isle-save-v2`): autosave every 30 s outside fights and at key moments (seeds,
 chests, purchases, defeats). It keeps the island seed, Pip's place and look, hearts, gems, potions, sword, Starseeds
 (found and placed), chests, defeated bosses, the shop heart, the ending, the time of day, visited regions, errands
-(started or done) and the rainbow shells picked up, and your map marker. Continue resumes there; Save & Quit returns to the title.
+(started or done) and their items found (rainbow shells picked up, parade lanterns lit), and your map marker. Continue resumes there; Save & Quit returns to the title.
 
 The schema lives in `js/save.js` (pure, unit-tested in `tests/save.test.js`). Every save carries a `v` field,
 `SAVE_VERSION` (currently 3); the version comes from `v`, not from the storage key, which stays
@@ -321,6 +331,8 @@ as no save. To change the layout: bump `SAVE_VERSION`, add a `MIGRATIONS[old]` s
 1 started, 2 done) and `shells: {}` (rainbow shell id → true); `normalize` clamps errand states to 1 or 2 (0 and junk
 dropped) and turns shells into flags. A build from before v3 treats a v3 save as newer, so as no save: if this ever has
 to be reverted after release, ship a build that accepts v3 and ignores its extra fields rather than a plain revert.
+Mayor Ribbit's parade needs no new version: its state is `errands.ribbit` and each lit lantern a flag in the same
+`shells` map (the errand item flags: `lantern1`…`lantern4` beside `shell1`…`shell5`), so any v3 build loads it.
 
 The first-person build adds two optional fields without a version bump (`normalize` keeps unknown fields): `pitch`,
 the look angle, which `Game.startSession` restores clamped; and `controlsV`, the version of the controls card the

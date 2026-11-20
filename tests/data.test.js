@@ -53,9 +53,24 @@ test('the ERRANDS table is well-formed', () => {
     expect(e.reward.gems).toBeGreaterThan(0);
     expect(typeof e.name === 'string' && e.name.length > 0).toBe(true);
     expect(typeof e.hint === 'string' && e.hint.length > 0).toBe(true);
+    expect(['use', 'walk']).toContain(e.how);
+    expect(typeof e.list === 'string' && typeof e.item === 'string').toBe(true);
+    for (const k of ['startToast', 'allToast', 'itemLabel']) expect(typeof e[k] === 'string' && e[k].length > 0).toBe(true);
+    expect(errands.forItem(e.item)).toBe(e);
+    expect(errands.forNpc(e.npc)).toBe(e);
   }
+  // item ids share the save's errand item flags (S.shells): no two errands may name the same one
+  const ids = ERRANDS.flatMap((e) => errands.items(e));
+  expect(new Set(ids).size).toBe(ids.length);
+  expect(new Set(ERRANDS.map((e) => e.item)).size).toBe(ERRANDS.length);
+  expect(new Set(ERRANDS.map((e) => e.list)).size).toBe(ERRANDS.length);
   expect(errands.get('clover')).toMatchObject({ npc: 'clover', region: 'shores', count: 5, reward: { gems: 50 } });
   expect(errands.items(errands.get('clover'))).toEqual(['shell1', 'shell2', 'shell3', 'shell4', 'shell5']);
+  expect(errands.get('ribbit')).toMatchObject({ npc: 'ribbit', region: 'village', item: 'lantern', list: 'lanterns', how: 'walk', keep: true, follow: true, count: 4, reward: { gems: 50 } });
+  expect(errands.items(errands.get('ribbit'))).toEqual(['lantern1', 'lantern2', 'lantern3', 'lantern4']);
+  expect(errands.get('clover')).toMatchObject({ item: 'shell', list: 'shells', how: 'use' });
+  expect(errands.get('clover').keep).toBeFalsy();
+  expect(errands.get('clover').follow).toBeFalsy();
 });
 
 const clover = NPCS.find((n) => n.id === 'clover');
@@ -113,6 +128,94 @@ test("Clover's errand: start, pick up every shell once, finish once with the rew
   expect(errands.talk(S, e)).toBeNull();                           // no second reward
   expect(S.coins).toBe(57);
   expect(errands.done(S)).toBe(1);
+});
+
+test("Clover's shells show only while they are out; picking one up hides it and never touches a lantern", () => {
+  const e = errands.get('clover'), S = pinched({ errands: { clover: 1 } });
+  expect(errands.itemShown(S, e, 'shell1')).toBe(true);
+  errands.pick(S, e, 'shell1');
+  expect(errands.itemShown(S, e, 'shell1')).toBe(false);
+  expect(errands.itemFound(S, e, 'shell1')).toBe(true);
+  expect(errands.following(S, e)).toBe(false);   // Clover never follows
+  expect(Object.keys(S.shells)).toEqual(['shell1']);
+});
+
+const ribbit = NPCS.find((n) => n.id === 'ribbit');
+const bloomed = (patch = {}) => save({ ending: true, bosses: { woods: true, peaks: true, shores: true }, seeds: { woods: 2, peaks: 2, shores: 2 }, ...patch });
+const allLanterns = { lantern1: true, lantern2: true, lantern3: true, lantern4: true };
+
+test("before the bloom, Mayor Ribbit's lines are unchanged and the parade stays locked", () => {
+  const e = errands.get('ribbit');
+  expect(ribbit.lines(save())).toEqual([
+    'Ribbit! Welcome, welcome! Mayor Ribbit, at your service. Best lily pad in town, ask anyone.',
+    'Every corner of our isle has something tall to aim for. North, a giant purple mushroom pokes over the Whispering Woods.',
+    'East, over the river bridge, a frosty crystal twinkles on top of Frostcap Peaks. South, a striped lighthouse watches the Sunny Shores.',
+    'And west, a windmill turns over Bloom Meadow. No guardian there, just flowers and secrets. Lots of secrets. Croak.',
+  ]);
+  expect(ribbit.lines(save({ seeds: { woods: 1, peaks: 0, shores: 0 } }))).toEqual(['One Starseed back already? I hereby declare a holiday! ...Right after the other two.']);
+  expect(ribbit.lines(save({ seeds: { woods: 2, peaks: 1, shores: 0 } }))).toEqual(['Two down! I have been practising my victory croak. RIBBIT! ...It needs work.']);
+  expect(ribbit.lines(save({ seeds: { woods: 2, peaks: 2, shores: 1 } }))).toEqual(['All three! Quick, put them on the pedestal! I want to see the Tree bloom before my nap.']);
+  // every guardian beaten and every Starseed placed, but the ending not played: still locked
+  const S = save({ bosses: { woods: true, peaks: true, shores: true }, seeds: { woods: 2, peaks: 2, shores: 2 } });
+  expect(errands.talk(S, e)).toBeNull();
+  expect(S.errands).toEqual({});
+  for (const id of errands.items(e)) expect(errands.itemShown(S, e, id)).toBe(false);
+});
+
+test("Mayor Ribbit's lines are short, non-empty strings in every parade state", () => {
+  const e = errands.get('ribbit');
+  const states = [
+    bloomed(), bloomed({ errands: { ribbit: 1 } }), bloomed({ errands: { ribbit: 1 }, shells: { lantern2: true } }),
+    bloomed({ errands: { ribbit: 1 }, shells: { lantern1: true, lantern2: true, lantern3: true } }),
+    bloomed({ errands: { ribbit: 1 }, shells: allLanterns }), bloomed({ errands: { ribbit: 2 }, shells: allLanterns }),
+  ];
+  const seen = new Set();
+  for (const S of states) {
+    const lines = ribbit.lines(S);
+    expect(lines.length).toBeGreaterThan(0);
+    for (const l of lines) expect(typeof l === 'string' && l.length > 0 && l.length <= 155).toBe(true);
+    seen.add(lines.join('|'));
+  }
+  expect(seen.size).toBe(states.length);
+  expect(ribbit.lines(bloomed())[0]).toBe('A blooming Great Tree! This calls for a parade. You lead, I will hop behind.');
+  expect(ribbit.lines(bloomed())).toContain(e.hint);                 // he says where the lanterns are
+  expect(ribbit.lines(bloomed({ errands: { ribbit: 1 }, shells: { lantern1: true, lantern4: true } }))[0]).toBe('2 of 4 lanterns lit! Lead on, Pip!');
+  expect(ribbit.lines(bloomed({ errands: { ribbit: 1 }, shells: { lantern1: true, lantern2: true, lantern4: true } }))[0]).toBe('3 of 4 lanterns lit! Just one more!');
+  expect(ribbit.lines(bloomed({ errands: { ribbit: 1 }, shells: allLanterns })).join(' ')).toContain('victory croak finally works');
+  // Clover's rainbow shells never count as lanterns
+  expect(errands.found(bloomed({ errands: { ribbit: 1 }, shells: { shell1: true, shell2: true, shell3: true, shell4: true } }), e)).toBe(0);
+});
+
+test("Ribbit's parade: unlocked by the bloom, he follows while lanterns are left, each lights once, the reward is paid once", () => {
+  const e = errands.get('ribbit'), S = bloomed({ coins: 3 });
+  expect(errands.following(S, e)).toBe(false);
+  expect(errands.pick(S, e, 'lantern1')).toBeNull();               // nothing to light before the parade starts
+  expect(errands.talk(S, e)).toBe('start');
+  expect(S.errands).toEqual({ ribbit: 1 });
+  expect(errands.following(S, e)).toBe(true);
+  for (const id of errands.items(e)) expect([errands.itemShown(S, e, id), errands.itemFound(S, e, id)]).toEqual([true, false]);
+  expect(errands.talk(S, e)).toBeNull();                           // mid-parade: just cheering
+  expect(errands.pick(S, e, 'lantern3')).toBe(1);
+  expect(errands.pick(S, e, 'lantern3')).toBeNull();               // lighting is idempotent
+  expect(errands.pick(S, e, 'shell1')).toBeNull();                 // not one of his
+  expect(errands.pick(S, e, 'lantern5')).toBeNull();
+  expect([errands.itemShown(S, e, 'lantern3'), errands.itemFound(S, e, 'lantern3')]).toEqual([true, true]);   // a lit lantern stays
+  errands.pick(S, e, 'lantern1'); errands.pick(S, e, 'lantern2');
+  expect(errands.following(S, e)).toBe(true);
+  expect(errands.talk(S, e)).toBeNull();
+  expect(errands.pick(S, e, 'lantern4')).toBe(4);
+  expect(errands.following(S, e)).toBe(false);                     // all lit: he heads home
+  expect(errands.talk(S, e)).toBe('done');
+  expect(S.errands.ribbit).toBe(2);
+  expect(S.coins).toBe(53);
+  expect(errands.talk(S, e)).toBeNull();                           // no second reward
+  expect(S.coins).toBe(53);
+  expect(errands.following(S, e)).toBe(false);
+  for (const id of errands.items(e)) expect([errands.itemShown(S, e, id), errands.itemFound(S, e, id)]).toEqual([true, true]);
+  expect(Object.keys(S.shells).sort()).toEqual(['lantern1', 'lantern2', 'lantern3', 'lantern4']);
+  expect(errands.done(S)).toBe(1);
+  S.errands.clover = 2;
+  expect(errands.done(S)).toBe(2);
 });
 
 test("Elder Shellby's intro is short and keeps its story; his first hints keep what the cut pages taught", () => {

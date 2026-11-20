@@ -24,7 +24,7 @@
 // turns Pip's body to the target (it.bodyYaw: movement strafes) and aims swings at it (it.faceYaw / it.facePitch). The
 // lock target also gets the strongest swing magnetism (combat.js). Touch auto-face (feel §8.7): see touchAutoFace.
 import * as THREE from 'three';
-import { progress, errands } from './data.js';
+import { ERRANDS, progress, errands } from './data.js';
 import { NPC } from './npcs.js';
 import { Boss } from './bosses.js';
 import { EV } from './events.js';
@@ -63,12 +63,15 @@ export const TargetingMixin = {
       const a = A[it.kind] || [0.8, 0.5];
       out.push({ o: it, kind: it.kind, px: it.x, py: it.y + a[0], pz: it.z, R: a[1], range: it.r, x: it.x, y: it.y, z: it.z, h: it.h });
     }
-    // Clover's rainbow shells (W.shells), offered like a chest while her errand has them out
-    const e = this.world.shells && this.world.shells.length ? errands.get('clover') : null;
-    if (e && S) for (const sh of this.world.shells) {
-      if (Math.abs(sh.x - pl.pos.x) > 5 || Math.abs(sh.z - pl.pos.z) > 5 || !errands.itemOut(S, e, sh.id)) continue;
-      const a = A.shell || [0.25, 0.45];
-      out.push({ o: sh, kind: 'shell', px: sh.x, py: sh.y + a[0], pz: sh.z, R: a[1], range: TC.shellRange || 1.6, x: sh.x, y: sh.y, z: sh.z, h: 0.8 });
+    // errand items picked up with Use (ERRANDS how 'use': Clover's rainbow shells, W.shells), offered like a chest while
+    // the errand has them out. Items lit by walking past (Ribbit's parade lanterns) are never a Use target
+    if (S) for (const e of ERRANDS) {
+      if (e.how !== 'use') continue;
+      for (const sh of this.world[e.list] || []) {
+        if (Math.abs(sh.x - pl.pos.x) > 5 || Math.abs(sh.z - pl.pos.z) > 5 || !errands.itemOut(S, e, sh.id)) continue;
+        const a = A[e.item] || [0.25, 0.45];
+        out.push({ o: sh, kind: e.item, px: sh.x, py: sh.y + a[0], pz: sh.z, R: a[1], range: TC[e.item + 'Range'] || 1.6, x: sh.x, y: sh.y, z: sh.z, h: 0.8 });
+      }
     }
     return out;
   },
