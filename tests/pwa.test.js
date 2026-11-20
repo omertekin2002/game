@@ -5,7 +5,7 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { SW_CACHE_PREFIX, registerServiceWorker, swPlan } from '../js/pwa.js';
+import { cachePrefix, registerServiceWorker, swPlan } from '../js/pwa.js';
 import { SW_MARKER, checkPwa } from '../tools/build-pages.mjs';
 
 describe('swPlan', () => {
@@ -45,7 +45,8 @@ function fakes({ marker = null, search = '', controller = null, registerFails = 
     },
   };
   const caches = {
-    keys: async () => [SW_CACHE_PREFIX + 'aaa', SW_CACHE_PREFIX + 'bbb', 'someone-elses-cache'],
+    keys: async () => [cachePrefix('https://x.test/game/') + 'aaa', cachePrefix('https://x.test/other/') + 'aaa',
+      cachePrefix('https://x.test/game/') + 'bbb', 'someone-elses-cache'],
     delete: async (k) => { calls.push(['delete', k]); return true; },
   };
   return { doc, loc, nav, caches, calls };
@@ -75,13 +76,13 @@ describe('registerServiceWorker', () => {
     expect(f.calls).toEqual([['register', 'sw.js', { updateViaCache: 'none' }]]);
   });
 
-  test('?nosw=1 unregisters this scope only and deletes only our caches, without waiting', async () => {
+  test("?nosw=1 unregisters this scope only and deletes only this scope's caches, without waiting", async () => {
     const f = fakes({ marker: 'sw.js', search: '?nosw=1' });
     globalThis.caches = f.caches;
     expect(await registerServiceWorker(new Promise(() => {}), f.doc, f.loc, f.nav)).toBe('remove');
     expect(f.calls).toEqual([
       ['getRegistrations'], ['unregister', 'https://x.test/game/'],
-      ['delete', SW_CACHE_PREFIX + 'aaa'], ['delete', SW_CACHE_PREFIX + 'bbb'],
+      ['delete', cachePrefix('https://x.test/game/') + 'aaa'], ['delete', cachePrefix('https://x.test/game/') + 'bbb'],
     ]);
   });
 

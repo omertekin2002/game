@@ -23,7 +23,6 @@ import { buildPages, SW_FILE } from '../tools/build-pages.mjs';
 const OUT_REL = 'test-results/pwa-site';
 const OUT = fileURLToPath(new URL(`../${OUT_REL}/`, import.meta.url));
 const BASE = '/game/';
-const PREFIX = 'starseed-isle-';   // PREFIX in tools/sw-template.js
 const BOOT_TIMEOUT = Number(process.env.SMOKE_BOOT_TIMEOUT || 120_000);
 const STEP_TIMEOUT = 60_000;
 const SW_TIMEOUT = 120_000;        // the title, then the deferred textures (≤ 10 s), then precaching ~25 MB from localhost
@@ -82,6 +81,7 @@ async function main() {
   const site = new Site(OUT);
   const url = await site.start();
   const origin = new URL(url).origin;
+  const PREFIX = `starseed-isle ${url} `;   // cachePrefix(scope) in js/pwa.js, PREFIX in tools/sw-template.js
   const problems = [];
   let browser, page;
   try {
@@ -112,7 +112,9 @@ async function main() {
     };
     const open = async (path) => {
       step(`open ${path}`);
-      await page.goto(origin + path, { waitUntil: 'load' });
+      // 'commit': a page still playing in software WebGL can take long to unload on a two-core runner; the boot wait
+      // below decides when the new page is ready
+      await page.goto(origin + path, { waitUntil: 'commit', timeout: BOOT_TIMEOUT });
       const ms = await waitFor(`boot to the title (${path})`, () => {
         const G = window.G, loading = document.getElementById('loading');
         return !!(G && G.world && G.game && G.game.state === 'title' && (!loading || loading.classList.contains('gone')));
@@ -201,7 +203,7 @@ async function main() {
     if (!ok) fail('the open page could not fetch a file after the update');
     await newGame();
     step('the page open during the update still starts a New Game');
-    await page.reload({ waitUntil: 'load' });   // load 2: the new file
+    await page.reload({ waitUntil: 'load', timeout: BOOT_TIMEOUT });   // load 2: the new file
     const css = await page.evaluate(() => fetch('styles.css').then((r) => r.text()));
     if (!css.includes(mark)) fail('the load after the update still serves the old styles.css');
     const sheet = await page.evaluate(async () => {
@@ -213,7 +215,7 @@ async function main() {
     step('the next load serves the new styles.css from the new cache');
 
     // 4a. ?nosw=1 on a page the worker controls: the worker and its caches go
-    await page.goto(`${origin}${BASE}?nosw=1&nolock=1`, { waitUntil: 'load' });
+    await page.goto(`${origin}${BASE}?nosw=1&nolock=1`, { waitUntil: 'load', timeout: BOOT_TIMEOUT });
     await waitFor('?nosw=1 to remove the service worker and its caches', async (pre) =>
       (await navigator.serviceWorker.getRegistrations()).length === 0 && !(await caches.keys()).some((k) => k.startsWith(pre)), STEP_TIMEOUT, PREFIX);
     step('?nosw=1 removed the service worker and its caches');

@@ -2,7 +2,8 @@
 // file's contents) and `PRECACHE` ([relative URL, SRI integrity] for every site file) above this code. Only the Pages
 // build has a service worker: running from the repo never registers one (js/pwa.js).
 //
-// install   precache every file into `starseed-isle-<VERSION>`. A file whose integrity matches the copy in an older
+// install   precache every file into `starseed-isle <scope> <VERSION>` (the scope keeps two deployments on one origin,
+//           such as /game/ and a preview path, from deleting each other's caches). A file whose integrity matches the copy in an older
 //           version's cache is copied from there, the rest are fetched (the HTTP cache first, then the network) and
 //           checked against their integrity, so a stale CDN or HTTP-cache copy never lands in the new cache. Any
 //           failure fails the install and the old version keeps serving; the browser tries again on a later load.
@@ -12,7 +13,7 @@
 // fetch     same-origin GETs inside the scope, cache-first with the query string ignored (?debug=1, ?seed=…), a
 //           directory URL served as its index.html; anything not precached goes to the network.
 /* global VERSION, PRECACHE */
-const PREFIX = 'starseed-isle-';
+const PREFIX = `starseed-isle ${self.registration.scope} `;   // cachePrefix(scope) in js/pwa.js
 const CACHE = PREFIX + VERSION;
 const INDEX = 'sw-precache-index.json';   // { url: integrity } of a complete cache, written last
 const PARALLEL = 6;

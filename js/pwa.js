@@ -4,7 +4,9 @@
 // requested, so local development never serves stale files. ?nosw=1 skips registration and removes this scope's service
 // worker and its caches (the escape hatch for a broken one). Nothing here ever throws or logs a console error.
 
-export const SW_CACHE_PREFIX = 'starseed-isle-';   // PREFIX in tools/sw-template.js
+/** The caches of the service worker registered for `scope` (PREFIX in tools/sw-template.js): one deployment's
+ *  caches never touch another's on the same origin. */
+export const cachePrefix = (scope) => `starseed-isle ${scope} `;
 
 /** 'register' | 'remove' | 'none' for this page: the build marker's script URL decides, ?nosw=1 or a page that a
  *  service worker controls without the marker (a dev server on an origin where a build once ran) removes it. */
@@ -18,7 +20,7 @@ export function swPlan({ marker, search = '', supported = true, controlled = fal
 async function removeOurs(nav, scope) {
   for (const reg of await nav.serviceWorker.getRegistrations()) if (reg.scope === scope) await reg.unregister();
   const c = globalThis.caches;
-  if (c) for (const name of await c.keys()) if (name.startsWith(SW_CACHE_PREFIX)) await c.delete(name);
+  if (c) for (const name of await c.keys()) if (name.startsWith(cachePrefix(scope))) await c.delete(name);
 }
 
 /** Register (once `ready` settles) or remove (at once, even if the boot later fails) the service worker; resolves to

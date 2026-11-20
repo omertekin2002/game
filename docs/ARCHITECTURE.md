@@ -721,10 +721,11 @@ own key.
   (a hash of every file's SRI hash) and `PRECACHE` (`[relative URL, sha256 integrity]` for every site file), then the
   template. `checkPwa(site, precache)` fails the build on a missing or invalid manifest member, a missing 192 / 512 /
   maskable icon, a root-absolute or missing path, or a site file left out of the precache list.
-- `sw.js` install: precache into `starseed-isle-<VERSION>`. A file with the same integrity in an older version's cache
+- `sw.js` install: precache into `starseed-isle <scope> <VERSION>` (`cachePrefix(scope)`: deployments under two paths of
+  one origin never delete each other's caches). A file with the same integrity in an older version's cache
   is copied from it; the rest are fetched (HTTP cache, then `cache: 'reload'`) with `integrity`, so a stale copy fails
   the install instead of landing in the cache. `sw-precache-index.json`, written last, marks the cache complete. Then
-  `skipWaiting`. Activate: delete every other `starseed-isle-*` cache and `clients.claim()`. Fetch: same-origin GETs in
+  `skipWaiting`. Activate: delete this scope's other caches and `clients.claim()`. Fetch: same-origin GETs in
   the scope (no `Range`), cache-first by path with the query string ignored and `…/` served as `…/index.html`; a miss
   goes to the network. A deploy is therefore served from the next load after the one that found it. A page still open
   from the old version keeps working, because the new cache is complete before it takes over; it gets the new
@@ -732,7 +733,7 @@ own key.
 - `registerServiceWorker(ready)` (called by `main.js`): with the marker it registers `sw.js` once the title is up and
   the deferred textures have arrived (≤ 10 s); without it (the repo, `bun run start`, the smoke test) it does nothing,
   so `sw.js` is never requested. `?nosw=1`, or a page a worker controls without the marker, removes this scope's
-  registration and every `starseed-isle-*` cache at once, even if the boot then fails. Errors are swallowed.
+  registration and its caches at once, even if the boot then fails. Errors are swallowed.
 - Kill switch, if a bad worker ships: revert the registration (so pages stop registering), and ship this file as the
   site's `sw.js` (add it to `SITE_FILES`). Browsers check `sw.js` on every navigation, so each player's next load
   installs it, and it deletes the caches, unregisters itself and reloads open pages from the network:
@@ -740,7 +741,7 @@ own key.
   ```js
   self.addEventListener('install', () => self.skipWaiting());
   self.addEventListener('activate', (e) => e.waitUntil((async () => {
-    for (const k of await caches.keys()) if (k.startsWith('starseed-isle-')) await caches.delete(k);
+    for (const k of await caches.keys()) if (k.startsWith(`starseed-isle ${self.registration.scope} `)) await caches.delete(k);
     await self.registration.unregister();
     for (const c of await self.clients.matchAll({ type: 'window' })) c.navigate(c.url);
   })()));
