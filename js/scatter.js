@@ -16,7 +16,7 @@ import * as THREE from 'three';
 import { HALF, CHUNK, NCH } from './world.js';
 import { toonMat, sharedOutline, outlineMat, meshWithOutline, outlineGeometry, radialProfile, setHullProfile } from './toon.js';
 import { makeModel, Assets } from './assets.js';
-import { propModel, PROP_KIND, houseA, houseB, shopModel, greatTreeParts, bridgeGeo, chestParts } from './props.js';
+import { propModel, PROP_KIND, houseA, houseB, shopModel, greatTreeParts, bridgeGeo, chestParts, rainbowShellModel } from './props.js';
 import { hash2 } from './util.js';
 import { perf as TP } from './tune.js';
 import { proxyGeometry } from './perf/lod.js';
@@ -113,6 +113,7 @@ export class Scenery {
     this.meshes = [];
     this.layers = [];
     this.chests = new Map();
+    this.shells = new Map();         // Clover's rainbow shells (W.shells): hidden until her errand puts them out
     this.cullOff = false;            // G.debug.perf.cull(false): everything packed, full models only (base for A/B)
     this.packs = 0; this.packMs = 0; // stats
     this._v = null; this.dirty = true;
@@ -125,6 +126,7 @@ export class Scenery {
     this.buildGreatTree();
     this.buildBridges();
     this.buildChests();
+    this.buildShells();
   }
   buildInstanced(list) {
     const byType = new Map();
@@ -453,6 +455,27 @@ export class Scenery {
       this.chests.set(c.id, { group: g, lid: lidPivot, data: c, open: 0, target: 0 });
     }
   }
+  /** one small group per rainbow shell, hidden (game.syncShells shows the ones that are out). Model and procedural
+   *  only: rainbowShellModel is the decorative shell's shape in rainbow colours, so it needs no asset */
+  buildShells() {
+    const shells = this.W.shells || [];
+    if (!shells.length) return;
+    const model = rainbowShellModel(), mat = toonMat({ glow: true, glowBase: 0.35, rim: 0.6 }), ol = mats().solid.ol;
+    for (const sh of shells) {
+      const g = new THREE.Group(), spin = meshWithOutline(model, mat, ol, { cast: false });
+      spin.scale.setScalar(2.4);
+      g.add(spin);
+      g.position.set(sh.x, sh.y + 0.1, sh.z);
+      g.visible = false;
+      this.root.add(g);
+      this.shells.set(sh.id, { group: g, spin, data: sh, shown: false, ph: hash2(Math.round(sh.x * 10), Math.round(sh.z * 10), 11) * Math.PI * 2 });
+    }
+  }
+  /** `shown` is the game's wish; group.visible also reads false while the distance culler (perf.js, C10) hides it */
+  setShellShown(id, on) {
+    const s = this.shells.get(id);
+    if (s) { s.shown = !!on; s.group.visible = s.shown; }
+  }
   setChestOpen(id, open, instant) {
     const ch = this.chests.get(id);
     if (!ch) return;
@@ -460,6 +483,12 @@ export class Scenery {
     if (instant) { ch.open = ch.target; ch.lid.rotation.x = -ch.open * 1.9; }
   }
   update(dt) {
+    const t = (this._t = (this._t || 0) + dt);
+    for (const s of this.shells.values()) {
+      if (!s.group.visible) continue;
+      s.spin.rotation.y = t * 0.9 + s.ph;
+      s.spin.position.y = 0.05 + Math.sin(t * 2.2 + s.ph) * 0.05;
+    }
     for (const ch of this.chests.values()) {
       if (ch.open !== ch.target) {
         const sp = 3.2;

@@ -284,7 +284,8 @@ export const combat = {
   traumaKill: 0.15, traumaClink: 0.15, shakeTPHit: 0.15,
   fxNear: 0.6,                // FP: sparks never spawn inside this distance of the eye
   // crosshair interaction (feel §9.1): aim point height (NPC: fraction of its height) and radius per kind
-  aimPts: { npc: [0.62, 0.35], sign: [1.05, 0.45], door: [1.1, 0.55], chest: [0.45, 0.55], pedestal: [0.75, 1.0], well: [0.9, 1.1] },
+  aimPts: { npc: [0.62, 0.35], sign: [1.05, 0.45], door: [1.1, 0.55], chest: [0.45, 0.55], pedestal: [0.75, 1.0], well: [0.9, 1.1], shell: [0.25, 0.5] },
+  shellRange: 1.6,            // a rainbow shell (Clover's errand) is offered within this + rangeAdd (XZ)
   // accept: angle ≤ clamp(atan(R/d) + add, min, cap) (touch × touchTol), XZ distance to the aim point ≤ range + 0.6
   npcRange: 1.9, rangeAdd: 0.6, tolAdd: 6, tolMin: 8, tolCap: 25, touchTol: 1.6,
   keepDeg: 4, keepDist: 0.3, keepT: 0.125, beatDeg: 3, // hysteresis: hold +4° / +0.3 m, drop within 150 ms of failing, rivals beat it by 3°

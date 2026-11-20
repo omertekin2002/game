@@ -40,7 +40,7 @@ export function perfLocations(W) {
   return (W._perfLocs = L);
 }
 // natural standing distance from each kind of interactable's aim point (debug standAt)
-const STAND = { npc: 1.3, sign: 1.4, door: 1.1, chest: 1.3, pedestal: 2.1, well: 2.2 };
+const STAND = { npc: 1.3, sign: 1.4, door: 1.1, chest: 1.3, pedestal: 2.1, well: 2.2, shell: 1.1 };
 
 /** expose a namespace of debug helpers as G.debug[ns] (modules call this from attach). An existing namespace is never
  *  lost: an object merges its members into it (registerDebug('cam', {…}) keeps G.debug.cam() callable and adds cam.*);
@@ -151,13 +151,19 @@ export const DebugMixin = {
         return view.setLook(yaw, pitch);
       },
       /** stand at a natural spot in front of an interactable and aim at it: kind 'npc' (id), 'sign' | 'door' | 'chest' |
-       *  'well' | 'pedestal' (index n among that kind, nearest first from the spawn); returns { x, z, kind, point } */
+       *  'well' | 'pedestal' (index n among that kind, nearest first from the spawn), 'shell' (Clover's rainbow shell n in
+       *  W.shells order, picked up or not); returns { x, z, kind, point } */
       standAt(kind, n = 0, o = {}) {
         const W = game.world;
         let pt = null, front = null;
         if (kind === 'npc' || game.npcs.some((q) => q.id === kind)) {
           const npc = game.npcs.find((q) => q.id === (kind === 'npc' ? n : kind)) || game.npcs[n | 0];
           pt = { x: npc.pos.x, y: npc.pos.y + TC.aimPts.npc[0] * npc.height, z: npc.pos.z }; front = npc.facing; kind = 'npc';
+        } else if (kind === 'shell') {
+          const it = (W.shells || [])[n | 0];
+          if (!it) return null;
+          pt = { x: it.x, y: it.y + (TC.aimPts.shell || [0.25])[0], z: it.z };
+          front = yawOf(W.spawn.x - it.x, W.spawn.z - it.z);
         } else {
           const its = W.interact.filter((it) => it.kind === kind && !(it.kind === 'chest' && game.S.chests[it.chest.id])).sort((a, b) => len2(a.x - W.spawn.x, a.z - W.spawn.z) - len2(b.x - W.spawn.x, b.z - W.spawn.z));
           const it = its[n | 0];

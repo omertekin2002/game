@@ -24,7 +24,7 @@
 // turns Pip's body to the target (it.bodyYaw: movement strafes) and aims swings at it (it.faceYaw / it.facePitch). The
 // lock target also gets the strongest swing magnetism (combat.js). Touch auto-face (feel §8.7): see touchAutoFace.
 import * as THREE from 'three';
-import { progress } from './data.js';
+import { progress, errands } from './data.js';
 import { NPC } from './npcs.js';
 import { Boss } from './bosses.js';
 import { EV } from './events.js';
@@ -35,8 +35,8 @@ import { hudFields } from './combat.js';
 import { MOUSE_K } from './view/view.js';
 
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
-const VERB = { sign: 'Read', door: 'Knock', chest: 'Open', well: 'Peek' };
-const NAME = { sign: 'Sign', door: 'Door', chest: 'Chest', pedestal: 'Starseed Pedestal', well: 'Well' };
+const VERB = { sign: 'Read', door: 'Knock', chest: 'Open', well: 'Peek', shell: 'Pick up' };
+const NAME = { sign: 'Sign', door: 'Door', chest: 'Chest', pedestal: 'Starseed Pedestal', well: 'Well', shell: 'Rainbow shell' };
 const _o = new THREE.Vector3(), _d = new THREE.Vector3(), _p = new THREE.Vector3(), _e = new THREE.Vector3(), _ce = new THREE.Vector3(), _se = new THREE.Vector3(), _hb = {}, _probe = {};
 /** signs are read (from the viewer's side) and chests opened (from Pip's side) from the front hemisphere only: a chest's
  *  lid hinges at its back, so opened from behind it swings up into the FP eye and hides the reward */
@@ -62,6 +62,13 @@ export const TargetingMixin = {
       if (it.kind === 'chest' && (S.chests[it.chest.id] || it.chest._opening)) continue;   // open, or in its lid beat
       const a = A[it.kind] || [0.8, 0.5];
       out.push({ o: it, kind: it.kind, px: it.x, py: it.y + a[0], pz: it.z, R: a[1], range: it.r, x: it.x, y: it.y, z: it.z, h: it.h });
+    }
+    // Clover's rainbow shells (W.shells), offered like a chest while her errand has them out
+    const e = this.world.shells && this.world.shells.length ? errands.get('clover') : null;
+    if (e && S) for (const sh of this.world.shells) {
+      if (Math.abs(sh.x - pl.pos.x) > 5 || Math.abs(sh.z - pl.pos.z) > 5 || !errands.itemOut(S, e, sh.id)) continue;
+      const a = A.shell || [0.25, 0.45];
+      out.push({ o: sh, kind: 'shell', px: sh.x, py: sh.y + a[0], pz: sh.z, R: a[1], range: TC.shellRange || 1.6, x: sh.x, y: sh.y, z: sh.z, h: 0.8 });
     }
     return out;
   },
