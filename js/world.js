@@ -51,6 +51,7 @@ export class World {
     this.houses = [];
     this.unreachable = [];
     this.shells = [];     // rainbow shells for Clover's errand (placeShells, a post-pass)
+    this.lanterns = [];   // paper lanterns for Mayor Ribbit's parade (placeLanterns, a post-pass)
     this.carved = 0;
     // WP9 foundation shadow (scatter()): what the foundation had and WP9 does not (ghost solids and colliders, reservations
     // tagged t = 2) and its terrain before WP9's own edits, so the main stream draws exactly what the foundation drew
@@ -89,7 +90,8 @@ export class World {
   }
 
   // ------------------------------------------------------------------ generation
-  /** o.shells = false skips the rainbow-shell post-pass (tests compare the island with and without it) */
+  /** o.shells = false skips the rainbow-shell post-pass and o.lanterns = false the parade-lantern one (tests compare the
+   *  island with and without them) */
   generate(o = {}) {
     const t0 = performance.now();
     const T = (this.genT = {});
@@ -121,6 +123,7 @@ export class World {
     this.buildColliderHash();
     this.publishAnchors(); lap('splat');
     if (o.shells !== false) { this.placeShells(); lap('shells'); }
+    if (o.lanterns !== false) { this.placeLanterns(); lap('lanterns'); }
     this.genMs = performance.now() - t0;
   }
 
@@ -1623,6 +1626,61 @@ export class World {
       if (got) shells.push({ id: 'shell' + (shells.length + 1), kind: 'shell', x: got.x, y: this.hAt(got.x, got.z), z: got.z, at });
     }
     this.shells = shells;
+  }
+
+  /** Mayor Ribbit's parade (data.js ERRANDS 'ribbit'): W.lanterns = four paper lanterns [{ id: 'lantern1'…'lantern4',
+   *  kind: 'lantern', x, y, z, at }], one per village spot Ribbit names: beside the walk up to the Great Tree's altar, by
+   *  the plaza signpost, in front of Miso's shop and at the village edge on the Meadow path. A post-pass like
+   *  placeShells: its own RNG stream, nothing added to the world's lists (a lantern has no collider: Pip lights it by
+   *  walking past) and W.walk / W.reach put back. A spot is flat dry ground inside TW.paradeR of the plaza centre, off
+   *  the path band and the z = 9 test line, clear of solids, colliders, chests, interactables and NPC spots, and
+   *  reachable from the spawn. */
+  placeLanterns() {
+    const R = new RNG(this.seed * 53 + 7), keep = [this.walk, this.reach];
+    const reach = this.bfs(this.buildWalk());
+    this.walk = keep[0]; this.reach = keep[1];
+    const out = [], P = this.pedestal, sp = this.signpost, sh = this.shop;
+    const ok = (x, z) => len2(x, z) < TW.paradeR - 6 && !(Math.abs(z - 9) < 1.2 && Math.abs(x) < 14) && this.hAt(x, z) > 0.6 && this.slopeAt(x, z) < 0.45 && this.bridgeAt(x, z) === null
+      && this.pathDAt(x, z) >= 2.2 && !this.solidNear(x, z, 1.2) && !this.colliders.some((c) => len2(c.x - x, c.z - z) < c.r + 0.9)
+      && !this.chests.some((c) => len2(c.x - x, c.z - z) < 2.5) && !this.interact.some((it) => len2(it.x - x, it.z - z) < Math.max(2.5, (it.r || 0) + 0.8))
+      && !Object.values(this.npcSpots).some((q) => len2(q.x - x, q.z - z) < 3) && len2(x - this.spawn.x, z - this.spawn.z) > 2.5
+      && !out.some((q) => len2(q.x - x, q.z - z) < 8) && this.isReached(reach, x, z, false);
+    // each spot: its centres in order (the Meadow one walks out along the path when a stretch is too cramped), a ring
+    const mp = [26, 22, 29, 18].map((d) => { const p = this.pathAtDist('meadow', d); return [p.x, p.z]; });
+    const spots = [
+      ['altar', [[P.x, (P.z + this.spawn.z) / 2]], 3, 6.5],
+      ['signpost', [[sp ? sp.x : 0, sp ? sp.z : 18]], 2.6, 6],
+      ['shop', [[sh.x + Math.sin(sh.rot) * 7, sh.z + Math.cos(sh.rot) * 7]], 0, 4],
+      ['meadow', mp, 2.4, 6],
+    ];
+    // nearest the spot's centre on a 0.5 m grid of its ring (draws nothing), as placeShells' fallback
+    const scan = (cx, cz, r0, r1) => {
+      let best = null, bd = Infinity;
+      for (let dz = -r1; dz <= r1; dz += 0.5) for (let dx = -r1; dx <= r1; dx += 0.5) {
+        const d = Math.hypot(dx, dz);
+        if (d < r0 || d > r1 || d >= bd || !ok(cx + dx, cz + dz)) continue;
+        best = { x: cx + dx, z: cz + dz }; bd = d;
+      }
+      return best;
+    };
+    for (const [at, centres, r0, r1] of spots) {
+      let got = null;
+      for (const [cx, cz] of centres) {
+        for (let t = 0; t < 160 && !got; t++) {
+          const ang = R.range(0, TAU), d = Math.sqrt(R.range(r0 * r0, r1 * r1));
+          const x = cx + Math.sin(ang) * d, z = cz + Math.cos(ang) * d;
+          if (ok(x, z)) got = { x, z };
+        }
+        if (!got) got = scan(cx, cz, r0, r1);
+        if (got) break;
+      }
+      if (!got) got = scan(centres[0][0], centres[0][1], r0, r1 * 2 + 4);   // not seen on seeds 1–40
+      if (got) {
+        const x = +got.x.toFixed(3), z = +got.z.toFixed(3);
+        out.push({ id: 'lantern' + (out.length + 1), kind: 'lantern', x, y: this.hAt(x, z), z, at });
+      }
+    }
+    this.lanterns = out;
   }
 
   // ------------------------------------------------------------------ reachability

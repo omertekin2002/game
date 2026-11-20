@@ -391,6 +391,14 @@ export const actors = {
   // NPCs (art §10)
   npcLook: 4.0, npcWave: 2.6, npcBackHop: 1.1,
   npcHome: 0.9,               // a stay-at-home villager the back-hop moved walks back to her spot at this speed (m/s)
+  // Mayor Ribbit's parade (npcs.js follow mode, interact.js tickErrands): he trails followGap m behind Pip and stops
+  // inside followStop m, at followK × (distance − gap) m/s up to followSpeed (faster than Pip's sprint, so he trails
+  // ≈ 3.5 m behind a run and ≈ 3.9 m behind a sprint) with a little hop every followHop s; further than followFar m, or stuck
+  // for followStuck s, he hops to a spot just behind Pip (followCatch m). With Pip outside the village circle
+  // (world.paradeR) he waits at its edge. A lantern lights with Pip within paradeLight m (XZ) and Ribbit within
+  // paradeNear m of Pip. When the parade is over he walks home at followSpeed (or hops there once out of sight)
+  followGap: 2.4, followStop: 2.8, followSpeed: 6.4, followK: 4, followHop: 0.42, followFar: 14, followStuck: 1.2, followCatch: 2.2,
+  paradeLight: 2.5, paradeNear: 6,
   // r4 gem / heart drops in first person (entities.js Pickup): launched away from Pip within ±awayDeg at speed m/s, vy
   // capped at vyMax (apex ≈ 0.34 m over the spawn: under the eye; a chest's own fountain keeps its vy), the magnet pulls
   // to the feet + magnetY (TP: the chest, +0.5) with its height closing magnetYK × faster than the distance. A kill at
@@ -572,6 +580,7 @@ export const world = {
   pedestalTop: 1.05, pedestalTilt: 0.68, socketDX: 0.58, // socket surface height, slab tilt toward +Z (rad, 39°), spacing
   pedestalR: 1.02,            // the altar's collider: a circle round the brick ring and the slab corners (mesh ≈ 1.0 m in the body band)
   spawnZ: 13,
+  paradeR: 36,                // Mayor Ribbit's parade: the village circle he follows Pip inside (he waits at its edge); lanterns sit inside paradeR − 6
   lampR: 16, lampEvery: 18, lampFrom: 16, lampTo: 62, // plaza lamp ring; path lamps every 18 m from 16 to 62 m
   waymarkEvery: 30,           // waymarker posts along the four paths
   edgeStoneR: 45, edgeStoneGap: [0.9, 1.3], edgeStoneOff: 2.15, // path-edge stones within 45 m of the plaza
