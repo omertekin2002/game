@@ -12,8 +12,12 @@
 //     Ribbit, following on his own (walking or a catch-up hop, never moved by the test), is close behind; mid-parade
 //     Save & Quit → Continue keeps the lit lanterns and sends Ribbit home, and a talk picks the parade up again; with Pip
 //     out of the village Ribbit waits at its edge; with all four lit he goes home and a talk finishes it once (+50
-//     gems); the pause menu's tracker reads 3/3 guardians, 3/3 Starseeds and 2/2 errands;
-//  4. Save & Quit, reload the page, Continue: the bloomed tree, the placed seeds and the finished errands come back.
+//     gems); then Miso's guardian plushies through her real shop (Use on Miso, arrow keys that wrap over the rows on
+//     show, E and a mouse click to buy): the heart and sword first if needed, then all three plushies (a sold-out and a
+//     not-enough-gems buy refused), each on her counter at once and saved; the pause menu's tracker reads 3/3 guardians,
+//     3/3 Starseeds, 2/2 errands and 3/3 plushies;
+//  4. Save & Quit, reload the page, Continue: the bloomed tree, the placed seeds, the finished errands and the plushies
+//     on Miso's counter come back.
 // The simulation is stepped through the real frame loop (game.runFrame with the manual clock) rather than waited for in
 // real time, because software WebGL runs at about 1–11 fps. Fails on any page error, console error or failed request.
 // Usage: node tests/playthrough.mjs   (or `bun run test:playthrough`). On failure a screenshot lands in test-results/.
@@ -295,6 +299,84 @@ async function main() {
       step(`Ribbit's parade: 4 lanterns lit and saved, finished once (+50 gems, ${e.coins} total), lanterns stay lit`);
     };
 
+    // Miso's guardian plushies, after the bloom, through the real shop UI: Use on Miso opens it after her lines, arrow keys
+    // choose (wrapping over the rows on show), E buys, a mouse click buys too; Esc leaves (and saves)
+    const shopState = () => page.evaluate((k) => {
+      const G = window.G, g = G.game, S = g.S, saved = JSON.parse(localStorage.getItem(k) || 'null');
+      const rows = [...document.querySelectorAll('#shop .shop-item')];
+      return {
+        open: !!G.ui.shop, sel: G.ui.shop ? G.ui.shop.sel : null, msg: G.ui.shop ? G.ui.shop.msg : null, coins: S.coins,
+        rows: rows.map((r) => ({ name: r.querySelector('.nm').textContent, price: r.querySelector('.pr').textContent.trim(), sel: r.classList.contains('sel') })),
+        heart: S.shopHeart, sword: S.swordLevel, plushies: Object.keys(S.plushies || {}).filter((q) => S.plushies[q] === true).sort(),
+        shown: [...g.scenery.plushies.entries()].filter(([, o]) => o.visible).map(([q]) => q).sort(),
+        saved: saved && { v: saved.v, plushies: Object.keys(saved.plushies || {}).sort(), coins: saved.coins },
+      };
+    }, SAVE_KEY);
+    // a real key press, then a few frames (no draw) so the game reads it
+    const shopKey = async (code) => {
+      await page.keyboard.press(code);
+      await page.evaluate((STEP) => { for (let i = 0; i < 3; i++) window.G.game.runFrame(STEP, true, false); }, STEP);
+      if (problems.length) fail(`errors after pressing ${code} in the shop`);
+      return shopState();
+    };
+    const shopSel = async (want) => {
+      for (let guard = 0; ; guard++) {
+        const st = await shopState();
+        if (st.sel === want) return st;
+        if (guard > 12) fail(`could not reach shop row ${want} with the arrow keys: ${JSON.stringify(st)}`);
+        await shopKey('ArrowDown');
+      }
+    };
+    const PLUSH = ['Grumble Shroom plushie', 'Captain Pinch plushie', 'Frostbun plushie'];
+    const misoPlushies = async () => {
+      await talkToNpc('miso', 'open the shop');
+      let e = await shopState();
+      if (!e.open) fail(`Miso's shop did not open after her lines: ${JSON.stringify(e)}`);
+      const bought = e.heart && e.sword === 2;
+      if (!bought && e.rows.map((r) => r.name).join() !== 'Potion,Heart Container,Shiny Sword') fail(`before the heart and sword are sold the shop shows ${JSON.stringify(e.rows)}`);
+      if (e.plushies.length || e.shown.length) fail(`plushies before any were bought: ${JSON.stringify(e)}`);
+      // gems for everything left, minus one: the last plushie is refused first
+      const need = (e.heart ? 0 : 120) + (e.sword === 2 ? 0 : 150) + 240;
+      await page.evaluate((n) => window.G.debug.gems(n), need - 1 - e.coins);
+      if (!e.heart) { await shopSel(1); e = await shopKey('KeyE'); if (!e.heart || e.rows[1].price !== 'SOLD OUT') fail(`E did not buy the Heart Container: ${JSON.stringify(e)}`); }
+      if (e.sword !== 2) { await shopSel(2); e = await shopKey('KeyE'); if (e.sword !== 2 || e.rows[2].price !== 'SOLD OUT') fail(`E did not buy the Shiny Sword: ${JSON.stringify(e)}`); }
+      e = await shopState();
+      if (e.rows.length !== 6 || e.rows.slice(3).map((r) => r.name).join() !== PLUSH.join() || e.rows.slice(3).some((r) => r.price !== '80')) fail(`with the shop bought out and three guardians beaten, the plushie rows are wrong: ${JSON.stringify(e.rows)}`);
+      if (e.coins !== 239) fail(`gems before the plushies: ${e.coins}, expected 239`);
+      // ↑ wraps from the first row to the last plushie, ↓ from it back to the first
+      await shopSel(0);
+      e = await shopKey('ArrowUp');
+      if (e.sel !== 5 || !e.rows[5].sel) fail(`↑ on the first row did not wrap to the last plushie: ${JSON.stringify(e)}`);
+      e = await shopKey('ArrowDown');
+      if (e.sel !== 0) fail(`↓ on the last row did not wrap to the first: ${JSON.stringify(e)}`);
+      // E buys the Grumble Shroom plushie once; a second E is refused with the sold-out line
+      await shopSel(3);
+      e = await shopKey('KeyE');
+      if (e.coins !== 159 || e.plushies.join() !== 'woods' || e.rows[3].price !== 'SOLD OUT' || e.shown.join() !== 'woods') fail(`E did not buy the Grumble Shroom plushie (on the counter at once): ${JSON.stringify(e)}`);
+      e = await shopKey('KeyE');
+      if (e.coins !== 159 || !/^Sold out!/.test(e.msg)) fail(`a second buy of the same plushie was not refused: ${JSON.stringify(e)}`);
+      await shopSel(4);
+      e = await shopKey('KeyE');
+      if (e.coins !== 79 || e.plushies.join() !== 'shores,woods' || e.shown.join() !== 'shores,woods') fail(`E did not buy the Captain Pinch plushie: ${JSON.stringify(e)}`);
+      // a mouse click (a tap's path) on the Frostbun row: 79 gems are not enough, then with 80 it is bought
+      const clickRow = async (i) => { await page.click(`#shop .shop-item[data-i="${i}"]`); await page.evaluate((STEP) => { for (let k = 0; k < 3; k++) window.G.game.runFrame(STEP, true, false); }, STEP); return shopState(); };
+      e = await clickRow(5);
+      if (e.coins !== 79 || e.plushies.length !== 2 || !/^Not enough gems/.test(e.msg)) fail(`a click with too few gems was not refused: ${JSON.stringify(e)}`);
+      await page.evaluate(() => window.G.debug.gems(1));
+      e = await clickRow(5);
+      if (e.coins !== 0 || e.plushies.join() !== 'peaks,shores,woods' || e.shown.join() !== 'peaks,shores,woods' || e.rows.slice(3).some((r) => r.price !== 'SOLD OUT')) fail(`a click did not buy the Frostbun plushie: ${JSON.stringify(e)}`);
+      e = await shopKey('Escape');
+      if (e.open || !e.saved || e.saved.v !== 4 || e.saved.plushies.join() !== 'peaks,shores,woods' || e.saved.coins !== 0) fail(`leaving the shop did not save the plushies: ${JSON.stringify(e)}`);
+      await frames(2);
+      // Miso is still the Use target with three plushies on her counter, and she talks about them
+      await talkToNpc('miso', 'after the plushies');
+      e = await shopState();
+      const said = await page.evaluate(() => window.G.game.npcs.find((n) => n.id === 'miso').def.lines(window.G.game.S).join(' '));
+      if (!e.open || !said.includes('All three guardian plushies')) fail(`Miso after all three plushies: ${JSON.stringify({ e, said })}`);
+      await shopKey('Escape');
+      step(`Miso's plushies: shop bought out, 6 rows (↑↓ wrap), 3 plushies bought (2 with E, 1 by click; sold-out and not-enough-gems refused), on her counter at once and saved`);
+    };
+
     // ---- 1. New Game from a clean localStorage, through Shellby's intro
     step(`open ${server.url}${QUERY}`);
     await page.goto(`${server.url}${QUERY}`, { waitUntil: 'load', timeout: BOOT_TIMEOUT });
@@ -379,6 +461,7 @@ async function main() {
     if (!(moved > 0.5)) fail(`Pip did not move after the ending (${moved.toFixed(2)} m)`);
     step(`ending card shown and closed; free roam, Pip walked ${moved.toFixed(2)} m`);
     await ribbitParade();
+    await misoPlushies();
 
     // the completion tracker on the pause menu
     const tally = await page.evaluate(() => {
@@ -388,7 +471,8 @@ async function main() {
     });
     for (const k of ['guardians', 'seeds']) if (!tally[k] || tally[k].text !== '3/3' || !tally[k].full) fail(`pause tracker ${k}: ${JSON.stringify(tally[k])}, expected 3/3`);
     if (!tally.errands || tally.errands.text !== '2/2' || !tally.errands.full) fail(`pause tracker errands: ${JSON.stringify(tally.errands)}, expected 2/2`);
-    step(`pause tracker: guardians ${tally.guardians.text}, Starseeds ${tally.seeds.text}, errands ${tally.errands.text}`);
+    if (!tally.plushies || tally.plushies.text !== '3/3' || !tally.plushies.full) fail(`pause tracker plushies: ${JSON.stringify(tally.plushies)}, expected 3/3`);
+    step(`pause tracker: guardians ${tally.guardians.text}, Starseeds ${tally.seeds.text}, errands ${tally.errands.text}, plushies ${tally.plushies.text}`);
 
     // ---- 4. Save & Quit (from the pause menu), reload, Continue: the bloom comes back
     await page.evaluate(() => window.G.ui.onPauseChoice(5));
@@ -415,6 +499,7 @@ async function main() {
         ending: S.ending, seeds: S.seeds, bosses: S.bosses, bloom, liveBosses: Object.keys(g.bosses), errands: S.errands, shells: S.shells,
         shellsShown: [...g.scenery.shells.values()].filter((q) => q.shown).length,
         lanternsLit: [...g.scenery.lanterns.values()].filter((q) => q.shown && q.lit && q.glow === 1).length, ribbitFollows: g.npcs.find((n) => n.id === 'ribbit').follow,
+        plushies: S.plushies, plushiesShown: [...g.scenery.plushies.entries()].filter(([, o]) => o.visible).map(([q]) => q).sort(), v: S.v,
         pedSeeds: g.pedSeeds.map((m) => m.visible), treeSeeds: g.treeSeedsWanted() ? g.treeSeeds.every((m) => m.visible) : null,
       };
     });
@@ -426,8 +511,9 @@ async function main() {
     if (!back.pedSeeds.every(Boolean)) fail(`pedestal seeds not shown after Continue: ${JSON.stringify(back.pedSeeds)}`);
     if (back.errands.clover !== 2 || Object.keys(back.shells).filter((k) => k.startsWith('shell')).length !== 5 || back.shellsShown !== 0) fail(`Clover's errand not restored: ${JSON.stringify({ errands: back.errands, shells: back.shells, shown: back.shellsShown })}`);
     if (back.errands.ribbit !== 2 || ['lantern1', 'lantern2', 'lantern3', 'lantern4'].some((k) => back.shells[k] !== true) || back.lanternsLit !== 4 || back.ribbitFollows) fail(`Ribbit's parade not restored: ${JSON.stringify({ errands: back.errands, shells: back.shells, lit: back.lanternsLit, follows: back.ribbitFollows })}`);
+    if (JSON.stringify(back.plushies) !== JSON.stringify({ woods: true, shores: true, peaks: true }) || back.plushiesShown.join() !== 'peaks,shores,woods' || back.v !== 4) fail(`Miso's plushies not restored: ${JSON.stringify({ plushies: back.plushies, shown: back.plushiesShown, v: back.v })}`);
     if (problems.length) fail('errors after Continue');
-    step(`Continue restored the ending: bloomed tree, ${back.pedSeeds.length} seeds on the pedestal, no guardians left, Clover's errand done, Ribbit's parade done with 4 lanterns lit`);
+    step(`Continue restored the ending: bloomed tree, ${back.pedSeeds.length} seeds on the pedestal, no guardians left, Clover's errand done, Ribbit's parade done with 4 lanterns lit, 3 plushies on Miso's counter`);
   } catch (e) {
     for (const p of problems) console.error(`  - ${p}`);
     if (page) {

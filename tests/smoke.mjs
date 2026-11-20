@@ -107,7 +107,7 @@ async function main() {
     if (await openPause() !== 'pause') fail('the pause menu did not open');
     let t = await tally('#pause .ptrack');
     const r0 = await regionsSeen();
-    const want0 = { chests: `0/${nChests}`, hearts: '0/5', guardians: '0/3', regions: `${r0}/5`, seeds: '0/3', errands: '0/2' };
+    const want0 = { chests: `0/${nChests}`, hearts: '0/5', guardians: '0/3', regions: `${r0}/5`, seeds: '0/3', errands: '0/2', plushies: '0/3' };
     for (const [k, v] of Object.entries(want0)) if (!t[k] || t[k].text !== v || t[k].full) fail(`pause tracker ${k} on a new game: ${JSON.stringify(t[k])}, expected ${v}`);
     await closeMenus();
     const had3 = await page.evaluate(() => {
@@ -145,14 +145,21 @@ async function main() {
     if (!t.errands || t.errands.text !== '1/2' || t.errands.full || t.errands.tick || !t.pct || t.pct.full) fail(`pause tracker with one errand done: ${JSON.stringify({ errands: t.errands, pct: t.pct })}`);
     await closeMenus();
     await page.evaluate(() => { window.G.game.S.errands.ribbit = 2; });
+    // both errands done but no plushie bought yet: the Plushies chip and the total are still not complete
+    await openPause();
+    t = await tally('#pause .ptrack');
+    if (!t.plushies || t.plushies.text !== '0/3' || t.plushies.full || t.plushies.tick || !t.pct || t.pct.full) fail(`pause tracker without the plushies: ${JSON.stringify({ plushies: t.plushies, pct: t.pct })}`);
+    await closeMenus();
+    await page.evaluate(() => { window.G.game.S.plushies = { woods: true, shores: true, peaks: true }; });
     await openPause();
     t = await tally('#pause .ptrack');
     if (!t.errands || t.errands.text !== '2/2') fail(`pause tracker errands on a finished save: ${JSON.stringify(t.errands)}`);
+    if (!t.plushies || t.plushies.text !== '3/3') fail(`pause tracker plushies on a finished save: ${JSON.stringify(t.plushies)}`);
     for (const [k, v] of Object.entries(t)) if (!v.full || (k !== 'pct' && !v.tick)) fail(`pause tracker ${k} not marked complete: ${JSON.stringify(v)}`);
     if (!t.pct || t.pct.text !== '★ 100%') fail(`pause tracker total on a finished save: ${JSON.stringify(t.pct)}`);
     await closeMenus();
     if (problems.length) fail('errors with the completion tracker');
-    step(`completion tracker on the pause menu and the map: 0/${nChests} → 1/${nChests} chests, 1/3 guardians, ${r1}/5 regions, errands 0/2 → 1/2 → 2/2, ✓ and ★ 100% when finished`);
+    step(`completion tracker on the pause menu and the map: 0/${nChests} → 1/${nChests} chests, 1/3 guardians, ${r1}/5 regions, errands 0/2 → 1/2 → 2/2, plushies 0/3 → 3/3, ✓ and ★ 100% when finished`);
 
     // 2. Continue a valid v2 save (one chest open, one boss beaten and its seed placed, a saved position).
     // controlsV is the controls-card version the player has seen (CONTROLS_V in js/game.js); a save without it
@@ -186,10 +193,11 @@ async function main() {
     }
     if (Math.hypot(resumed.pos.x - save.px, resumed.pos.z - save.pz) > 0.5) fail(`resumed at ${JSON.stringify(resumed.pos)}, saved at ${save.px}, ${save.pz}`);
     if (resumed.liveBosses.includes('woods') || resumed.liveBosses.length !== 2) fail(`unexpected live bosses after continue: ${resumed.liveBosses}`);
-    // migrated to v3 on load (MIGRATIONS[2] in js/save.js): no errand started, no rainbow shell out
-    if (resumed.S.v !== 3 || JSON.stringify(resumed.S.errands) !== '{}' || JSON.stringify(resumed.S.shells) !== '{}') fail(`the v2 save was not migrated to v3: ${JSON.stringify({ v: resumed.S.v, errands: resumed.S.errands, shells: resumed.S.shells })}`);
+    // migrated to v4 on load (MIGRATIONS[2] and [3] in js/save.js): no errand started, no rainbow shell out, no plushie
+    if (resumed.S.v !== 4 || JSON.stringify(resumed.S.errands) !== '{}' || JSON.stringify(resumed.S.shells) !== '{}' || JSON.stringify(resumed.S.plushies) !== '{}') fail(`the v2 save was not migrated to v4: ${JSON.stringify({ v: resumed.S.v, errands: resumed.S.errands, shells: resumed.S.shells, plushies: resumed.S.plushies })}`);
+    if (await page.evaluate(() => [...window.G.game.scenery.plushies.values()].some((o) => o.visible))) fail('plushies on Miso\'s counter after continuing a save without any');
     if (problems.length) fail('errors after continuing a valid save');
-    step('valid v2 save continued (migrated to v3) with the same chests, bosses, seeds and position');
+    step('valid v2 save continued (migrated to v4) with the same chests, bosses, seeds and position');
 
     // 2b. The stored settings are in effect (Low: the small shadow map; motion comfort: the calm HUD), and a change
     // made now is written back next to the ones that were there, the unknown key included.

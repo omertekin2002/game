@@ -472,6 +472,10 @@ export const HOUSE_DRESSING = {
   shop: [[1.45, -2.05, 0.6, 1.0], [-1.4, -2.05, 0.3, 0.6], [-0.9, -2.15, 0.26, 0.5]],
 };
 export const SHOP_COUNTER = { top: 0.57, gap: [0.04, 1.05] };   // counter top (m) and the clear stretch in front of Miso (model x)
+// Miso's guardian plushies (data.js PLUSHIES) on the counter's front edge, by guardian id: model x / z, yaw, outside the
+// clear stretch (gap) so Miso's face stays in view: two in front of the bread and the honey jar, one in front of the potions
+export const PLUSHIE_SPOTS = { woods: [-0.46, 2.72, 0.25], shores: [-0.14, 2.74, -0.15], peaks: [1.28, 2.73, -0.2] };
+export const PLUSHIE_SIZE = { h: 0.2, w: 0.22 };   // fits inside h tall and w wide / deep (m)
 export const HOUSE_WINDOWS = {
   house_a: [onWallA(0.65, 1.12, 0.34), onWallA(-0.7, 1.12, 0.3), onWallA(Math.PI + 0.45, 1.15, 0.3), onWallA(-1.62, 1.15, 0.28)],
   house_b: [{ x: 1.15, y: 1.12, z: 1.625, ry: 0, w: 0.6, h: 0.6 }, { x: -1.15, y: 1.12, z: 1.625, ry: 0, w: 0.6, h: 0.6 },

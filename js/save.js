@@ -1,9 +1,9 @@
 // Save schema: version, fresh state, migration and load-time validation.
 // Pure module (no Three.js, DOM or localStorage) so `bun test` can import it. js/game.js does the storage.
-import { CFG, SEED_ORDER } from './data.js';
+import { BOSSES, CFG, SEED_ORDER } from './data.js';
 
 // Bump when the save layout changes, and add a MIGRATIONS step from the previous version.
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 
 export function freshState(seed) {
   return {
@@ -11,6 +11,7 @@ export function freshState(seed) {
     seeds: { woods: 0, peaks: 0, shores: 0 }, chests: {}, bosses: {}, shopHeart: false, ending: false,
     tod: CFG.startTimeOfDay, visited: {}, introDone: false, controlsSeen: false, playTime: 0, px: null, pz: null, facing: Math.PI,
     errands: {}, shells: {},   // v3: errand id → 1 started / 2 done (data.js ERRANDS); errand item flags: id → true (a rainbow shell picked up, a parade lantern lit)
+    plushies: {},              // v4: Miso's guardian plushies bought: guardian id (BOSSES key) → true (data.js PLUSHIES)
   };
 }
 
@@ -19,6 +20,8 @@ export function freshState(seed) {
 export const MIGRATIONS = {
   // v2 → v3: villager errands (Clover's rainbow shells). Every v2 field is kept as it is; nothing has started yet
   2: (s) => ({ ...s, errands: {}, shells: {} }),
+  // v3 → v4: Miso's guardian plushies. Every v3 field (errands and their item flags included) is kept; none bought yet
+  3: (s) => ({ ...s, plushies: {} }),
 };
 
 const isObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
@@ -65,6 +68,8 @@ export function normalize(s, seed) {
   out.bosses = flags(s.bosses);
   out.visited = flags(s.visited);
   out.shells = flags(s.shells);
+  out.plushies = {};
+  if (isObj(s.plushies)) for (const id of Object.keys(BOSSES)) if (s.plushies[id] === true) out.plushies[id] = true;   // guardian ids, true only
   out.errands = {};
   if (isObj(s.errands)) for (const k of Object.keys(s.errands)) { const n = Math.round(clampNum(s.errands[k], 0, 2, 0)); if (n > 0) out.errands[k] = n; }
   for (const k of ['shopHeart', 'ending', 'introDone', 'controlsSeen']) out[k] = !!s[k];

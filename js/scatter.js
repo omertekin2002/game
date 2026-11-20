@@ -16,7 +16,7 @@ import * as THREE from 'three';
 import { HALF, CHUNK, NCH } from './world.js';
 import { toonMat, sharedOutline, outlineMat, meshWithOutline, outlineGeometry, radialProfile, setHullProfile } from './toon.js';
 import { makeModel, Assets } from './assets.js';
-import { propModel, PROP_KIND, houseA, houseB, shopModel, greatTreeParts, bridgeGeo, chestParts, rainbowShellModel, paradeLanternModels } from './props.js';
+import { propModel, PROP_KIND, houseA, houseB, shopModel, greatTreeParts, bridgeGeo, chestParts, rainbowShellModel, paradeLanternModels, SHOP_COUNTER, PLUSHIE_SPOTS, PLUSHIE_SIZE } from './props.js';
 import { hash2 } from './util.js';
 import { perf as TP } from './tune.js';
 import { proxyGeometry } from './perf/lod.js';
@@ -115,6 +115,7 @@ export class Scenery {
     this.chests = new Map();
     this.shells = new Map();         // Clover's rainbow shells (W.shells): hidden until her errand puts them out
     this.lanterns = new Map();       // Ribbit's parade lanterns (W.lanterns): hidden until the parade starts, then unlit / lit
+    this.plushies = new Map();       // Miso's guardian plushies on her counter (guardian id → mesh): hidden until bought
     this.cullOff = false;            // G.debug.perf.cull(false): everything packed, full models only (base for A/B)
     this.packs = 0; this.packMs = 0; // stats
     this._v = null; this.dirty = true;
@@ -129,6 +130,7 @@ export class Scenery {
     this.buildChests();
     this.buildShells();
     this.buildLanterns();
+    this.buildPlushies();
   }
   buildInstanced(list) {
     const byType = new Map();
@@ -497,6 +499,45 @@ export class Scenery {
       this.lanterns.set(it.id, L);
       this.tintLantern(L);
     }
+  }
+  /** Miso's guardian plushies: one small copy of each guardian's model (one mesh + its outline, no shadow) on the counter,
+   *  in a group that shares the shop's transform, at fixed offsets (props.js PLUSHIE_SPOTS: no world RNG, no colliders).
+   *  All hidden; game.syncPlushies / a purchase shows the bought ones. Without a guardian model, a small toon blob */
+  buildPlushies() {
+    const W = this.W;
+    if (!W.shop) return;
+    const g = new THREE.Group();
+    g.name = 'plushies';
+    g.position.set(W.shop.x, W.shop.y - 0.05, W.shop.z);
+    g.rotation.y = W.shop.rot;
+    g.userData.cull = { dist: 60 };
+    const keys = { woods: 'boss_shroom', shores: 'boss_crab', peaks: 'boss_frost' }, tint = { woods: 0xb07ad8, shores: 0xff7a5a, peaks: 0xc8ecff };
+    const box = new THREE.Box3(), size = new THREE.Vector3();
+    for (const [id, [x, z, ry]] of Object.entries(PLUSHIE_SPOTS)) {
+      const m = makeModel(keys[id], { outline: 'prop', cast: false, height: 1 });
+      let o;
+      if (m) {
+        o = m.group;
+        box.setFromObject(o); box.getSize(size);   // fit the 1 m model inside the plushie's box, feet on the counter
+        o.scale.setScalar(Math.min(PLUSHIE_SIZE.h / Math.max(size.y, 1e-3), PLUSHIE_SIZE.w / Math.max(size.x, size.z, 1e-3)));
+      } else {
+        const mat = toonMat({ color: tint[id], rim: 0.6 });
+        o = meshWithOutline(new THREE.SphereGeometry(PLUSHIE_SIZE.w * 0.45, 12, 8), mat, mats().solid.ol, { cast: false });
+        o.position.y = PLUSHIE_SIZE.w * 0.4;
+        o = new THREE.Group().add(o);
+      }
+      o.position.set(x, SHOP_COUNTER.top, z);
+      o.rotation.y = ry;
+      o.visible = false;
+      g.add(o);
+      this.plushies.set(id, o);
+    }
+    this.root.add(g);
+  }
+  /** show / hide a bought guardian plushie on Miso's counter (guardian id, data.js PLUSHIES `boss`) */
+  setPlushie(id, on) {
+    const o = this.plushies.get(id);
+    if (o) o.visible = !!on;
   }
   /** a lantern's look at glow g (0 unlit cream paper, 1 lit warm and glowing) */
   tintLantern(L) {

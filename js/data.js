@@ -70,6 +70,45 @@ export const SHOP = [
   { id: 'sword', name: 'Shiny Sword', price: 150, icon: 'sword_shiny', desc: 'Double damage, longer reach, extra sparkly.' },
 ];
 
+// Miso's keepsakes: one plushie per guardian (BOSSES key `boss`), a gem sink once the shop is bought out. In stock once
+// the Heart Container and the Shiny Sword are both sold and its guardian is beaten; one of each. A bought one is a flag in
+// the save (S.plushies[boss] = true, save v4) and sits on Miso's counter (scenery.setPlushie). Same order as BOSSES
+export const PLUSHIES = [
+  { id: 'plush_woods', boss: 'woods', name: 'Grumble Shroom plushie', price: 80, icon: 'boss_shroom', desc: 'Squishy, and only a little grumpy. Stitched by Miso.', got: 'A Grumble Shroom plushie! He is grumbling softly. Mrrow~' },
+  { id: 'plush_shores', boss: 'shores', name: 'Captain Pinch plushie', price: 80, icon: 'boss_crab', desc: 'Felt claws and a tiny hat. Only pinches hugs.', got: 'A Captain Pinch plushie! Snip snip, purr purr~' },
+  { id: 'plush_peaks', boss: 'peaks', name: 'Frostbun plushie', price: 80, icon: 'boss_frost', desc: 'Cool to the touch, warm to the heart.', got: 'A Frostbun plushie! Brr-illiant. Mrrow~' },
+];
+
+const isObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
+const beaten = (S, id) => isObj(S && S.bosses) && S.bosses[id] === true;
+const plushGot = (S, id) => isObj(S && S.plushies) && S.plushies[id] === true;
+/** Miso's stock rules, pure so `bun test` covers them: ui.js renders and navigates shop.items(S) and buys through
+ *  shop.check, interact.js (buy) applies a purchase */
+export const shop = {
+  /** the plushies unlock once the Heart Container and the Shiny Sword are both sold */
+  boughtOut: (S) => !!S && S.shopHeart === true && S.swordLevel >= 2,
+  /** the rows to show, in order: the three base items, then a plushie per beaten guardian once the shop is bought out */
+  items: (S) => (shop.boughtOut(S) ? SHOP.concat(PLUSHIES.filter((p) => beaten(S, p.boss))) : SHOP.slice()),
+  /** 'ok' (can be bought) | 'sold' (one of a kind, already bought) | 'full' (potion pockets full) */
+  state(item, S) {
+    if (item.id === 'potion') return S.potions >= CFG.potionMax ? 'full' : 'ok';
+    if (item.id === 'heart') return S.shopHeart ? 'sold' : 'ok';
+    if (item.id === 'sword') return S.swordLevel >= 2 ? 'sold' : 'ok';
+    if (item.boss) return plushGot(S, item.boss) ? 'sold' : 'ok';
+    return 'ok';
+  },
+  /** why a buy is refused ('sold' | 'full' | 'poor', a missing gem count is poor) or 'ok' */
+  check(item, S) {
+    const st = shop.state(item, S);
+    if (st !== 'ok') return st;
+    return (S.coins || 0) < item.price ? 'poor' : 'ok';
+  },
+  /** plushies bought (the tracker's row): only guardian ids, only true flags */
+  plushies: (S) => PLUSHIES.filter((p) => plushGot(S, p.boss)).length,
+  /** plushies on sale right now (shown and not bought yet) */
+  inStock: (S) => shop.items(S).filter((it) => it.boss && !plushGot(S, it.boss)).length,
+};
+
 // ---------------- dialogue ----------------
 const found = (S) => SEED_ORDER.filter((k) => S.seeds[k] > 0).length;
 const placed = (S) => SEED_ORDER.filter((k) => S.seeds[k] === 2).length;
@@ -101,7 +140,6 @@ export const ERRANDS = [
     itemLabel: 'Parade lantern', itemColor: '#ffe2a8',
   },
 ];
-const isObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 const flagged = (S, k) => isObj(S && S.shells) && S.shells[k] === true;
 export const errands = {
   /** the ERRANDS entry with this id (or for this NPC), or null */
@@ -207,9 +245,16 @@ export const NPCS = [
   },
   {
     id: 'miso', name: 'Miso', key: 'npc_cat', wander: 0, shop: true,
+    // after the bloom or before, her first line; once the shop is bought out, a line about her guardian plushies
+    // (PLUSHIES): in stock, some bought, all three bought. Without plushie news her lines are unchanged
     lines(S) {
-      if (S.ending) return ['Mrrow~ The whole isle smells like blossoms now. Business is blooming too!'];
-      return ['Mrrow~ Welcome to Miso\'s! Everything on the counter is shiny and nothing is refundable.'];
+      const out = [S.ending ? 'Mrrow~ The whole isle smells like blossoms now. Business is blooming too!' : 'Mrrow~ Welcome to Miso\'s! Everything on the counter is shiny and nothing is refundable.'];
+      const got = shop.plushies(S), stock = shop.inStock(S);
+      if (got >= PLUSHIES.length) out.push('All three guardian plushies, sitting in a row on my counter! Grumpy, snippy, chilly... and so soft. Best customer on the isle, mrrow~');
+      else if (stock > 0 && got === 0) out.push('Psst... I stitched little plushies of the guardians you calmed down. Soft as a sunny nap, and only 80 gems each~');
+      else if (stock > 0) out.push('Your plushies are keeping my counter company. I have another one ready if you want it~');
+      else if (got > 0) out.push('I keep your plushies right here on the counter, so the whole village can wave at them. Calm another guardian and I will stitch one more~');
+      return out;
     },
   },
   {
