@@ -185,10 +185,10 @@ player wins about two in three. The wooden sword is the balance reference.
   The second is **Mayor Ribbit's bloom parade**: after the ending, his old "This calls for a parade. You lead, I will hop
   behind" is the start of it. Talking to him puts out **4 paper lanterns** around Sprout Village (one beside the walk up
   to the Great Tree's altar, one by the plaza signpost, one in front of Miso's shop, one at the village edge on the Meadow
-  path; he says where) and he hops along a few metres behind Pip, stopping when Pip stops. Far behind or stuck, he hops
+  path; he says where) and he hops along a few metres behind Pip, stopping when Pip stops and stepping aside if Pip turns back into him. Far behind or stuck, he hops
   to a spot just behind Pip; if Pip leaves the village he waits at its edge and follows again when Pip comes back. A
   lantern lights when Pip walks within 2.5 m of it with Ribbit within 6 m of Pip: no button, the paper warms from cream
-  to a soft glow over a moment (a chime and a few slow motes, fewer with Motion comfort), a feed line counts "Parade
+  to a soft amber glow over a moment (a chime and a few slow motes; Motion comfort thins them and stills the lanterns' sway), a feed line counts "Parade
   lantern 2/4" and it is saved at once. With all four lit Ribbit hops home, and a talk there finishes the parade: his
   victory croak finally works and he gives 50 gems, once. The lanterns stay lit for good. Following is not saved: after
   Continue Ribbit is home again, the lit lanterns still lit, and a talk picks the parade up again.

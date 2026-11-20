@@ -16,6 +16,8 @@ import { dampAngle, wrapAngle, rand, len2, TAU, angDiff, clamp, damp } from './u
 import { actors as TA, world as TW } from './tune.js';
 
 const _box = new THREE.Box3();
+// catch-up hop: distances behind Pip and turns off straight behind (rad) tried, in order
+const CATCH_D = [TA.followCatch, TA.followCatch + 1], CATCH_K = [0, 0.5, -0.5, 1, -1, 1.6, -1.6, 2.3, -2.3, Math.PI];
 
 export class NPC {
   constructor(def, spot) {
@@ -40,6 +42,7 @@ export class NPC {
     this.follow = false;                    // follow mode (Ribbit's parade): trails Pip (followUpdate)
     this.homing = false;                    // walking back to his spot after the parade (homeUpdate)
     this.followT = 0; this.stuckT = 0;      // follow: time to the next little hop; time spent blocked (s)
+    this.catchT = 0;                        // follow: time before the next catch-up attempt (s)
     this.catchUps = 0;                      // follow: catch-up hops so far (tests read it)
     this.root = new THREE.Group();
     const glb = makeModel(def.key);
@@ -98,6 +101,9 @@ export class NPC {
     this.pos.y = G.world.ground(this.pos.x, this.pos.z);
     const moved = Math.hypot(this.pos.x - x0, this.pos.z - z0);
     this.stuckT = moved < s * 0.3 ? this.stuckT + dt : Math.max(0, this.stuckT - dt * 2);
+    // blocked for a while (a wall, the shore) with no hop that gets him out: he stands and waits instead of walking and
+    // hopping on the spot; he keeps trying the step, so he moves on as soon as the way opens
+    if (this.stuckT > TA.followStuck) { this.state = 'idle'; return true; }
     this.state = 'walk';
     this.followT -= dt;
     if (this.followT <= 0) { this.bounce(2.2); this.followT = TA.followHop; }
@@ -106,7 +112,7 @@ export class NPC {
   /** a clear spot just behind Pip (inside the village circle), or null */
   spotBehind(pl) {
     const W = G.world, back = pl.facing + Math.PI;
-    for (const d of [TA.followCatch, TA.followCatch + 1]) for (const k of [0, 0.5, -0.5, 1, -1, 1.6, -1.6, 2.3, -2.3, Math.PI]) {
+    for (const d of CATCH_D) for (const k of CATCH_K) {
       const a = back + k, x = pl.pos.x + Math.sin(a) * d, z = pl.pos.z + Math.cos(a) * d;
       if (Math.hypot(x, z) > TW.paradeR || !W.walkable(x, z) || penetration(W, x, z, this.r) > 0.01) continue;
       if (Math.abs(W.ground(x, z) - pl.pos.y) > 1.2) continue;   // not up on a ledge or down a bank
@@ -118,7 +124,9 @@ export class NPC {
   followUpdate(dt, pl) {
     const R = TW.paradeR, pr = Math.hypot(pl.pos.x, pl.pos.z), out = pr > R;
     const dP = len2(pl.pos.x - this.pos.x, pl.pos.z - this.pos.z), toP = Math.atan2(pl.pos.x - this.pos.x, pl.pos.z - this.pos.z);
-    if (!out && (dP > TA.followFar || this.stuckT > TA.followStuck)) {
+    this.catchT = Math.max(0, (this.catchT || 0) - dt);
+    if (!out && this.catchT <= 0 && (dP > TA.followFar || this.stuckT > TA.followStuck)) {
+      this.catchT = 0.25;   // no clear spot (Pip on a ledge, in the water): try again in a moment, not every step
       const q = this.spotBehind(pl);
       if (q) {
         this.pos.set(q.x, G.world.ground(q.x, q.z), q.z);
@@ -129,6 +137,16 @@ export class NPC {
         return;
       }
     }
+    // Pip walks back into him: he steps aside (backs away from Pip) rather than stand in the way of a narrow spot
+    if (!out && dP < TA.followGap - 0.8 && !this.backHop) {
+      const ax = dP > 1e-3 ? (this.pos.x - pl.pos.x) / dP : Math.sin(this.facing), az = dP > 1e-3 ? (this.pos.z - pl.pos.z) / dP : Math.cos(this.facing);
+      const s = Math.min(TA.followGap - dP, 2.6 * dt);
+      moveCircle(G.world, this, ax * s, az * s, { r: this.r, extra: [{ x: pl.pos.x, z: pl.pos.z, r: pl.r }] });
+      this.pos.y = G.world.ground(this.pos.x, this.pos.z);
+      this.state = 'walk';
+      this.facing = dampAngle(this.facing, toP, 6, dt);
+      return;
+    }
     // the target: Pip, or the edge of the village circle on his side while he is out of it
     const k = out ? (R - 2) / pr : 1;
     const moving = this.stepToward(dt, pl.pos.x * k, pl.pos.z * k, out ? 0.4 : TA.followGap, pl);
@@ -137,7 +155,7 @@ export class NPC {
       this.facing = dampAngle(this.facing, toP, 6, dt);
     }
   }
-  /** after the parade: walk home; blocked for a while, hop there instead */
+  /** after the parade: walk home; blocked for a while (in view or not), hop there instead */
   homeUpdate(dt, pl) {
     const away = len2(this.home.x - this.pos.x, this.home.z - this.pos.z);
     if (away < 0.6 || this.stuckT > TA.followStuck * 2) {

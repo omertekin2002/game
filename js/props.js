@@ -250,9 +250,10 @@ function paradePost() {
   for (let i = 0; i < 2; i++) b.sphere(0.1, 0x7cbf4a, { x: (i ? -1 : 1) * 0.16, y: 0.06, z: 0.1, sy: 0.6, ws: 8, hs: 6 });
   return b.build();
 }
+export const PARADE_PAPER = { x: 0.38, y: 1.12 };   // the paper's centre in model space (the post at the origin)
 function paradePaper() {
   const b = new GB();
-  b.sphere(0.2, 0xffffff, { x: 0.38, y: 1.12, sy: 0.85, ws: 12, hs: 9, glow: 1 });
+  b.sphere(0.2, 0xffffff, { x: PARADE_PAPER.x, y: PARADE_PAPER.y, sy: 0.85, ws: 12, hs: 9, glow: 1 });
   return b.build();
 }
 export function paradeLanternModels() { return cache.paradeLantern || (cache.paradeLantern = { post: paradePost(), paper: paradePaper() }); }

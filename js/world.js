@@ -6,7 +6,7 @@ import { REGION, SIGNS, DOOR_LINES } from './data.js';
 import { world as TW } from './tune.js';
 import { WorldCollide } from './world-collide.js';
 import { SIZE, HALF, N, CHUNK, NCH } from './world-const.js';
-import { HOUSE_DRESSING, LANDMARK_R } from './props.js';
+import { HOUSE_DRESSING, LANDMARK_R, PARADE_PAPER } from './props.js';
 
 export { SIZE, HALF, N, CHUNK, NCH };
 
@@ -1629,7 +1629,7 @@ export class World {
   }
 
   /** Mayor Ribbit's parade (data.js ERRANDS 'ribbit'): W.lanterns = four paper lanterns [{ id: 'lantern1'…'lantern4',
-   *  kind: 'lantern', x, y, z, at }], one per village spot Ribbit names: beside the walk up to the Great Tree's altar, by
+   *  kind: 'lantern', x, y, z, rot, paper: { x, y, z }, at }], one per village spot Ribbit names: beside the walk up to the Great Tree's altar, by
    *  the plaza signpost, in front of Miso's shop and at the village edge on the Meadow path. A post-pass like
    *  placeShells: its own RNG stream, nothing added to the world's lists (a lantern has no collider: Pip lights it by
    *  walking past) and W.walk / W.reach put back. A spot is flat dry ground inside TW.paradeR of the plaza centre, off
@@ -1676,8 +1676,10 @@ export class World {
       }
       if (!got) got = scan(centres[0][0], centres[0][1], r0, r1 * 2 + 4);   // not seen on seeds 1–40
       if (got) {
-        const x = +got.x.toFixed(3), z = +got.z.toFixed(3);
-        out.push({ id: 'lantern' + (out.length + 1), kind: 'lantern', x, y: this.hAt(x, z), z, at });
+        // rot: the post's turn (a hash, no draw); paper: the hanging paper's centre, where the light-up motes go
+        const x = +got.x.toFixed(3), z = +got.z.toFixed(3), y = this.hAt(x, z), rot = hash2(Math.round(x * 10), Math.round(z * 10), 13) * TAU;
+        const paper = { x: x + Math.cos(rot) * PARADE_PAPER.x, y: y + PARADE_PAPER.y, z: z - Math.sin(rot) * PARADE_PAPER.x };
+        out.push({ id: 'lantern' + (out.length + 1), kind: 'lantern', x, y, z, rot, paper, at });
       }
     }
     this.lanterns = out;

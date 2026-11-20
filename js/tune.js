@@ -391,13 +391,14 @@ export const actors = {
   // NPCs (art §10)
   npcLook: 4.0, npcWave: 2.6, npcBackHop: 1.1,
   npcHome: 0.9,               // a stay-at-home villager the back-hop moved walks back to her spot at this speed (m/s)
-  // Mayor Ribbit's parade (npcs.js follow mode, interact.js tickErrands): he trails followGap m behind Pip and stops
-  // inside followStop m, at followK × (distance − gap) m/s up to followSpeed (faster than Pip's sprint, so he trails
-  // ≈ 3.5 m behind a run and ≈ 3.9 m behind a sprint) with a little hop every followHop s; further than followFar m, or stuck
+  // Mayor Ribbit's parade (npcs.js follow mode, interact.js tickErrands): he trails followGap m behind Pip (past the TP
+  // camera's 2.6 m boom) and stops inside followStop m, at followK × (distance − gap) m/s up to followSpeed (faster than
+  // Pip's sprint, so he trails ≈ 4.2 m behind a run and ≈ 4.5 m behind a sprint) with a little hop every followHop s;
+  // closer than followGap − 0.8 m he steps back out of Pip's way; further than followFar m, or stuck
   // for followStuck s, he hops to a spot just behind Pip (followCatch m). With Pip outside the village circle
   // (world.paradeR) he waits at its edge. A lantern lights with Pip within paradeLight m (XZ) and Ribbit within
-  // paradeNear m of Pip. When the parade is over he walks home at followSpeed (or hops there once out of sight)
-  followGap: 2.4, followStop: 2.8, followSpeed: 6.4, followK: 4, followHop: 0.42, followFar: 14, followStuck: 1.2, followCatch: 2.2,
+  // paradeNear m of Pip. When the parade is over he walks home at followSpeed (blocked for 2 × followStuck s, he hops there)
+  followGap: 3.2, followStop: 3.6, followSpeed: 6.6, followK: 4.5, followHop: 0.42, followFar: 14, followStuck: 1.2, followCatch: 3.0,
   paradeLight: 2.5, paradeNear: 6,
   // r4 gem / heart drops in first person (entities.js Pickup): launched away from Pip within ±awayDeg at speed m/s, vy
   // capped at vyMax (apex ≈ 0.34 m over the spawn: under the eye; a chest's own fountain keeps its vy), the magnet pulls

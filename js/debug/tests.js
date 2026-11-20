@@ -153,6 +153,7 @@ async function prepare(t, o = {}) {
     n.pos.set(n.home.x, game.world.ground(n.home.x, n.home.z), n.home.z); n.prev.copy(n.pos);
     n.facing = n.prevFacing = sp && sp.rot != null ? sp.rot : 0;
     n.state = 'idle'; n.st = 2; n.talking = false; n.hop = n.hopV = 0; n.ph = i * 1.3;
+    n.follow = false; n.homing = false; n.stuckT = 0;   // out of Ribbit's parade follow mode
   });
   for (const P of [game.fx.norm, game.fx.add]) { P.free.push(...P.list); P.list.length = 0; }
   for (const r of game.regrow) { r.o.cut = false; game.scenery.show(r.o); if (r.o.collider) r.o.collider.active = true; }

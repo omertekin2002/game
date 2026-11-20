@@ -204,18 +204,26 @@ export const InteractMixin = {
       for (let i = 0; i < 8; i++) this.fx.sparkle(it.x, it.y + 0.3, it.z, pick([0xff9fb6, 0xfff4a0, 0xa8e4ff, 0xb8ffb0, 0xd8b0ff]), 1, 0.5);
     } else {
       // a soft light-up: a warm chime and a few slow motes (fewer with motion comfort), no flash or burst
-      sfx('sparkle', { x: it.x, y: it.y + 1.1, z: it.z });
-      const k = this.settings && this.settings.get('reduceMotion') ? 2 : 5;
-      for (let i = 0; i < k; i++) this.fx.sparkle(it.x + rand(-0.2, 0.2), it.y + rand(1.0, 1.4), it.z + rand(-0.2, 0.2), pick([0xfff4a0, 0xffd38a]), 1, 0.25);
+      sfx('sparkle', it.paper || { x: it.x, y: it.y + 1.1, z: it.z });
+      const k = this.calmFx() ? 2 : 5, c = it.paper || { x: it.x, y: it.y + 1.1, z: it.z };
+      for (let i = 0; i < k; i++) this.fx.sparkle(c.x + rand(-0.2, 0.2), c.y + rand(-0.1, 0.3), c.z + rand(-0.2, 0.2), pick([0xfff4a0, 0xffd38a]), 1, 0.25);
     }
     this.ui.selfFloater(e.itemLabel + ' ' + n + '/' + e.count, e.itemColor);
     if (n >= e.count) {
       this.ui.toast('✿ ' + e.allToast);
-      const npc = e.follow ? this.npcs.find((q) => q.id === e.npc) : null;
+      const npc = e.follow ? this.errandNpc(e) : null;
       if (npc) npc.goHome();
     }
     this.save(true);
     return true;
+  },
+  /** Motion comfort is on: errand effects stay calm (fewer motes, no lantern sway) */
+  calmFx() { return !!(this.settings && this.settings.get('reduceMotion')); },
+  /** the villager an errand belongs to (looked up once) */
+  errandNpc(e) {
+    const m = this._errandNpcs || (this._errandNpcs = new Map());
+    if (!m.has(e.id)) m.set(e.id, this.npcs.find((q) => q.id === e.npc) || null);
+    return m.get(e.id);
   },
   /** fixed step: a 'walk' errand item lights when Pip passes within TA.paradeLight m (XZ) of it while its villager
    *  follows close behind (within TA.paradeNear m of Pip). Free play only: never during a talk, a menu or a cutscene */
@@ -225,7 +233,7 @@ export const InteractMixin = {
     for (const e of ERRANDS) {
       if (e.how !== 'walk' || errands.state(S, e.id) !== 1) continue;
       if (e.follow) {
-        const npc = this.npcs.find((q) => q.id === e.npc);
+        const npc = this.errandNpc(e);
         if (!npc || !npc.follow || len2(npc.pos.x - pl.pos.x, npc.pos.z - pl.pos.z) > TA.paradeNear) continue;
       }
       for (const it of W[e.list] || []) {
@@ -234,9 +242,10 @@ export const InteractMixin = {
     }
   },
   /** a soft twinkle over each errand item that is still out within 40 m (rainbow over a shell, warm over an unlit
-   *  lantern; sim time: it holds under menus) */
+   *  lantern, fewer with Motion comfort). Called each render frame, skipped while the clock holds or a dialogue is up */
   tickErrandFx(dt) {
-    const W = this.world, S = this.S, pl = this.player;
+    const W = this.world, S = this.S, pl = this.player, calm = this.calmFx();
+    this.scenery.calm = calm;   // the lanterns' sway
     if (!S) return;
     this._shellT = (this._shellT || 0) - dt;
     if (this._shellT > 0) return;
@@ -246,7 +255,7 @@ export const InteractMixin = {
       const lantern = e.how === 'walk';
       for (const it of W[e.list] || []) {
         if (!errands.itemOut(S, e, it.id) || Math.abs(it.x - pl.pos.x) > 40 || Math.abs(it.z - pl.pos.z) > 40) continue;
-        if (lantern) { if (Math.random() < 0.5) this.fx.sparkle(it.x + 0.38 + rand(-0.12, 0.12), it.y + rand(1.0, 1.3), it.z + rand(-0.12, 0.12), pick([0xfff4a0, 0xffe2a8]), 1, 0.25); }
+        if (lantern) { const c = it.paper || it; if (Math.random() < (calm ? 0.2 : 0.5)) this.fx.sparkle(c.x + rand(-0.12, 0.12), c.y + rand(-0.12, 0.18), c.z + rand(-0.12, 0.12), pick([0xfff4a0, 0xffe2a8]), 1, 0.25); }
         else this.fx.sparkle(it.x + rand(-0.15, 0.15), it.y + rand(0.35, 0.7), it.z + rand(-0.15, 0.15), pick([0xff9fb6, 0xfff4a0, 0xa8e4ff, 0xb8ffb0, 0xd8b0ff]), 1, 0.3);
       }
     }

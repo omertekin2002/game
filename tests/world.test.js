@@ -159,6 +159,8 @@ describe.each(SEEDS)('seed %p', (seed) => {
       for (const t of w.lanterns) if (t !== s) expect(Math.hypot(t.x - s.x, t.z - s.z)).toBeGreaterThanOrEqual(8);
       for (const t of w.shells) expect(t.id).not.toBe(s.id);
       expect(lanternNear(w, s)).toBe(true);
+      expect(Math.hypot(s.paper.x - s.x, s.paper.z - s.z)).toBeCloseTo(0.38, 5);   // the hanging paper, out along the arm
+      expect(s.paper.y).toBeGreaterThan(s.y + 1);
     }
   }, SLOW);
 

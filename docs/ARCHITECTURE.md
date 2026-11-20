@@ -384,7 +384,7 @@ streams, so the main stream (and with it the scatter) of a seed stays stable.
 | `W.arenas[id] { x, z, r, h, entAng, entrance, outside, ring }` | the three boss arenas (r 14 m) and their edge rings |
 | `W.paths`, `W.pathF / pathFAt`, `W.woodsGaps`, `W.signpost`, `W.waymarkers`, `W.lamps`, `W.chests`, `W.houses`, `W.shop`, `W.npcSpots`, `W.interact` | paths and dressing, interactables |
 | `W.shells [{ id: 'shell1'…'shell5', kind: 'shell', x, y, z, at }]` | Clover's rainbow shells (`at`: `lighthouse`, `islet1`, `islet2`, `cove`, `path`). `placeShells()` runs after everything else in `generate()` on its own RNG (`seed × 41 + 29`), adds nothing to any other list and restores `W.walk` / `W.reach`, so no existing placement moves on any seed (`tests/world.test.js` compares with `tests/fixtures/world-prints.json`). Each spot is dry Shores sand (an islet counts as Shores), flat, ≥ 3 m off the path, clear of solids, colliders, reservations (bar the islets' own), bridges, chests and NPC spots, outside the arena ring and reachable. A spot is tried 160 times at random in its ring, then the whole ring is scanned every 0.5 m, so the shell is where Clover says (seeds 1–300 checked; `tests/world.test.js` checks 1–40); only then does it widen. `generateWorld(seed, { shells: false })` skips the pass. Not in `W.interact`: `interactables()` (`js/targeting.js`) offers the ones that are out |
-| `W.lanterns [{ id: 'lantern1'…'lantern4', kind: 'lantern', x, y, z, at }]` | Mayor Ribbit's parade lanterns (`at`: `altar`, `signpost`, `shop`, `meadow`). `placeLanterns()` runs last in `generate()`, after `placeShells()`, on its own RNG (`seed × 53 + 7`) with the same guarantees: nothing added to any other list (a lantern has no collider), `W.walk` / `W.reach` restored. Each spot is inside `TUNE.world.paradeR − 6` of the plaza centre, flat (slope < 0.45), ≥ 2.2 m off the paths and off the z = 9 test line, clear of solids, colliders, bridges, chests, interactables, NPC spots and the spawn, ≥ 8 m from the others and reachable; 160 random tries per centre, then a 0.5 m scan (the Meadow spot tries four points along its path). `generateWorld(seed, { lanterns: false })` skips the pass. Not interactables: `tickErrands` lights them |
+| `W.lanterns [{ id: 'lantern1'…'lantern4', kind: 'lantern', x, y, z, rot, paper: { x, y, z }, at }]` | Mayor Ribbit's parade lanterns (`at`: `altar`, `signpost`, `shop`, `meadow`). `placeLanterns()` runs last in `generate()`, after `placeShells()`, on its own RNG (`seed × 53 + 7`) with the same guarantees: nothing added to any other list (a lantern has no collider), `W.walk` / `W.reach` restored. Each spot is inside `TUNE.world.paradeR − 6` of the plaza centre, flat (slope < 0.45), ≥ 2.2 m off the paths and off the z = 9 test line, clear of solids, colliders, bridges, chests, interactables, NPC spots and the spawn, ≥ 8 m from the others and reachable; 160 random tries per centre, then a 0.5 m scan (the Meadow spot tries four points along its path). `generateWorld(seed, { lanterns: false })` skips the pass. Not interactables: `tickErrands` lights them |
 
 **9.3 Colliders.** `W.colliders`, hashed in 4 m cells: `{ x, z, r (bounding), kind, shape: 'circle'|'obb'|'star', hx, hz,
 rot, y0, y1, camTop, rEye, stand, over, canopy, body, … }`. Heights are baked from `COLLIDER_H` (per kind) unless a prop
@@ -598,17 +598,19 @@ and saves; the last one sends a following villager home (`npc.goHome()`). `syncE
   `js/props.js`, procedural) that turns and bobs.
 - Mayor Ribbit's parade lanterns (`how: 'walk'`, `keep`, `follow`; unlocked by `S.ending`): never a Use target.
   `tickErrands()` (each fixed step, free play only) lights an unlit one within `TUNE.actors.paradeLight` m (XZ) of Pip
-  while Ribbit follows within `paradeNear` m of him. Each is a post and a paper body on its own material
+  while Ribbit follows within `paradeNear` m of him; the motes and twinkles sit on the hanging paper (`it.paper`, with the post's turn `it.rot` from the world pass). Each is a post and a paper body on its own material
   (`paradeLanternModels()` in `js/props.js`, procedural); `scenery.setLantern(id, shown, lit, instant)` tints the paper
   and ramps its glow (`glowK`) from cream to warm over ≈ 0.8 s, or at once on a session start.
 - Follow mode (`js/npcs.js`, `TUNE.actors.follow*`): `followUpdate` steps toward Pip (with moveCircle, Pip a dynamic
   circle), stopping `followGap` m short, at `followK` × the distance left up to `followSpeed` with a small hop every
-  `followHop` s. Further than `followFar` m or blocked for `followStuck` s, he is put on a clear spot (`penetration` 0,
-  walkable, inside the village) just behind Pip with a hop (`catchUps` counts them). With Pip outside the village circle
-  (`TUNE.world.paradeR`) his target is that circle's edge on Pip's side, and no catch-up. `homeUpdate` walks him home
-  after the parade (blocked for a while: a hop home).
+  `followHop` s; blocked for `followStuck` s he stands (no walking on the spot). Closer than `followGap − 0.8` m (Pip
+  walked back into him) he steps back out of the way, and while following he is left out of `dynamicColliders`, so he
+  never blocks Pip in a narrow spot. Further than `followFar` m or blocked for `followStuck` s, he is put on a clear spot
+  (`penetration` 0, walkable, inside the village) just behind Pip with a hop (`catchUps` counts them; no clear spot: a
+  retry every 0.25 s). With Pip outside the village circle (`TUNE.world.paradeR`) his target is that circle's edge on
+  Pip's side, and no catch-up. `homeUpdate` walks him home after the parade (blocked for a while: a hop home).
 
-`tickErrandFx` twinkles each item still out within 40 m (render time; it holds under menus). The tracker's `errands` row
+`tickErrandFx` twinkles each item still out within 40 m (each render frame, skipped while the clock holds or a dialogue is up; Motion comfort thins the lantern twinkles and stops their sway). The tracker's `errands` row
 counts errands done (`errands.done(S)`) over `ERRANDS.length`.
 
 ## 13. Viewmodel (`js/view/viewmodel.js`, module `wp2-viewmodel`) — detail: [WP2](wp/WP2.md)

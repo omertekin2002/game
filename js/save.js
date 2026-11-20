@@ -10,7 +10,7 @@ export function freshState(seed) {
     v: SAVE_VERSION, seed, hp: CFG.startHp, maxHp: CFG.startHp, coins: 0, potions: 0, swordLevel: 1,
     seeds: { woods: 0, peaks: 0, shores: 0 }, chests: {}, bosses: {}, shopHeart: false, ending: false,
     tod: CFG.startTimeOfDay, visited: {}, introDone: false, controlsSeen: false, playTime: 0, px: null, pz: null, facing: Math.PI,
-    errands: {}, shells: {},   // v3: errand id → 1 started / 2 done (data.js ERRANDS); rainbow shell id → true (picked up)
+    errands: {}, shells: {},   // v3: errand id → 1 started / 2 done (data.js ERRANDS); errand item flags: id → true (a rainbow shell picked up, a parade lantern lit)
   };
 }
 

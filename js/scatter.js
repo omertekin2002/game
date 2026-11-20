@@ -490,7 +490,7 @@ export class Scenery {
       const paper = meshWithOutline(m.paper, mat, ol, { cast: false });
       g.add(paper);
       g.position.set(it.x, it.y, it.z);
-      g.rotation.y = hash2(Math.round(it.x * 10), Math.round(it.z * 10), 13) * Math.PI * 2;
+      g.rotation.y = it.rot;
       g.visible = false;
       this.root.add(g);
       const L = { group: g, paper, mat, data: it, shown: false, lit: false, glow: 0, ph: hash2(Math.round(it.x * 10), Math.round(it.z * 10), 17) * Math.PI * 2 };
@@ -534,7 +534,7 @@ export class Scenery {
     for (const L of this.lanterns.values()) {
       if (!L.shown) continue;
       if (L.lit && L.glow < 1) { L.glow = Math.min(1, L.glow + dt * 1.25); this.tintLantern(L); }   // a soft warm-up
-      L.paper.rotation.z = Math.sin(t * 1.3 + L.ph) * 0.03;   // a gentle sway in the breeze
+      L.paper.rotation.z = this.calm ? 0 : Math.sin(t * 1.3 + L.ph) * 0.03;   // a gentle sway in the breeze (not with Motion comfort)
     }
     for (const ch of this.chests.values()) {
       if (ch.open !== ch.target) {

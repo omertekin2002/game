@@ -247,6 +247,11 @@ async function main() {
           await frames(30);
           e = await paradeState();
           if (e.errand !== 1 || e.lit.join() !== 'lantern1,lantern2' || e.litShown.join() !== 'lantern1,lantern2' || e.shown.length !== 4 || e.follow || e.home > 0.7) fail(`Continue mid-parade did not keep the lit lanterns and send Ribbit home: ${JSON.stringify(e)}`);
+          // without Ribbit (home, not following) Pip standing right at a lantern does not light it
+          await page.evaluate(() => { const q = window.G.world.lanterns[2]; window.G.debug.teleport(q.x + 1, q.z); });
+          await frames(90);
+          e = await paradeState();
+          if (e.lit.includes('lantern3') || e.follow) fail(`a lantern lit without Ribbit following: ${JSON.stringify(e)}`);
           await talkToNpc('ribbit', 'resume');
           e = await paradeState();
           if (e.errand !== 1 || !e.follow || e.lit.length !== 2) fail(`a talk did not pick the parade up again after Continue: ${JSON.stringify(e)}`);
@@ -259,6 +264,22 @@ async function main() {
           step(`mid-parade Save & Quit → Continue kept 2 lit lanterns, Ribbit went home and followed again after a talk; with Pip out of the village he waited at its edge (${e.ribR.toFixed(1)} m from the plaza, ${e.gap.toFixed(1)} m from Pip)`);
         }
         const w = await walkToLantern(i);
+        if (i === 0) {
+          // Pip stops: Ribbit stops too, close behind, standing (no walking or hopping on the spot)
+          await frames(90);
+          const still = await page.evaluate((n) => {
+            const g = window.G.game, r = g.npcs.find((q) => q.id === 'ribbit'), p0 = r.pos.clone();
+            let hop = 0, walk = 0;
+            for (let k = 0; k < n; k++) { g.runFrame(1 / 60, true, false); hop = Math.max(hop, r.hop); if (r.state === 'walk') walk++; }
+            return { moved: r.pos.distanceTo(p0), hop, walk, gap: Math.hypot(r.pos.x - g.player.pos.x, r.pos.z - g.player.pos.z), follow: r.follow };
+          }, 60);
+          if (!still.follow || still.moved > 0.05 || still.hop > 0.01 || still.walk || still.gap > 6) fail(`Ribbit did not stop when Pip stopped: ${JSON.stringify(still)}`);
+          // a talk while he follows keeps the parade going
+          await talkToNpc('ribbit', 'mid-parade');
+          const t = await paradeState();
+          if (t.errand !== 1 || !t.follow || t.lit.join() !== 'lantern1') fail(`a talk mid-parade changed it: ${JSON.stringify(t)}`);
+          step(`Pip stopped and Ribbit stood ${still.gap.toFixed(1)} m behind him; a talk mid-parade kept him following`);
+        }
         step(`parade lantern ${i + 1} (${await page.evaluate((i) => window.G.world.lanterns[i].at, i)}) lit after ${w.frames} frames: Ribbit ${w.after.gap.toFixed(1)} m behind, moved ${w.ribMoved.toFixed(1)} m${w.after.catchUps > w.before.catchUps ? ' (a catch-up hop)' : ''}`);
       }
       e = await paradeState();

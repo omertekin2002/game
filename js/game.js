@@ -273,7 +273,9 @@ export class Game {
   dynamicColliders(pl) {
     const out = this._dyn || (this._dyn = []);
     out.length = 0;
-    for (const n of this.npcs) out.push({ x: n.pos.x, z: n.pos.z, r: n.r });
+    // a villager following Pip (Ribbit's parade) is not solid for him: he trails right behind, so Pip turning back in a
+    // narrow spot would find the way out blocked (he also steps aside, npcs.js followUpdate)
+    for (const n of this.npcs) if (!n.follow) out.push({ x: n.pos.x, z: n.pos.z, r: n.r });
     // r2 actors: the boss body stays solid while it dies (until it is gone), sized to keep the FP eye out of its mesh
     const fb = this.fight && this.fight.boss;
     if (fb && !fb.dead && fb.lift < 1) out.push({ x: fb.pos.x, z: fb.pos.z, r: fb.colliderR ?? fb.r * 0.85 });
