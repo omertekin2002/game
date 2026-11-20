@@ -121,11 +121,12 @@ bun install
 bun test             # unit tests: world generation, content tables, save schema, completion tally, settings, key bindings, dynamic resolution
 bun run test:smoke   # headless Chromium: New Game, completion tracker, Continue a valid / corrupt / newer save, stored settings, rebound keys, no service worker; fails on any error
 bun run test:pwa     # headless Chromium on the Pages build under /game/: install, offline play (and ?seed=7), an update, ?nosw=1
+bun run test:playthrough  # headless Chromium: New Game → three guardians → Starseeds on the pedestal → ending → free roam → Save & Quit, reload and Continue; fails on any error
 ```
 
 The browser tests need Playwright's Chromium once: `bunx playwright install chromium`. On failure they save a
 screenshot to `test-results/` (the PWA test builds its site into `test-results/pwa-site/`). CI
-(`.github/workflows/ci.yml`) runs all three on pushes and pull requests.
+(`.github/workflows/ci.yml`) runs all four on pushes and pull requests.
 
 The game also has in-page tests that need a real browser window; see the next section.
 

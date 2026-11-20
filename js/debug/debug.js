@@ -209,8 +209,9 @@ export const DebugMixin = {
       },
       world: () => game.world,
       game: () => game,
-      /** clock control: { manual, timeScale } → clock state (manual holds the whole rAF frame, not just the steps) */
-      clock(o = {}) { const c = game.clock; if ('manual' in o) c.manual = !!o.manual; if (o.timeScale != null) c.timeScale = Math.max(0, +o.timeScale || 0); return c.info(); },
+      /** clock control: { manual, redraw, timeScale } → clock state (manual holds the whole rAF frame, not just the steps;
+       *  redraw: false also stops its redraw, so only the frames a test runs with draw = true reach the GPU) */
+      clock(o = {}) { const c = game.clock; if ('manual' in o) c.manual = !!o.manual; if ('redraw' in o) c.redraw = !!o.redraw; if (o.timeScale != null) c.timeScale = Math.max(0, +o.timeScale || 0); return c.info(); },
       /** one input/frame pass (injected look and presses apply), then n fixed steps (frozen ticks while a hit-stop
        *  runs) + one render, synchronously; use with clock({ manual: true }) */
       step(n = 1) {
