@@ -70,7 +70,9 @@ async function main() {
           const ok = new Function('G', 'game', 'S', `return !!(${cond});`);
           if (each) new Function('G', 'game', 'S', each)(G, game, game.S);
           for (let i = 0; i < chunk; i++) {
-            game.runFrame(STEP, true, i === chunk - 1);
+            const draw = i === chunk - 1;
+            game.runFrame(STEP, true, draw);
+            if (draw) window.__gpuSync();
             if (ok(G, game, game.S)) return { done: true, n: i + 1 };
           }
           return { done: false, n: chunk };
@@ -80,7 +82,13 @@ async function main() {
       }
       fail(`${what}: not within ${maxSec} s of game time (${n} frames)`);
     };
-    const frames = (n) => page.evaluate(([k, STEP]) => { for (let i = 0; i < k; i++) window.G.game.runFrame(STEP, true, i === k - 1); }, [n, STEP]);
+    const frames = (n) => page.evaluate(([k, STEP]) => { for (let i = 0; i < k; i++) window.G.game.runFrame(STEP, true, i === k - 1); window.__gpuSync(); }, [n, STEP]);
+    // Wait for the GPU to finish what was drawn (a one-pixel read back): software WebGL draws slower than the test runs
+    // frames, and a queue of draws left behind is paid when the page is torn down (a reload waited minutes for it on CI)
+    const installGpuSync = () => page.evaluate(() => {
+      const px = new Uint8Array(4);
+      window.__gpuSync = () => { const gl = window.G.game.renderer.getContext(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); };
+    });
     // a Use press (the interact action, as E / Enter / pad Y give it), then k frames with no draw
     const pressUse = (k) => page.evaluate(([k, STEP]) => { window.G.debug.press('interact', 0); for (let i = 0; i < k; i++) window.G.game.runFrame(STEP, true, false); }, [k, STEP]);
     // read a dialogue through with Use presses (the first press shows the whole line, the next one moves on)
@@ -121,6 +129,7 @@ async function main() {
     // from here the test runs every frame: the manual clock, without its redraws, so only the frames the test draws reach
     // the GPU (a software-WebGL draw costs a fraction of a second; redraws at 60 Hz queue minutes of them); a fixed seed
     // for the AI and effects; Pip takes no damage, and other enemies hold still (the guardians are beaten with killBoss)
+    await installGpuSync();
     await page.evaluate(() => { const D = window.G.debug; D.clock({ manual: true, redraw: false }); D.seed(29); D.god(true); D.freezeAI(true); });
     await framesUntil("Shellby's intro dialogue", 'G.ui.dlg && !game.trans', 10);
     await readDialogue("Shellby's intro");
@@ -206,12 +215,14 @@ async function main() {
     const saved = await page.evaluate((k) => JSON.parse(localStorage.getItem(k) || 'null'), SAVE_KEY);
     if (!saved || saved.ending !== true || !GUARDIANS.every((id) => saved.seeds[id] === 2 && saved.bosses[id] === true)) fail(`the save does not hold the finished game: ${JSON.stringify(saved && { ending: saved.ending, seeds: saved.seeds, bosses: saved.bosses })}`);
     step('saved and quit to the title');
-    step('reload the page');
+    const r0 = Date.now();
     await page.reload({ waitUntil: 'load', timeout: BOOT_TIMEOUT });
+    step(`reloaded the page in ${Date.now() - r0} ms`);
     await boot('after the reload');
     if (!(await continueVisible())) fail('Continue is hidden after the reload');
     await page.keyboard.press('Enter');
     await waitFor("G.game.state === 'play' after Continue", () => window.G.game.state === 'play');
+    await installGpuSync();
     await page.evaluate(() => window.G.debug.clock({ manual: true, redraw: false }));
     await framesUntil('the session fade-in after Continue', '!game.trans', 5);
     await frames(30);
