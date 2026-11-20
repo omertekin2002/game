@@ -6,6 +6,8 @@ import { sweepTimeAt, chopTimeAt, Pose } from '../../vm/anim.js';
 import { vmFovFor } from '../../view/viewmodel.js';
 import { Boss } from '../../bosses.js';
 import { hasModel } from '../../assets.js';
+import { bladeGeometry } from '../../toon.js';
+import { swordCol } from '../../models.js';
 /** r4: an earlier test may have beaten this boss (smoke's 'place' gives its seed): bring it back (the runner restores the save) */
 function reviveBoss(game, id) {
   if (!game.S.bosses[id] && game.bosses[id]) return;
@@ -133,7 +135,7 @@ export default function register(suite) {
         t.eq(c.inBox, 0, k + ' blade samples in the centre box');
         t.ok(c.fist[0] > 0.55 && c.fist[0] < 0.92 && c.fist[1] > 0.6 && c.fist[1] < 0.93, k + ' fist on screen, lower right', c.fist);
         t.ok(c.tip[0] > 0 && c.tip[0] < 1 && c.tip[1] > 0 && c.tip[1] < 1, k + ' tip on screen', c.tip);
-        // lead: the leaf-green sleeve must read at rest (its start on screen, not only the fist and the bracer)
+        // lead: the sleeve must read at rest (its start on screen, not only the fist and the bracer)
         // (the sleeve's axis 7.5 cm up the forearm; its 5 cm radius shows ≈ 0.04 of the screen beyond the axis)
         t.ok(c.sleeve[0] > 0.5 && c.sleeve[0] < 1.04 && c.sleeve[1] > 0.5 && c.sleeve[1] < 1.04, k + ' sleeve start on screen', c.sleeve);
         // arch §15.2 accept 3 (geometric base; the dialogue-box lift is checked below): item NDC x ±0.15, y 0 … 0.45
@@ -455,6 +457,77 @@ export default function register(suite) {
       t.press('attack'); let moved = 0;
       for (let i = 0; i < 12; i++) { t.frames(1); pl.root.updateMatrixWorld(true); moved = Math.max(moved, grip().distanceTo(rest)); }
       t.ok(moved > 0.08, 'the fist (and the grip in it) moves with the swing', +moved.toFixed(3));
+      t.frames(40);
+      // no ink rings round his eyes and cheeks: the outline hull skips the GLB's olHoles (where the face folds)
+      const bodyMesh = pl.glb && pl.body.getObjectByName('body'), holes = bodyMesh && bodyMesh.userData.olHoles;
+      if (hasModel('hero')) {
+        const hull = bodyMesh && bodyMesh.children.find((c) => c.material === pl.olMat);
+        let inside = -1;
+        if (hull && holes) {
+          const p = hull.geometry.attributes.position, idx = hull.geometry.index.array; inside = 0;
+          for (let i = 0; i < idx.length; i += 3) {
+            const c = [0, 1, 2].map((k) => (p.getComponent(idx[i], k) + p.getComponent(idx[i + 1], k) + p.getComponent(idx[i + 2], k)) / 3);
+            if (holes.some(([x, y, z, rx, ry, rz]) => ((c[0] - x) / rx) ** 2 + ((c[1] - y) / ry) ** 2 + ((c[2] - z) / rz) ** 2 < 1)) inside++;
+          }
+        }
+        t.ok(holes && holes.length >= 4 && inside === 0, 'the face outline skips his eyes and cheeks (hero.glb body.extras.olHoles)', { holes: holes && holes.length, inside });
+      }
+    }],
+    ['Swords: each blade is one closed steel piece whose point lies on the grip axis (no separate, twisted tip)', (t) => {
+      const { game, THREE } = t, pl = game.player, m = mod(t);
+      for (const [view, swords] of [['TP', pl.swords], ['FP', m.swords]]) swords.forEach((g, i) => {
+        const a = g.userData.mesh.geometry.attributes.position, name = `${view} ${i ? 'shiny' : 'starter'}`;
+        let top = 0; const lv = new Map();   // above the guard: each level's half-width and half-thickness
+        for (let k = 0; k < a.count; k++) {
+          const x = Math.abs(a.getX(k)), y = a.getY(k), z = Math.abs(a.getZ(k));
+          if (y > a.getY(top)) top = k;
+          if (y < 0.2) continue;
+          const key = y.toFixed(4), s = lv.get(key) || [0, 0];
+          lv.set(key, [Math.max(s[0], x), Math.max(s[1], z)]);
+        }
+        const p = [a.getX(top), a.getY(top), a.getZ(top)].map((v) => +v.toFixed(4)), py = view === 'TP' ? 0.59 : 0.66;
+        t.ok(Math.hypot(p[0], p[2]) < 1e-4 && Math.abs(p[1] - py) < 1e-3, name + ': the point sits on the grip axis at y ' + py, p);
+        // flat all the way up: the old tip (a 4-sided cone scaled, then turned 45°) was as thick as it was wide
+        const thick = [...lv].filter(([y, [hw]]) => hw > 1e-4 && hw * 0.75 < lv.get(y)[1]);
+        t.ok(lv.size >= 3 && !thick.length, name + ': the blade stays flat up to its point', { levels: lv.size, thick });
+      });
+      // the blade is one closed, consistently wound surface: every welded edge is shared by exactly two faces, once each way
+      const a = bladeGeometry(0.5, 0.095, 0.03, { y0: 0.09, tipLen: 0.15 }).attributes.position, key = (k) => [a.getX(k), a.getY(k), a.getZ(k)].map((v) => v.toFixed(5)).join();
+      const dir = new Map();
+      for (let f = 0; f < a.count; f += 3) for (let e = 0; e < 3; e++) { const d = key(f + e) + '>' + key(f + (e + 1) % 3); dir.set(d, (dir.get(d) || 0) + 1); }
+      let bad = 0;
+      for (const [d, n] of dir) { const [u, w] = d.split('>'); if (n !== 1 || dir.get(w + '>' + u) !== 1) bad++; }
+      t.ok(dir.size > 0 && bad === 0, 'the blade, base to point, is one closed surface', { edges: dir.size, bad });
+      const hsl = new THREE.Color(swordCol(false).blade(0, 0, 0, 0, 0, 1)).getHSL({}, THREE.SRGBColorSpace);
+      t.ok(hsl.s < 0.25 && hsl.l > 0.55, 'the starter blade is steel grey (it was wood-brown)', hsl);
+    }],
+    ['TP swings keep the hilt out of his body (it sank into his chest and cape: the pommel up to 5 cm, the guard into his hood)', (t) => {
+      const { D, game, THREE } = t, pl = game.player;
+      if (!pl.glb) { t.ok(true, 'the rig body: n/a'); return; }
+      D.setView('tp'); t.frames(20);
+      const body = [];
+      pl.body.traverse((o) => { if (o.isMesh && o.material.side !== THREE.BackSide && !pl.arm.getObjectById(o.id)) body.push(o); });
+      const rc = new THREE.Raycaster(), X = new THREE.Vector3(1, 0, 0), keys = { pommel: [0, -0.045, 0], guardL: [0.09, 0.09, 0], guardR: [-0.09, 0.09, 0] };
+      rc.layers.enableAll(); rc.far = 5;
+      const inside = (w) => { rc.set(w, X); return rc.intersectObjects(body, false).length % 2 === 1; };
+      const res = {};
+      for (const [kind, n] of [['A', 1], ['B', 2], ['C', 3]]) {
+        t.frames(40);
+        for (let j = 1; j < n; j++) { t.press('attack'); t.frames(16); }
+        t.press('attack');
+        const r = res[kind] = { frames: 0, pommel: 0, guard: 0 };
+        const sides = body.map((m) => m.material.side); body.forEach((m) => { m.material.side = THREE.DoubleSide; });
+        for (let i = 0; i < 40; i++) {
+          t.frames(1);
+          if (pl.state !== 'attack' || pl.combo !== kind) break;
+          pl.root.updateMatrixWorld(true); r.frames++;
+          const sw = pl.swords[pl.swordLevel >= 2 ? 1 : 0], at = (k) => sw.localToWorld(new THREE.Vector3(...keys[k]));
+          if (inside(at('pommel'))) r.pommel++;
+          if (inside(at('guardL')) || inside(at('guardR'))) r.guard++;
+        }
+        body.forEach((m, k) => { m.material.side = sides[k]; });
+      }
+      t.ok(Object.values(res).every((r) => r.frames > 10 && r.guard === 0 && r.pommel <= 2), 'guard ends never inside him, the pommel at most 2 frames a swing', res);
       t.frames(40);
     }],
     ['FP boots: hidden at a level look, shown looking steeply down, never in TP; TP item faces the camera', (t) => {

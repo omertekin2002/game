@@ -5,13 +5,15 @@
 // Frames (metres, view space at arm's length):
 //   forearm: origin at the wrist, +Y toward the elbow (bone quaternion = setFromUnitVectors(+Y, A))
 //   hand:    origin at the grip centre, +Y = grip / finger axis (B), +Z = the forearm side ⊥ B, X = Y × Z (= B × A)
-// Colours: leaf-green sleeve, cream cuff, brown bracer with a stitched rim, small warm hands (lead + art §1.2).
+// Colours: his tunic's cream sleeve (as on his world model), a cream cuff, brown bracer with a stitched rim, small warm
+// hands (lead + art §1.2; the sleeve was leaf-green, unlike the world model's).
 import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GB } from '../toon.js';
+import { swordCol } from '../models.js';
 
 export const VM_COL = {
-  skin: 0xec9e6c, skinD: 0xd8875a, bracer: 0x6e4026, stitch: 0xd7a85a, cuff: 0xf4e4c1, sleeve: 0x86b443, sleeveD: 0x6f9a36,
+  skin: 0xec9e6c, skinD: 0xd8875a, bracer: 0x6e4026, stitch: 0xd7a85a, cuff: 0xf4e4c1, sleeve: 0xe2c896,
   cape: 0x8f9a38, ink: 0x3d2416,
 };
 
@@ -36,11 +38,11 @@ function roundedBox3(w, h, d, r) {
 /** forearm parts (shared by both arms: it is round, mirroring changes nothing) */
 function forearm(b) {
   const C = VM_COL;
-  // a short bracer band at the wrist, so the cream cuff and the leaf-green sleeve come into the frame at rest
+  // a short bracer band at the wrist, so the cream cuff and the sleeve come into the frame at rest
   b.cyl(0.043, 0.039, 0.038, C.bracer, { y: 0.014, seg: 12 });                                    // leather bracer
   b.torus(0.0425, 0.0045, C.stitch, { y: 0.033, rx: Math.PI / 2, ts: 14, rs: 3, outline: false });  // stitched rim
   b.sphere(0.051, C.cuff, { y: 0.047, sy: 0.34, ws: 12, hs: 6 });                                    // cream cuff (a puffed band)
-  // leaf-green sleeve, tapering toward the elbow and rounded off: in a swing the elbow end is the part nearest the eye,
+  // the sleeve, tapering toward the elbow and rounded off: in a swing the elbow end is the part nearest the eye,
   // so a straight tube (plus the old elbow puff and capelet) ballooned across the bottom of the frame: a fat lump on
   // screen and most of the pass's fill. At rest only its first ~8 cm is in frame (it runs out of the corner); it is
   // long (47 cm) only so the portrait camera (vFOV 100°) never sees its end: at 16:9 that part is always off screen
@@ -66,21 +68,15 @@ function paw(b, sd) {
   cap(b, 0.0145, 0.028, C.skin, { x: -sd * 0.012, y: 0.012, z: 0.046, rx: 0.9, rz: -sd * 0.4, seg: 6 }); // thumb
   b.sphere(0.019, C.skinD, { x: -sd * 0.0165, y: 0.008, z: 0.004, sx: 0.4, outline: false, ws: 8, hs: 5 }); // palm pad
 }
-/** the first-person sword (model units like models.swordBuilt: grip centre at y 0.01, blade 0.12 → tip 0.66), with
- *  close-up proportions: a chunky rounded blade, a short guard, wood grain / a bright bevel; shiny: steel, gold, gem */
+/** the first-person sword (model units like models.swordBuilt: grip centre at y 0.01, guard 0.112, point 0.66), with
+ *  close-up proportions: a broader blade (one piece, base to point), a short guard; colours from models.swordCol */
 export function vmSwordBuilt(shiny) {
-  const b = new GB();
-  const blade = shiny ? 0xdcecff : 0xdba468, edge = shiny ? 0xffffff : 0xe8bc84, guard = shiny ? 0xf5c040 : 0x9a6034;
-  const grip = shiny ? 0x4a6aa8 : 0x7a4b2a, pommel = shiny ? 0xff5a7a : 0x9a6034, g = shiny ? 0.25 : 0;
-  rbox(b, 0.13, 0.46, 0.05, 0.022, blade, { y: 0.35, glow: g });                                          // blade
-  b.box(0.05, 0.42, 0.054, edge, { y: 0.34, outline: false, glow: shiny ? 0.45 : 0.05 });                  // bevel / ridge
-  b.cone(0.06, 0.12, blade, { y: 0.63, seg: 4, ry: Math.PI / 4, sz: 0.36, glow: g });                     // tip
-  if (!shiny) for (const [y, x] of [[0.2, -0.03], [0.31, 0.034], [0.44, -0.028]]) b.box(0.006, 0.07, 0.056, 0xc48c52, { x, y, outline: false }); // grain
-  rbox(b, 0.25, 0.06, 0.08, 0.026, guard, { y: 0.1, glow: shiny ? 0.15 : 0 });                             // guard
-  b.cyl(0.03, 0.03, 0.12, grip, { y: 0.0, seg: 8 });                                                      // grip (inside the fist)
-  for (const y of [-0.035, 0.0, 0.035]) b.torus(0.031, 0.006, shiny ? 0x3a5590 : 0x5e3721, { y, rx: Math.PI / 2, ts: 8, rs: 3, outline: false });
-  if (shiny) b.sphere(0.022, pommel, { y: -0.06, ws: 8, hs: 6, glow: 0.45 });                              // gem pommel under the fist
-  else b.sphere(0.031, grip, { y: -0.058, sy: 0.6, ws: 8, hs: 5 });                                        // rounded grip end
+  const b = new GB(), C = swordCol(shiny), gg = shiny ? 0.15 : 0;
+  b.blade(0.56, 0.125, 0.044, 0, { y0: 0.1, olFrom: 0.141, tipLen: 0.17, colorFn: C.blade, glow: C.glow }); // blade + point
+  rbox(b, 0.25, 0.058, 0.08, 0.028, C.guard, { y: 0.112, glow: gg });                                      // guard (clear of the thumb)
+  b.cyl(0.03, 0.03, 0.12, C.grip, { y: 0.035, seg: 8 });                                                  // grip: in the guard, ends in the fist
+  for (const y of [-0.012, 0.022, 0.056]) b.torus(0.031, 0.006, C.wrap, { y, rx: Math.PI / 2, ts: 8, rs: 3, outline: false });
+  // no pommel: the grip's axis runs into his wrist here, and a pommel (or the Shiny's gem) sat on the bracer
   return b.build();
 }
 

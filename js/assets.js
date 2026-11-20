@@ -16,7 +16,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
-import { toonMat, sharedOutline, outlineGeometry } from './toon.js';
+import { toonMat, sharedOutline, outlineGeometry, punchHull } from './toon.js';
 import { G } from './core.js';
 import { settings } from './settings.js';
 import { atmo as TA } from './tune.js';
@@ -325,7 +325,10 @@ function template(key) {
     }
     if (!olByGeo.has(o.geometry)) {
       let ol = null;
-      try { ol = outlineGeometry([o.geometry]); } catch (e) { ol = null; }
+      try {
+        ol = outlineGeometry([o.geometry]);
+        if (Array.isArray(o.userData.olHoles)) punchHull(ol, o.userData.olHoles);   // node extras: where no ink belongs
+      } catch (e) { ol = null; }
       olByGeo.set(o.geometry, ol);
     }
   });
