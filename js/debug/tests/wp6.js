@@ -237,7 +237,7 @@ export default function register(suite) {
         D.teleport(W.pedestal.x + 7, W.pedestal.z + 1, -Math.PI / 2, 0); ui.markersDirty = true; t.frames(3);
         const e = ui.compass.els.get('altar'), pl = game.player.pos;
         t.ok(ui.obj && ui.obj.id === 'altar' && !!e && /obj/.test(e.className), 'the compass objective badge is the altar', ui.obj);
-        t.eq(e && e.lastChild.textContent, Math.round(Math.hypot(W.pedestal.x - pl.x, W.pedestal.z - pl.z)) + ' m', 'its pill counts to the altar');
+        t.eq(e && e.lastChild.textContent, Math.round(Math.hypot(W.pedestal.x - pl.x, W.pedestal.z - pl.z)) + '\u00a0m', 'its pill counts to the altar');
         t.ok(ui.objShown.endsWith(e.lastChild.textContent), 'the objective line says the same distance', ui.objShown);
         S.seeds.woods = 2;
         t.ok(!navMarkers(W, S).some((m) => m.id === 'altar'), 'placed: no altar marker');

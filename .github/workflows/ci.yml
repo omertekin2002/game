@@ -66,6 +66,26 @@ jobs:
           path: test-results/
           if-no-files-found: ignore
 
+  opening:
+    name: Opening with real input (headless Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run test:opening
+      - name: Upload failure screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: opening-failure
+          path: test-results/
+          if-no-files-found: ignore
+
   playthrough:
     name: Full playthrough (headless Chromium)
     runs-on: ubuntu-latest

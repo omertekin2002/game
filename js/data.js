@@ -128,23 +128,21 @@ export const errands = {
 export const NPCS = [
   {
     id: 'shellby', name: 'Elder Shellby', key: 'npc_turtle', wander: 0.6,
+    // the opening (interact.js sessionIntro): three pages, then the coach marks. What the cut pages said lives on in
+    // lines(S) below (the compass, the signpost, Miso's potions), on the compass and the controls card
     intro: [
-      'Oh! Little Pip, there you are. Come close, my old shell creaks in this chilly wind.',
-      'Last night the Great Tree sneezed. A big, sad, leafy sneeze... and its three Starseeds went flying!',
-      'Three grumpy guardians scooped them up. Grumble Shroom in the Whispering Woods, up north...',
-      '...Frostbun in the Frostcap Peaks to the east, and Captain Pinch down on the Sunny Shores to the south.',
-      'If you ever lose your way, just look up for the Great Tree. It is the tallest thing on the whole isle! Your compass up top knows the way home too.',
-      'Without its Starseeds the Tree is wilting. Bring them home and set them in the star sockets of this old pedestal, would you?',
-      'Go in any order you like. The signpost at the edge of the plaza points the way, and if you get bonked, Miso sells potions. Off you sprout!',
+      'Oh! Little Pip, there you are. Last night the Great Tree sneezed. A big, sad, leafy sneeze... and its three Starseeds went flying!',
+      'Three grumpy guardians scooped them up: Grumble Shroom in the Whispering Woods up north, Frostbun in the Frostcap Peaks to the east, and Captain Pinch on the Sunny Shores to the south.',
+      'Without its Starseeds the Tree is wilting. Bring them home to this old pedestal, in any order you like. Off you sprout!',
     ],
     lines(S) {
       if (S.ending) return ['Look at her bloom... Thank you, Pip. You are the bravest little sprout on the whole isle.', 'Take your time and explore. The isle is yours to enjoy now.'];
       if (progress.carried(S) > 0) return ['Ooh, I can feel a Starseed humming in your pocket! Set it in a socket on the pedestal, dear. Just walk up and press {interact}.'];
       if (placed(S) > 0) return [(3 - placed(S)) + ' more to go! The Great Tree already looks a little perkier.', 'Remember: Woods to the north, Peaks to the east, Shores to the south. Just follow the letters on your compass, dear.'];
       return [
-        'The Woods are north, the Peaks are east past the river, and the Shores are south. Follow the dirt paths and the little arrow posts.',
-        'Lost? Turn around until you see the Great Tree over the treetops, and walk toward it. It always brings you home.',
-        'If you ever get dizzy out there, you will wake up right here by the Tree. No harm done.',
+        'The Woods are north, the Peaks are east past the river, and the Shores are south. The signpost at the edge of the plaza points the way, then follow the dirt paths and the little arrow posts.',
+        'Lost? Turn around until you see the Great Tree over the treetops, and walk toward it. It always brings you home, and your compass up top knows the way too.',
+        'If you get bonked, Miso sells potions. And if you ever get dizzy out there, you will wake up right here by the Tree. No harm done.',
       ];
     },
   },

@@ -1,4 +1,4 @@
-// Shared pieces of the headless-browser tests that run the game from the repo (tests/smoke.mjs, tests/playthrough.mjs):
+// Shared pieces of the headless-browser tests that run the game from the repo (tests/smoke.mjs, tests/playthrough.mjs, tests/opening.mjs):
 // a static server (tools/serve.mjs) on a free port and the Chromium launch options for software WebGL.
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';

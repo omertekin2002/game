@@ -170,7 +170,7 @@ player wins about two in three. The wooden sword is the balance reference.
 - **Dialogue** pauses the world. In first person the view eases onto the speaker's face and the portrait hides (their real
   face is in view; a speaker more than 3.5 m away, like Elder Shellby at the wake-up, keeps it); in third person the
   camera cuts to a two-shot that keeps the speaker's face clear of Pip, and the portrait shows. Lines use the device's keys.
-- **Villagers**: Elder Shellby (turtle, by the pedestal; the intro and hints), Mayor Ribbit (frog; names the landmarks),
+- **Villagers**: Elder Shellby (turtle, by the pedestal; the three-page intro and hints), Mayor Ribbit (frog; names the landmarks),
   Miso (cat; runs the shop), Clover (bunny; Captain Pinch tips, then her errand), Professor Hoot (owl; Grumble Shroom tips), Digby (mole;
   Frostbun tips and hidden heart chests). They look at Pip, wave when he comes close and step back if he stands too
   close (Miso stays behind her counter).

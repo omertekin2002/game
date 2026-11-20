@@ -114,3 +114,21 @@ test("Clover's errand: start, pick up every shell once, finish once with the rew
   expect(S.coins).toBe(57);
   expect(errands.done(S)).toBe(1);
 });
+
+test("Elder Shellby's intro is short and keeps its story; his first hints keep what the cut pages taught", () => {
+  const sh = NPCS.find((n) => n.id === 'shellby');
+  const intro = sh.intro.join(' ');
+  expect(sh.intro.length).toBeGreaterThan(0);
+  expect(sh.intro.length).toBeLessThanOrEqual(3);
+  expect(intro).toContain('sneeze');
+  for (const [boss, region, dir] of [['Grumble Shroom', 'Whispering Woods', 'north'], ['Frostbun', 'Frostcap Peaks', 'east'], ['Captain Pinch', 'Sunny Shores', 'south']]) {
+    expect(intro).toContain(boss);
+    expect(intro).toContain(region);
+    expect(intro).toContain(dir);
+  }
+  expect(sh.intro[sh.intro.length - 1]).toEndWith('Off you sprout!');
+  // the cut pages' facts, in his lines before any Starseed is found: the Great Tree to steer by, the compass, the
+  // signpost, Miso's potions
+  const first = sh.lines(freshState(CFG.seed)).join(' ');
+  for (const fact of ['Great Tree', 'compass', 'signpost', 'Miso sells potions']) expect(first).toContain(fact);
+});
