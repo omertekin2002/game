@@ -204,7 +204,7 @@ async function boot() {
     last = now;
     const t0 = performance.now();
     try {
-      if (clock.manual) redraw();
+      if (clock.manual) { if (clock.redraw) redraw(); }
       else runFrame(rawDt);
     } catch (e) {
       if (!loop.errs) loop.errs = 0;
