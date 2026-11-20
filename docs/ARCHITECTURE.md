@@ -384,6 +384,7 @@ streams, so the main stream (and with it the scatter) of a seed stays stable.
 | `W.arenas[id] { x, z, r, h, entAng, entrance, outside, ring }` | the three boss arenas (r 14 m) and their edge rings |
 | `W.paths`, `W.pathF / pathFAt`, `W.woodsGaps`, `W.signpost`, `W.waymarkers`, `W.lamps`, `W.chests`, `W.houses`, `W.shop`, `W.npcSpots`, `W.interact` | paths and dressing, interactables |
 | `W.shells [{ id: 'shell1'…'shell5', kind: 'shell', x, y, z, at }]` | Clover's rainbow shells (`at`: `lighthouse`, `islet1`, `islet2`, `cove`, `path`). `placeShells()` runs after everything else in `generate()` on its own RNG (`seed × 41 + 29`), adds nothing to any other list and restores `W.walk` / `W.reach`, so no existing placement moves on any seed (`tests/world.test.js` compares with `tests/fixtures/world-prints.json`). Each spot is dry Shores sand (an islet counts as Shores), flat, ≥ 3 m off the path, clear of solids, colliders, reservations (bar the islets' own), bridges, chests and NPC spots, outside the arena ring and reachable. A spot is tried 160 times at random in its ring, then the whole ring is scanned every 0.5 m, so the shell is where Clover says (seeds 1–300 checked; `tests/world.test.js` checks 1–40); only then does it widen. `generateWorld(seed, { shells: false })` skips the pass. Not in `W.interact`: `interactables()` (`js/targeting.js`) offers the ones that are out |
+| `W.lanterns [{ id: 'lantern1'…'lantern4', kind: 'lantern', x, y, z, at }]` | Mayor Ribbit's parade lanterns (`at`: `altar`, `signpost`, `shop`, `meadow`). `placeLanterns()` runs last in `generate()`, after `placeShells()`, on its own RNG (`seed × 53 + 7`) with the same guarantees: nothing added to any other list (a lantern has no collider), `W.walk` / `W.reach` restored. Each spot is inside `TUNE.world.paradeR − 6` of the plaza centre, flat (slope < 0.45), ≥ 2.2 m off the paths and off the z = 9 test line, clear of solids, colliders, bridges, chests, interactables, NPC spots and the spawn, ≥ 8 m from the others and reachable; 160 random tries per centre, then a 0.5 m scan (the Meadow spot tries four points along its path). `generateWorld(seed, { lanterns: false })` skips the pass. Not interactables: `tickErrands` lights them |
 
 **9.3 Colliders.** `W.colliders`, hashed in 4 m cells: `{ x, z, r (bounding), kind, shape: 'circle'|'obb'|'star', hx, hz,
 rot, y0, y1, camTop, rEye, stand, over, canopy, body, … }`. Heights are baked from `COLLIDER_H` (per kind) unless a prop
@@ -567,7 +568,8 @@ from `META` (`js/hud/menus.js`); a key without `META` still gets a row.
 Save (`game.S`, key `starseed-isle-save-v2`, `v: 3`): seed, position, facing, hp, maxHp, coins, potions, swordLevel,
 seeds (0 none, 1 carried, 2 placed), chests, bosses, shopHeart, ending, time of day, visited regions, playTime, intro and
 controls flags, `errands` (errand id → 1 started, 2 done; `ERRANDS` and the `errands` helpers in `js/data.js`), `shells`
-(rainbow shell id → true), plus the optional `pitch` (restored clamped ±0.6 rad), `controlsV` (< 2 → the first-run coach marks once)
+(the errand item flags: item id → true, a rainbow shell picked up `shell1`… or a parade lantern lit `lantern1`…; no two
+errands share an id), plus the optional `pitch` (restored clamped ±0.6 rad), `controlsV` (< 2 → the first-run coach marks once)
 and `waypoint { x, z }` (the map marker). Non-numeric optional fields fall back to defaults. Autosave every 30 s outside
 fights and at key events. `wp9-world.onSession` moves a Continue whose saved spot is now inside a collider to the
 nearest free spot.
@@ -579,13 +581,35 @@ and fills, clamps or coerces the known fields; unknown fields such as `pitch`, `
 `MIGRATIONS[old]` step with a test (`docs/DESIGN.md` §15). `MIGRATIONS[2]` (v2 → v3) adds `errands: {}` and
 `shells: {}` and keeps every v2 field.
 
-Errands (`js/interact.js`): Clover's lines (`NPCS`) read the errand state before a talk; when the talk ends,
-`errandTalk` calls `errands.talk(S, e)`, which starts the errand (`syncShells` shows the shells) or, with every shell
-found, finishes it and adds the reward to `S.coins` once (the feed gets an `EV.COLLECT` gem line); either way the game
-saves. A shell is an interactable of kind `shell` (`Pick up · Rainbow shell`, aim point `TUNE.combat.aimPts.shell`, range
-`shellRange`); `pickShell` marks it (`errands.pick`), hides it (`scenery.setShellShown`) and saves. The scenery draws each
-shell as a small group (`rainbowShellModel()` in `js/props.js`, procedural) that turns and bobs; `tickShells` twinkles
-the ones within 40 m. The tracker's `errands` row counts errands done (`errands.done(S)`) over `ERRANDS.length`.
+Errands (`js/interact.js`), driven by their `ERRANDS` entry (`js/data.js`): `item` (the id prefix and the scenery kind),
+`list` (the world list of its spots), `how` (`'use'`: picked up with Use; `'walk'`: lit by walking past), `keep` (a found
+item stays shown, in its found look), `follow` (the villager follows Pip while it is under way), and the feed texts. A
+villager's lines (`NPCS`) read the errand state before a talk; when the talk ends, `errandTalk` calls `errands.talk(S, e)`,
+which starts the errand (`syncErrands` shows its items) or, with every item found, finishes it and adds the reward to
+`S.coins` once (the feed gets an `EV.COLLECT` gem line); either way the game saves. A `follow` errand also sets the
+villager following (`npc.setFollow(errands.following(S, e))`), so a talk after Continue picks it up again.
+`findErrandItem(e, it)` marks an item (`errands.pick`), sets its scenery (`scenery.setErrandItem`), counts it in the feed
+and saves; the last one sends a following villager home (`npc.goHome()`). `syncErrands` runs at every session start, and
+`resetErrandNpcs` puts a following or homing villager back on his spot (following is not saved).
+
+- Clover's rainbow shells (`how: 'use'`): an interactable of kind `shell` from `interactables()` in `js/targeting.js`
+  (`Pick up · Rainbow shell`, aim point `TUNE.combat.aimPts.shell`, range `shellRange`); Use calls `findErrandItem`,
+  which hides it (`scenery.setShellShown`). The scenery draws each shell as a small group (`rainbowShellModel()` in
+  `js/props.js`, procedural) that turns and bobs.
+- Mayor Ribbit's parade lanterns (`how: 'walk'`, `keep`, `follow`; unlocked by `S.ending`): never a Use target.
+  `tickErrands()` (each fixed step, free play only) lights an unlit one within `TUNE.actors.paradeLight` m (XZ) of Pip
+  while Ribbit follows within `paradeNear` m of him. Each is a post and a paper body on its own material
+  (`paradeLanternModels()` in `js/props.js`, procedural); `scenery.setLantern(id, shown, lit, instant)` tints the paper
+  and ramps its glow (`glowK`) from cream to warm over ≈ 0.8 s, or at once on a session start.
+- Follow mode (`js/npcs.js`, `TUNE.actors.follow*`): `followUpdate` steps toward Pip (with moveCircle, Pip a dynamic
+  circle), stopping `followGap` m short, at `followK` × the distance left up to `followSpeed` with a small hop every
+  `followHop` s. Further than `followFar` m or blocked for `followStuck` s, he is put on a clear spot (`penetration` 0,
+  walkable, inside the village) just behind Pip with a hop (`catchUps` counts them). With Pip outside the village circle
+  (`TUNE.world.paradeR`) his target is that circle's edge on Pip's side, and no catch-up. `homeUpdate` walks him home
+  after the parade (blocked for a while: a hop home).
+
+`tickErrandFx` twinkles each item still out within 40 m (render time; it holds under menus). The tracker's `errands` row
+counts errands done (`errands.done(S)`) over `ERRANDS.length`.
 
 ## 13. Viewmodel (`js/view/viewmodel.js`, module `wp2-viewmodel`) — detail: [WP2](wp/WP2.md)
 
@@ -849,8 +873,11 @@ corrupt and a newer-version save, each load with stored settings: valid, wrong-t
 `tests/pwa.mjs` (the Pages build under `/game/`: install, offline play, an update, `?nosw=1`; §14.5) and
 `tests/playthrough.mjs` (a whole game from a clean `localStorage`: New Game, Shellby's intro, each guardian's arena walked
 into, beaten with `G.debug.killBoss()` and its Starseed walked onto, Use at the pedestal, the ending and its card, free roam,
-Clover's errand after Captain Pinch (talk, Use on the five rainbow shells, talk again for the reward once), the pause
-tracker at 3/3 and errands 1/1, Save & Quit, a reload and Continue with the bloom and the finished errand restored; it steps the real frame loop
+Clover's errand after Captain Pinch (talk, Use on the five rainbow shells, talk again for the reward once), Mayor
+Ribbit's parade after the ending (a talk; for each lantern Pip walks in from about 9 m and it lights only with Ribbit
+close behind, having walked or catch-up hopped there himself; a mid-parade Save & Quit → Continue; Pip out of the village
+while Ribbit waits at its edge; a talk for the reward once), the pause tracker at 3/3 and errands 2/2, Save & Quit, a
+reload and Continue with the bloom and both finished errands restored; it steps the real frame loop
 (`game.runFrame`, drawing one frame in 60) on the manual clock without its redraws instead of waiting in real time), and
 `tests/opening.mjs` (the opening with real input events only, never `G.debug` input: New Game, Shellby's intro page by page,
 then look, walk and swing until the first-run coach marks mark the save; on desktop with keyboard and mouse and on a
