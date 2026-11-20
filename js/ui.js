@@ -430,7 +430,8 @@ export class UI {
     const fight = !!(g.fight && g.fight.phase !== 'won');
     if (this.fightOn !== fight) { this.fightOn = fight; this.objEl.classList.toggle('infight', fight); }
     const o = this.obj, pl = g.player.pos;
-    const txt = !o ? (g.S.ending ? 'The isle is blooming ✿' : '') : o.text + ' · ' + Math.round(Math.hypot(o.x - pl.x, o.z - pl.z)) + ' m';
+    // no-break spaces: the distance stays whole ("117 m"), on the line of its "·" (the portrait line wraps: a lone "m" did)
+    const txt = !o ? (g.S.ending ? 'The isle is blooming ✿' : '') : o.text + '\u00a0· ' + Math.round(Math.hypot(o.x - pl.x, o.z - pl.z)) + '\u00a0m';
     if (txt !== this.objShown) { this.objShown = txt; this.objText.textContent = txt; }
   }
   showHud(on) { this.hud.classList.toggle('off', !on); if (on) this.markersDirty = true; }

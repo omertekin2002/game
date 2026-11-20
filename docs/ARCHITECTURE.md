@@ -851,8 +851,12 @@ corrupt and a newer-version save, each load with stored settings: valid, wrong-t
 into, beaten with `G.debug.killBoss()` and its Starseed walked onto, Use at the pedestal, the ending and its card, free roam,
 Clover's errand after Captain Pinch (talk, Use on the five rainbow shells, talk again for the reward once), the pause
 tracker at 3/3 and errands 1/1, Save & Quit, a reload and Continue with the bloom and the finished errand restored; it steps the real frame loop
-(`game.runFrame`, drawing one frame in 60) on the manual clock without its redraws instead of waiting in real time).
-`tests/lib/browser.mjs` holds the static server and Chromium options the smoke and playthrough tests share. `jsconfig.json` maps `three` to the vendored copy for `bun test`, as the import map
+(`game.runFrame`, drawing one frame in 60) on the manual clock without its redraws instead of waiting in real time), and
+`tests/opening.mjs` (the opening with real input events only, never `G.debug` input: New Game, Shellby's intro page by page,
+then look, walk and swing until the first-run coach marks mark the save; on desktop with keyboard and mouse and on a
+390×844 touch phone with taps, a swipe, the floating stick and Swing; it also checks the portrait objective line never
+leaves the distance unit on a line of its own; same manual clock).
+`tests/lib/browser.mjs` holds the static server and Chromium options the browser tests share. `jsconfig.json` maps `three` to the vendored copy for `bun test`, as the import map
 in `index.html` does for the browser, because `js/world.js` reaches `js/props.js` and so three.js. The Pages build
 (`tools/build-pages.mjs`) scans every `js/**/*.js` for `from '…'` with a regular expression, comments and strings
 included, so text such as `from 'dash'` in a comment fails it: keep that pattern out of comments and messages.
