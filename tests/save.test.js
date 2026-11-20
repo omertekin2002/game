@@ -70,6 +70,14 @@ describe('round trip', () => {
     expect(loadSave(roundTrip(s), SEED)).toEqual(s);
   });
 
+  test("a mid-parade save (Ribbit's errand under way, two lanterns lit) keeps its state in the v3 shape", () => {
+    const s = { ...midGame(), ending: true, errands: { clover: 2, ribbit: 1 }, shells: { shell1: true, shell2: true, shell3: true, shell4: true, shell5: true, lantern1: true, lantern3: true } };
+    const back = loadSave(roundTrip(s), SEED);
+    expect(back).toEqual(s);
+    expect(back.v).toBe(SAVE_VERSION);
+    expect(SAVE_VERSION).toBe(3);   // the parade needs no schema change: errand state and lantern flags fit v3
+  });
+
   test('a save from another island keeps its own seed', () => {
     const s = { ...midGame(), seed: 1234 };
     expect(loadSave(roundTrip(s), SEED).seed).toBe(1234);
