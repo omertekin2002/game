@@ -82,7 +82,7 @@ key. Hints, prompts and the controls card show the keys you chose, and Reset on 
 The gamepad buttons above are the defaults too. **Settings → Controls → Buttons** rebinds the button of every gameplay
 action (Hop, Roll, Swing, Use, Potion, View, Swap shoulder, Lock on, Lock on while held, Sprint on / off, Map): confirm a
 row, then press the new button (B or Start cancels, and so does Esc; a button another action uses swaps the two, so to
-put an action on B, rebind the action that has B now). Start always pauses, and the menus, dialogue, the shop and the
+put an action on B, rebind the action that has B now; once no action has B, B simply binds). Start always pauses, and the menus, dialogue, the shop and the
 map keep the standard layout whatever you bind: stick / D-pad move, A confirms, B goes back, LB / RB switch tabs. RT,
 D-pad ↓, D-pad ↑ and D-pad → work only while Swing, Potion, View and Swap shoulder keep their default button. Reset on
 the Controls tab restores the default buttons as well.

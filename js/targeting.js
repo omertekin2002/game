@@ -274,7 +274,9 @@ export const TargetingMixin = {
   updateLock(input, dt) {
     const L = this.lockS(), pl = this.player, v = this.view;
     L.flickCD = Math.max(0, L.flickCD - dt);
-    const free = this.playing && pl.state !== 'dizzy';
+    // (not in a frame that began with dialogue, the shop or a menu open: the press that closed it, A / B in the pad's
+    // menu layout, may be a remapped lock button: input.modal)
+    const free = this.playing && !input.modal && pl.state !== 'dizzy';
     const holdMode = this.settings.get('lockMode') === 'hold';
     const holdNow = input.held('lockHold');
     if (free) {

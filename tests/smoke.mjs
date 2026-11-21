@@ -494,6 +494,15 @@ async function main() {
     pr = await padRow();
     const padSwapped = { jump: 2, attack: 3, interact: 0 };
     if (pr.waiting || pr.key !== 'X' || pr.cls !== 'kp x' || !/Swapped with Swing, now on Y/.test(pr.note) || JSON.stringify(pr.pad) !== JSON.stringify(padSwapped)) fail(`X did not swap Hop and Swing: ${JSON.stringify(pr)}`);
+    // Roll moved off B onto RT (B is nobody's now): waiting on the Hop row, B binds instead of cancelling
+    await page.evaluate((p) => window.G.settings.set('pad', p), { ...padSwapped, dash: 7 });
+    await padPress(0);
+    pr = await padRow();
+    if (!pr.waiting || !/Start cancels/.test(pr.note) || /B or Start/.test(pr.note)) fail(`the wait does not say B is free to bind: ${JSON.stringify(pr)}`);
+    await padPress(1);
+    pr = await padRow();
+    if (pr.waiting || pr.key !== 'B' || pr.pad.jump !== 1 || pr.pad.dash !== 7 || pr.menu !== 'settings') fail(`a free B did not bind to Hop: ${JSON.stringify(pr)}`);
+    await page.evaluate((p) => window.G.settings.set('pad', p), padSwapped);
     await padPress(1);
     await waitFor('B to go back to the pause menu', () => window.G.ui.menu === 'pause', STEP_TIMEOUT);
     await closeMenus();
@@ -503,7 +512,7 @@ async function main() {
     const writtenPad = (await settingsNow()).stored;
     if (JSON.stringify(writtenPad.pad) !== JSON.stringify(padSwapped)) fail(`rebound buttons not saved: ${JSON.stringify(writtenPad)}`);
     if (problems.length) fail('errors while rebinding buttons');
-    step('menus kept A / B / LB / RB / D-pad; rebound Hop to X with real pad presses (B and Start cancel, Swing swapped onto Y) and saved');
+    step('menus kept A / B / LB / RB / D-pad; rebound Hop to X with real pad presses (B and Start cancel, Swing swapped onto Y; a free B binds) and saved');
 
     await openGame(save, writtenPad, true);
     // (menu hints name the menus' own buttons, which stay A / B / LB / RB)

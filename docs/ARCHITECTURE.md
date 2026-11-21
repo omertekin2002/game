@@ -533,9 +533,10 @@ tabs and the D-pad / stick move whatever the bindings are; `navUp` / `navDown` s
 stick. With the default bindings both edge sets are the same. The per-frame toggles that also run under modal UI (view
 and shoulder in dialogue, the sprint latch) read `framePressed(a)`: menu edges when the frame began with dialogue, the
 shop or a menu open (`input.modal`, set by Game), else `pressed`, so a button remapped onto A / B does not also toggle
-while it confirms or goes back. While the Settings card waits for a button,
-`input.padCapture = fn(index)` takes the next pad button press (once) instead of the game and the menus; B (1) and
-Start (9) cancel the wait, Esc and the other keyboard / mouse / touch presses stop it too.
+while it confirms or goes back. Lock-on (`updateLock`) skips such a frame altogether. While the Settings card waits for a button,
+`input.padCapture = fn(index)` takes the next pad button press (once) instead of the game and the menus; Start (9)
+cancels the wait, and so does B (1) while an action has B (a B nothing is bound to binds, or it could never be reached
+again); Esc and the other keyboard / mouse / touch presses stop it too.
 
 | Device | Bindings |
 |---|---|

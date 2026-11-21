@@ -129,8 +129,11 @@ export const PAD_LABEL = {
   view: 'First ↔ third person', shoulder: 'Swap shoulder', lockOn: 'Lock on', lockHold: 'Lock on while held',
   sprintToggle: 'Sprint on / off', map: 'Map',
 };
-const PAD_MSG = { wait: 'Press a button · B or Start cancels', reserved: 'Start and Home stay as they are · press another button' };
-const PAD_B = 1, PAD_START = 9;                         // these cancel a wait (the menus' back buttons)
+const PAD_MSG = { wait: 'Press a button · B or Start cancels', waitB: 'Press a button · Start cancels', reserved: 'Start and Home stay as they are · press another button' };
+// these cancel a wait (the menus' back buttons). B only while an action has it: a B nothing is bound to binds instead,
+// or it could never be bound again (the swap that reaches it needs an action on B)
+const PAD_B = 1, PAD_START = 9;
+const bOwned = () => Object.values(effectivePad(settings.get('pad'))).includes(PAD_B);
 const shortName = (l) => l.split(/ · | \(/)[0];
 export const TABS = [['view', 'View'], ['controls', 'Controls'], ['sound', 'Sound'], ['comfort', 'Comfort']];
 const DEV_GROUP = { kbm: 'Keyboard + mouse', touch: 'Touch', pad: 'Controller' };
@@ -255,7 +258,7 @@ export class SettingsCard {
     if (!input) return;
     if (this.cap === a && this.capK === k) { this.unbind(); return; }
     this.stopCapture();
-    this.cap = a; this.capK = k; this.keyMsg = { a, k, text: k === 'pad' ? PAD_MSG.wait : KEY_MSG.wait };
+    this.cap = a; this.capK = k; this.keyMsg = { a, k, text: k === 'pad' ? (bOwned() ? PAD_MSG.wait : PAD_MSG.waitB) : KEY_MSG.wait };
     uiSfx('uiSelect');
     this.arm();
     this.sync();
@@ -284,7 +287,7 @@ export class SettingsCard {
   }
   onPad(a, i) {
     if (this.cap !== a || this.capK !== 'pad') return;
-    if (i === PAD_B || i === PAD_START) { this.unbind(); uiSfx('uiBack'); return; }
+    if (i === PAD_START || (i === PAD_B && bOwned())) { this.unbind(); uiSfx('uiBack'); return; }
     const r = bindPad(settings.get('pad'), a, i);
     if (r.error) {                                      // reserved (Home): say so and keep waiting
       this.keyMsg = { a, k: 'pad', text: PAD_MSG.reserved, warn: true };
