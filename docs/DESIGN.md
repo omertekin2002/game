@@ -181,7 +181,7 @@ rematch in under 20 s (wp5-heavy "rematch balance"; measured: downed in every ru
   camera cuts to a two-shot that keeps the speaker's face clear of Pip, and the portrait shows. Lines use the device's keys.
 - **Villagers**: Elder Shellby (turtle, by the pedestal; the three-page intro and hints), Mayor Ribbit (frog; names the landmarks, then his parade),
   Miso (cat; runs the shop), Clover (bunny; Captain Pinch tips, then her errand), Professor Hoot (owl; Grumble Shroom tips), Digby (mole;
-  Frostbun tips and hidden heart chests). They look at Pip, wave when he comes close and step back if he stands too
+  Frostbun tips, hidden heart chests and, once the first Starseed is home, a hint at the landmark secrets). They look at Pip, wave when he comes close and step back if he stands too
   close (Miso stays behind her counter).
 - **Errands**: small favours villagers ask once Pip has done enough (`ERRANDS` in `js/data.js`). The first is Clover's:
   after Captain Pinch is beaten, talking to her asks Pip to find **5 rainbow shells** on the Sunny Shores (one by the
@@ -201,6 +201,21 @@ rematch in under 20 s (wp5-heavy "rematch balance"; measured: downed in every ru
   lantern 2/4" and it is saved at once. With all four lit Ribbit hops home, and a talk there finishes the parade: his
   victory croak finally works and he gives 50 gems, once. The lanterns stay lit for good. Following is not saved: after
   Continue Ribbit is home again, the lit lanterns still lit, and a talk picks the parade up again.
+- **Landmark secrets**: one small keepsake tucked against each region landmark (`SECRETS` in `js/data.js`; none at the
+  Great Tree), on the side facing away from that region's path:
+  - a **glowing acorn** at the foot of Grumble's Crown's stem;
+  - a **humming crystal stone** below the Summit Crystal Cairn. The cairn's needle summit is too steep to walk up to, so
+    the stone lies as close below it as Pip can stand (seeds 1–150: a median 8 m from the cairn's ring, at most 28 m);
+  - a **message in a bottle** at the base of Pinch's Lighthouse, on the sea side;
+  - a **tiny seed pouch** against the Meadow Windmill's footing.
+
+  Each is a small procedural model with no compass or map marker. It twinkles faintly only while Pip is within 6 m (fewer
+  motes with Motion comfort), so it stays a secret from a distance. Looking at it, the prompt reads `Look · Something
+  glowing` (`Open · A bottle`), so its name is a surprise. Use reads its two original lines like a sign (small hints about
+  the isle's past and the Great Tree) and gives **25 gems once**, with the usual gem feed line and a "Secret found 1/4"
+  note. Then it is gone, or for the bottle, left opened. It works before and after the bloom. Digby's hint, once the first
+  Starseed is home: "Every tall thing on this isle keeps something tucked round its back. Digby's dug near all of them."
+  With all four found he thanks Pip instead. The tracker's Secrets chip counts them.
 - **Shop (Miso)**: Potion 25 gems (carry 3), Heart Container 120 (once), Shiny Sword 150 (once: double damage, longer
   reach, sparkly). In first person the purchase is held up in Pip's paws. Once the heart and the sword are both sold,
   Miso's keepsakes give spare gems a use: a guardian plushie (Grumble Shroom, Captain Pinch, Frostbun; `PLUSHIES` in
@@ -254,8 +269,9 @@ generated icons that each have a drawn fallback.
   backdrop. Everything works with mouse, keyboard, gamepad and touch.
 - **Completion tracker** (pause menu under the seed row, map card under the legend): a row of chips, each an icon and
   found / total, for chests opened, heart containers (the heart chests plus Miso's shop heart), guardians beaten, regions
-  visited, Starseeds home, errands done (an errand counts once, not its shells), Miso's guardian plushies bought and
-  guardian rematches won (shown from the start, like the errands, so ★ 100% means everything), then the overall percentage of
+  visited, Starseeds home, errands done (an errand counts once, not its shells), Miso's guardian plushies bought,
+  guardian rematches won and landmark secrets found (0/4; shown from the start, like the errands, so ★ 100% means
+  everything), then the overall percentage of
   distinct things found. A full chip turns green and gets a
   ✓ badge, and the finished tally reads ★ 100%, so completion never rests on colour alone. It is read-only over the save
   (`js/completion.js`, a pure module): totals come from the generated island and `data.js`, and save keys for things
@@ -337,11 +353,11 @@ One save slot in the browser (`starseed-isle-save-v2`): autosave every 30 s outs
 chests, purchases, defeats). It keeps the island seed, Pip's place and look, hearts, gems, potions, sword, Starseeds
 (found and placed), chests, defeated bosses, the shop heart, the ending, the time of day, visited regions, errands
 (started or done) and their items found (rainbow shells picked up, parade lanterns lit), Miso's guardian plushies bought,
-the guardian rematches won, and your map marker. A save made mid-fight (a first fight or a rematch) resumes outside the
+the guardian rematches won, the landmark secrets found, and your map marker. A save made mid-fight (a first fight or a rematch) resumes outside the
 arena. Continue resumes there; Save & Quit returns to the title.
 
 The schema lives in `js/save.js` (pure, unit-tested in `tests/save.test.js`). Every save carries a `v` field,
-`SAVE_VERSION` (currently 5); the version comes from `v`, not from the storage key, which stays
+`SAVE_VERSION` (currently 6); the version comes from `v`, not from the storage key, which stays
 `starseed-isle-save-v2`. Loading runs `loadSave(raw, seed)`: `migrate` applies the `MIGRATIONS[n]` steps
 (version n → n + 1) up to `SAVE_VERSION` and rejects non-objects, saves without `seed`, saves newer than
 `SAVE_VERSION` or with no migration path; then `normalize` fills missing fields from `freshState` and
@@ -359,6 +375,9 @@ Mayor Ribbit's parade needs no new version: its state is `errands.ribbit` and ea
 as newer, so as no save. `MIGRATIONS[4]` (v4 → v5, guardian rematches) keeps every v4 field and adds `rematches: {}`
 (guardian id → true once its rematch is won); `normalize` keeps only guardian ids, as flags. A build from before v5
 treats a v5 save as newer: to roll the rematches back, keep the v4 → v5 step and drop only the gameplay.
+`MIGRATIONS[5]` (v5 → v6, the landmark secrets) keeps every v5 field and adds `secrets: {}` (keepsake id → true once
+found); `normalize` keeps only `SECRETS` ids set to `true`. A build from before v6 treats a v6 save as newer, so as no
+save: to roll the secrets back, keep the v5 → v6 step and drop only the gameplay.
 
 The first-person build adds two optional fields without a version bump (`normalize` keeps unknown fields): `pitch`,
 the look angle, which `Game.startSession` restores clamped; and `controlsV`, the version of the controls card the

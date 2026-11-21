@@ -24,7 +24,7 @@
 // turns Pip's body to the target (it.bodyYaw: movement strafes) and aims swings at it (it.faceYaw / it.facePitch). The
 // lock target also gets the strongest swing magnetism (combat.js). Touch auto-face (feel §8.7): see touchAutoFace.
 import * as THREE from 'three';
-import { ERRANDS, progress, errands } from './data.js';
+import { ERRANDS, progress, errands, secrets } from './data.js';
 import { NPC } from './npcs.js';
 import { Boss } from './bosses.js';
 import { EV } from './events.js';
@@ -80,6 +80,12 @@ export const TargetingMixin = {
         const a = A[e.item] || [0.25, 0.45];
         out.push({ o: sh, kind: e.item, px: sh.x, py: sh.y + a[0], pz: sh.z, R: a[1], range: TC[e.item + 'Range'] || 1.6, x: sh.x, y: sh.y, z: sh.z, h: 0.8 });
       }
+    }
+    // the landmark keepsakes not found yet (W.secrets, data.js SECRETS): read with Use, before and after the bloom
+    if (S) for (const it of this.world.secrets || []) {
+      if (Math.abs(it.x - pl.pos.x) > 5 || Math.abs(it.z - pl.pos.z) > 5 || secrets.got(S, it.id)) continue;
+      const a = A.secret || [0.25, 0.5];
+      out.push({ o: it, kind: 'secret', px: it.x, py: it.y + a[0], pz: it.z, R: a[1], range: TC.secretRange || 1.6, x: it.x, y: it.y, z: it.z, h: 0.8 });
     }
     return out;
   },
@@ -165,6 +171,7 @@ export const TargetingMixin = {
     const o = t.o;
     if (o instanceof NPC) { t.verb = o.def.shop ? 'Shop' : 'Talk'; t.name = o.name; }
     else if (isBoss(o)) { t.verb = VERB.guardian; t.name = o.name; }   // a napping rematch guardian: 'Wake · Grumble Shroom'
+    else if (t.kind === 'secret') { const s = secrets.get(o.id); t.verb = (s && s.verb) || 'Look'; t.name = (s && s.label) || 'Something'; }   // 'Look · Something glowing'
     else {
       t.verb = t.kind === 'pedestal' ? (progress.carried(this.S) > 0 ? 'Place' : 'Look') : VERB[t.kind] || 'Use';
       t.name = NAME[t.kind] || t.kind;

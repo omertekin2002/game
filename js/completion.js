@@ -1,9 +1,9 @@
 // Completion tally for the pause menu and the map card: chests, heart containers, guardians, regions, Starseeds, errands,
-// Miso's guardian plushies, guardian rematches won after the bloom.
+// Miso's guardian plushies, guardian rematches won after the bloom, landmark keepsakes found.
 // Pure module (no Three.js, DOM or localStorage) so `bun test` can import it. Totals come from the generated world
 // (W.chests) and the content tables in data.js, so every ?seed= island counts its own chests. Only ids that exist in
 // this world are counted: a stale or unknown key in the save never inflates a count.
-import { BOSSES, ERRANDS, PLUSHIES, REGIONS, SEED_ORDER, SHOP, errands, rematch, shop } from './data.js';
+import { BOSSES, ERRANDS, PLUSHIES, REGIONS, SECRETS, SEED_ORDER, SHOP, errands, rematch, secrets, shop } from './data.js';
 
 const has = (o, k) => !!o && typeof o === 'object' && Object.hasOwn(o, k) && !!o[k];
 const row = (found, total) => ({ found, total, full: found >= total });
@@ -18,6 +18,7 @@ export const COMPLETION_ROWS = [
   { k: 'errands', name: 'Errands', icon: 'shell_deco', fb: '✿' },
   { k: 'plushies', name: 'Plushies', icon: 'boss_shroom', fb: '♡' },
   { k: 'rematches', name: 'Rematches', icon: 'act_swing', fb: '⚔' },
+  { k: 'secrets', name: 'Secrets', icon: 'icon_tree', fb: '❖' },
 ];
 
 /**
@@ -25,7 +26,7 @@ export const COMPLETION_ROWS = [
  * Heart containers are the world's heart chests plus Miso's one shop heart. `pct` is the share of distinct things
  * done (a heart chest counts once), rounded down so 100 only shows when `done`.
  * @returns {{chests: {found: number, total: number, full: boolean}, hearts: object, guardians: object, regions: object,
- *   seeds: object, errands: object, plushies: object, rematches: object, pct: number, done: boolean}}
+ *   seeds: object, errands: object, plushies: object, rematches: object, secrets: object, pct: number, done: boolean}}
  */
 export function completion(W, S) {
   const chests = (W && W.chests) || [];
@@ -44,11 +45,12 @@ export function completion(W, S) {
     errands: row(errands.done(st), ERRANDS.length),   // an errand counts once, when it is done (not its items)
     plushies: row(shop.plushies(st), PLUSHIES.length), // Miso's guardian plushies bought (guardian ids only)
     rematches: row(rematch.count(st), bossIds.length), // guardian rematches won after the bloom (guardian ids only)
+    secrets: row(secrets.count(st), SECRETS.length),   // landmark keepsakes found (keepsake ids only)
   };
   // distinct things: every chest (heart chests included), the shop heart, guardians, regions, Starseeds, errands, plushies,
-  // rematches
-  const found = out.chests.found + shopGot + out.guardians.found + out.regions.found + out.seeds.found + out.errands.found + out.plushies.found + out.rematches.found;
-  const total = out.chests.total + shopHearts + out.guardians.total + out.regions.total + out.seeds.total + out.errands.total + out.plushies.total + out.rematches.total;
+  // rematches, keepsakes
+  const found = out.chests.found + shopGot + out.guardians.found + out.regions.found + out.seeds.found + out.errands.found + out.plushies.found + out.rematches.found + out.secrets.found;
+  const total = out.chests.total + shopHearts + out.guardians.total + out.regions.total + out.seeds.total + out.errands.total + out.plushies.total + out.rematches.total + out.secrets.total;
   out.done = COMPLETION_ROWS.every((r) => out[r.k].full);
   out.pct = out.done ? 100 : total ? Math.min(99, Math.floor((100 * found) / total)) : 0;
   return out;

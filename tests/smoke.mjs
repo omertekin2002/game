@@ -107,7 +107,7 @@ async function main() {
     if (await openPause() !== 'pause') fail('the pause menu did not open');
     let t = await tally('#pause .ptrack');
     const r0 = await regionsSeen();
-    const want0 = { chests: `0/${nChests}`, hearts: '0/5', guardians: '0/3', regions: `${r0}/5`, seeds: '0/3', errands: '0/2', plushies: '0/3', rematches: '0/3' };
+    const want0 = { chests: `0/${nChests}`, hearts: '0/5', guardians: '0/3', regions: `${r0}/5`, seeds: '0/3', errands: '0/2', plushies: '0/3', rematches: '0/3', secrets: '0/4' };
     for (const [k, v] of Object.entries(want0)) if (!t[k] || t[k].text !== v || t[k].full) fail(`pause tracker ${k} on a new game: ${JSON.stringify(t[k])}, expected ${v}`);
     await closeMenus();
     const had3 = await page.evaluate(() => {
@@ -157,8 +157,15 @@ async function main() {
     if (!t.rematches || t.rematches.text !== '0/3' || t.rematches.full || t.rematches.tick || !t.pct || t.pct.full) fail(`pause tracker without the rematches: ${JSON.stringify({ rematches: t.rematches, pct: t.pct })}`);
     await closeMenus();
     await page.evaluate(() => { window.G.game.S.rematches = { woods: true, shores: true, peaks: true }; });
+    // every rematch won but no landmark keepsake found yet: the Secrets chip and the total are still not complete
     await openPause();
     t = await tally('#pause .ptrack');
+    if (!t.secrets || t.secrets.text !== '0/4' || t.secrets.full || t.secrets.tick || !t.pct || t.pct.full) fail(`pause tracker without the secrets: ${JSON.stringify({ secrets: t.secrets, pct: t.pct })}`);
+    await closeMenus();
+    await page.evaluate(() => { window.G.game.S.secrets = { acorn: true, stone: true, bottle: true, pouch: true }; });
+    await openPause();
+    t = await tally('#pause .ptrack');
+    if (!t.secrets || t.secrets.text !== '4/4') fail(`pause tracker secrets on a finished save: ${JSON.stringify(t.secrets)}`);
     if (!t.errands || t.errands.text !== '2/2') fail(`pause tracker errands on a finished save: ${JSON.stringify(t.errands)}`);
     if (!t.plushies || t.plushies.text !== '3/3') fail(`pause tracker plushies on a finished save: ${JSON.stringify(t.plushies)}`);
     if (!t.rematches || t.rematches.text !== '3/3') fail(`pause tracker rematches on a finished save: ${JSON.stringify(t.rematches)}`);
@@ -166,7 +173,7 @@ async function main() {
     if (!t.pct || t.pct.text !== '★ 100%') fail(`pause tracker total on a finished save: ${JSON.stringify(t.pct)}`);
     await closeMenus();
     if (problems.length) fail('errors with the completion tracker');
-    step(`completion tracker on the pause menu and the map: 0/${nChests} → 1/${nChests} chests, 1/3 guardians, ${r1}/5 regions, errands 0/2 → 1/2 → 2/2, plushies 0/3 → 3/3, rematches 0/3 → 3/3, ✓ and ★ 100% when finished`);
+    step(`completion tracker on the pause menu and the map: 0/${nChests} → 1/${nChests} chests, 1/3 guardians, ${r1}/5 regions, errands 0/2 → 1/2 → 2/2, plushies 0/3 → 3/3, rematches 0/3 → 3/3, secrets 0/4 → 4/4, ✓ and ★ 100% when finished`);
 
     // 2. Continue a valid v2 save (one chest open, one boss beaten and its seed placed, a saved position).
     // controlsV is the controls-card version the player has seen (CONTROLS_V in js/game.js); a save without it
@@ -200,12 +207,13 @@ async function main() {
     }
     if (Math.hypot(resumed.pos.x - save.px, resumed.pos.z - save.pz) > 0.5) fail(`resumed at ${JSON.stringify(resumed.pos)}, saved at ${save.px}, ${save.pz}`);
     if (resumed.liveBosses.includes('woods') || resumed.liveBosses.length !== 2) fail(`unexpected live bosses after continue: ${resumed.liveBosses}`);
-    // migrated to v5 on load (MIGRATIONS[2], [3] and [4] in js/save.js): no errand started, no rainbow shell out, no
-    // plushie, no rematch won
-    if (resumed.S.v !== 5 || JSON.stringify(resumed.S.errands) !== '{}' || JSON.stringify(resumed.S.shells) !== '{}' || JSON.stringify(resumed.S.plushies) !== '{}' || JSON.stringify(resumed.S.rematches) !== '{}') fail(`the v2 save was not migrated to v5: ${JSON.stringify({ v: resumed.S.v, errands: resumed.S.errands, shells: resumed.S.shells, plushies: resumed.S.plushies, rematches: resumed.S.rematches })}`);
+    // migrated to v6 on load (MIGRATIONS[2]–[5] in js/save.js): no errand started, no rainbow shell out, no plushie, no
+    // rematch won, no keepsake found (all four still in the world)
+    if (resumed.S.v !== 6 || JSON.stringify(resumed.S.errands) !== '{}' || JSON.stringify(resumed.S.shells) !== '{}' || JSON.stringify(resumed.S.plushies) !== '{}' || JSON.stringify(resumed.S.rematches) !== '{}' || JSON.stringify(resumed.S.secrets) !== '{}') fail(`the v2 save was not migrated to v6: ${JSON.stringify({ v: resumed.S.v, errands: resumed.S.errands, shells: resumed.S.shells, plushies: resumed.S.plushies, rematches: resumed.S.rematches, secrets: resumed.S.secrets })}`);
+    if (await page.evaluate(() => [...window.G.game.scenery.secrets.values()].filter((o) => o.shown).length) !== 4) fail('the four landmark keepsakes are not in the world after continuing a save without any found');
     if (await page.evaluate(() => [...window.G.game.scenery.plushies.values()].some((o) => o.visible))) fail('plushies on Miso\'s counter after continuing a save without any');
     if (problems.length) fail('errors after continuing a valid save');
-    step('valid v2 save continued (migrated to v5) with the same chests, bosses, seeds and position');
+    step('valid v2 save continued (migrated to v6) with the same chests, bosses, seeds and position');
 
     // 2b. The stored settings are in effect (Low: the small shadow map; motion comfort: the calm HUD), and a change
     // made now is written back next to the ones that were there, the unknown key included.

@@ -1,7 +1,8 @@
 // Unit tests for deterministic island generation (js/world.js). Run with `bun test`.
 import { describe, expect, test } from 'bun:test';
 import { generateWorld } from '../js/world.js';
-import { CFG, REGION } from '../js/data.js';
+import { CFG, REGION, SECRETS } from '../js/data.js';
+import { shapeDist } from '../js/world-collide.js';
 import { world as TW } from '../js/tune.js';
 import { placementPrint } from './lib/world-print.js';
 import PRINTS from './fixtures/world-prints.json';
@@ -37,6 +38,40 @@ function lanternNear(w, s) {
   if (s.at === 'signpost') return d(w.signpost.x, w.signpost.z) <= 6.1;
   if (s.at === 'shop') return d(w.shop.x, w.shop.z) <= 11.5;
   if (s.at === 'meadow') return Math.min(...w.paths.meadow.map((p) => d(p.x, p.z))) <= 6.5 && Math.hypot(s.x, s.z) > 18;
+  return false;
+}
+
+// a landmark keepsake's spot is valid (World.placeSecrets): dry, walkable, not steep, off bridges and arenas, clear of
+// every solid and collider but its own landmark's, of chests, interactables, NPC spots, shells and lanterns; reachable.
+// Returns the list of broken rules (empty when valid)
+function secretFaults(w, s, reach) {
+  const lm = w.landmarks.find((l) => l.id === s.landmark), bad = [];
+  const d = (p) => Math.hypot(p.x - s.x, p.z - s.z);
+  if (!(w.hAt(s.x, s.z) > 0.25)) bad.push('wet');
+  if (!w.walkable(s.x, s.z) || !(w.slopeAt(s.x, s.z) < 0.7)) bad.push('steep');
+  if (w.bridgeAt(s.x, s.z) !== null) bad.push('bridge');
+  if (w.inArena(s.x, s.z, 2)) bad.push('arena');
+  if (w.props.some((p) => p.solid && !p.removed && p !== lm.prop && d(p) < p.r + 0.5)) bad.push('solid');
+  if (w.colliders.some((c) => c.prop !== lm.prop && shapeDist(c, s.x, s.z) < 0.5)) bad.push('collider');
+  if (Math.hypot(s.x - lm.x, s.z - lm.z) < lm.prop.r + 0.55) bad.push('inside its landmark');
+  if (w.chests.some((c) => d(c) < 2.5)) bad.push('chest');
+  if (w.interact.some((it) => d(it) < Math.max(2, (it.r || 0) + 0.5))) bad.push('interactable');
+  if (Object.values(w.npcSpots).some((q) => d(q) < 3)) bad.push('npc spot');
+  if (w.shells.concat(w.lanterns).some((q) => d(q) < 2)) bad.push('errand item');
+  if (!w.isReached(reach, s.x, s.z, false)) bad.push('unreachable');
+  return bad;
+}
+// how far a keepsake is from its landmark's collider ring (m)
+const ringGap = (w, s) => { const lm = w.landmarks.find((l) => l.id === s.landmark); return Math.hypot(s.x - lm.x, s.z - lm.z) - lm.prop.r; };
+// the Summit Crystal Cairn's needle summit: is any spot of World.placeSecrets' near grid (0.6–3 m outside its ring,
+// every 5°) valid (secretFaults) at all?
+function cairnNearValid(w, reach) {
+  const lm = w.landmarks.find((l) => l.id === 'peaks');
+  for (const dd of [0.6, 0.8, 1.0, 1.3, 1.6, 2.0, 2.5, 3.0]) for (let k = 0; k < 72; k++) {
+    const a = (k / 72) * Math.PI * 2 - Math.PI, x = +(lm.x + Math.sin(a) * (lm.prop.r + dd)).toFixed(3), z = +(lm.z + Math.cos(a) * (lm.prop.r + dd)).toFixed(3);
+    if (!w.isReached(reach, x, z, false) || !w.walkable(x, z)) continue;   // the cheap rules first
+    if (!secretFaults(w, { landmark: 'peaks', x, z }, reach).length) return true;
+  }
   return false;
 }
 
@@ -164,6 +199,43 @@ describe.each(SEEDS)('seed %p', (seed) => {
     }
   }, SLOW);
 
+  test('the landmark-keepsake pass changes nothing else in the world, with or without the other post-passes', () => {
+    const w = world(seed), noSecrets = generateWorld(seed, { secrets: false }), bare = generateWorld(seed, { shells: false, lanterns: false, secrets: false });
+    expect(noSecrets.secrets).toEqual([]);
+    expect(noSecrets.shells).toEqual(w.shells);       // no RNG draws: the shells and lanterns stay where they were
+    expect(noSecrets.lanterns).toEqual(w.lanterns);
+    for (const o of [noSecrets, bare]) {
+      expect(placementPrint(w)).toEqual(placementPrint(o));
+      expect(fingerprint(w)).toEqual(fingerprint(o));
+      expect(fnv(w.walk)).toBe(fnv(o.walk));
+      expect(fnv(w.reach)).toBe(fnv(o.reach));
+      expect(w.unreachable).toEqual(o.unreachable);
+      expect(o.props.length).toBe(w.props.length);
+      expect(o.deco.length).toBe(w.deco.length);
+      expect(o.colliders.length).toBe(w.colliders.length);
+      expect(o.interact.length).toBe(w.interact.length);
+      expect(o.reserved).toEqual(w.reserved);
+      expect(o.npcSpots).toEqual(w.npcSpots);
+    }
+    expect(generateWorld(seed).secrets).toEqual(w.secrets);   // deterministic per seed
+  }, SLOW);
+
+  test('four landmark keepsakes, one per region landmark, just outside its ring, on valid reachable ground', () => {
+    const w = world(seed), reach = w.bfs(w.buildWalk());
+    expect(w.secrets.map((s) => s.id)).toEqual(SECRETS.map((s) => s.id));
+    expect(w.secrets.map((s) => s.landmark)).toEqual(['woods', 'peaks', 'shores', 'meadow']);
+    for (const s of w.secrets) {
+      expect(s.kind).toBe('secret');
+      expect(s.y).toBeCloseTo(w.hAt(s.x, s.z), 5);
+      expect({ id: s.id, bad: secretFaults(w, s, reach) }).toEqual({ id: s.id, bad: [] });
+      if (s.landmark !== 'peaks') {
+        expect(ringGap(w, s)).toBeLessThanOrEqual(3 + 1e-6);
+        expect(s.at).toBeLessThan(Math.PI / 2);   // on the half away from the path (the lighthouse: toward the sea)
+      }
+      for (const t of w.secrets) if (t !== s) expect(Math.hypot(t.x - s.x, t.z - s.z)).toBeGreaterThan(20);
+    }
+  }, SLOW);
+
   test('spawn point is on dry land', () => {
     const w = world(seed);
     expect(w.hAt(w.spawn.x, w.spawn.z)).toBeGreaterThan(0);
@@ -206,3 +278,27 @@ test('on seeds 1–40 there are four parade lanterns, each at the spot Ribbit na
   }
   expect(off).toEqual([]);
 }, 120_000);
+
+// every island has its four keepsakes, each on valid reachable ground by its landmark: within 3 m of the ring, on the
+// half away from the path for every landmark but the cairn. The cairn's needle summit has no reachable ground within
+// 3 m of its ring on most seeds; there the stone is as close as Pip can stand (seeds 1–150: median 7 m, at most 28 m)
+test('on seeds 1–150 every landmark has its keepsake on valid reachable ground by it', () => {
+  const off = [];
+  for (let seed = 1; seed <= 150; seed++) {
+    const w = generateWorld(seed, { shells: true, lanterns: true });
+    if (w.secrets.map((s) => s.id).join() !== SECRETS.map((s) => s.id).join()) { off.push([seed, 'ids', w.secrets.map((s) => s.id)]); continue; }
+    const reach = w.bfs(w.buildWalk());
+    for (const s of w.secrets) {
+      const bad = secretFaults(w, s, reach), gap = ringGap(w, s);
+      if (bad.length) off.push([seed, s.id, bad]);
+      if (s.landmark === 'peaks') {
+        if (gap > 3 + 1e-6 && cairnNearValid(w, reach)) off.push([seed, s.id, 'far although a spot by the ring is valid', gap]);
+        if (gap > 40) off.push([seed, s.id, 'too far', gap]);
+      } else {
+        if (gap > 3 + 1e-6) off.push([seed, s.id, 'far', gap]);
+        if (!(s.at < Math.PI / 2)) off.push([seed, s.id, 'on the path side', s.at]);
+      }
+    }
+  }
+  expect(off).toEqual([]);
+}, 300_000);

@@ -257,6 +257,55 @@ function paradePaper() {
   return b.build();
 }
 export function paradeLanternModels() { return cache.paradeLantern || (cache.paradeLantern = { post: paradePost(), paper: paradePaper() }); }
+/** the landmark keepsakes (data.js SECRETS): small procedural models, model units ≈ m, resting on the ground at the
+ *  origin and facing +Z (out from the landmark). `main` stays; `lid` is the part that goes once a `keep` keepsake is
+ *  found (the bottle's cork and rolled message), so an opened bottle stays on the sand. Glowing just enough to catch the
+ *  eye up close in shade; the scenery adds no light */
+function secretAcorn() {
+  const b = new GB();
+  b.sphere(0.13, 0xd89a48, { y: 0.15, sy: 1.25, ws: 14, hs: 10, glow: 0.5 });
+  b.sphere(0.14, 0x7a5030, { y: 0.24, sy: 0.6, t1: Math.PI * 0.5, ws: 14, hs: 6, colorFn: (x, y, z) => (Math.floor((x + 1) * 40) + Math.floor((z + 1) * 40)) % 2 ? 0x7a5030 : 0x6a4428 });
+  b.cyl(0.018, 0.024, 0.08, 0x5a3a24, { y: 0.33, rz: 0.3, seg: 6 });
+  b.sphere(0.03, 0xfff0a8, { x: 0.05, y: 0.18, z: 0.11, ws: 6, hs: 4, outline: false, glow: 1 });   // a glint
+  for (let i = 0; i < 3; i++) { const a = 0.6 + i * 2.1; b.sphere(0.08, 0x6aae3a, { x: Math.sin(a) * 0.16, y: 0.02, z: Math.cos(a) * 0.16, sy: 0.35, sx: 1.5, ry: a, ws: 7, hs: 4 }); }
+  return { main: b.build() };
+}
+function secretStone() {
+  const b = new GB();
+  b.ico(0.17, 0x9fb2c2, { y: 0.1, sy: 0.65, detail: 1, jitter: 0.25, seed: 3, colorFn: (x, y, z, nx, ny) => (ny > 0.55 ? 0xf6faff : 0xa8b4c0) });
+  b.add(new THREE.OctahedronGeometry(0.09, 0), 0x8fd8ff, { x: 0.03, y: 0.22, sy: 2.0, rz: -0.25, flat: true, glow: 0.8 });
+  b.add(new THREE.OctahedronGeometry(0.06, 0), 0xc8f0ff, { x: -0.08, y: 0.18, z: 0.04, sy: 1.8, rz: 0.5, flat: true, glow: 0.8 });
+  b.add(new THREE.OctahedronGeometry(0.05, 0), 0xb8ecff, { x: 0.06, y: 0.16, z: 0.08, sy: 1.6, rx: 0.5, flat: true, glow: 0.8 });
+  return { main: b.build() };
+}
+function secretBottle() {
+  const b = new GB(), l = new GB();
+  // lying on its side along X, half sunk in the sand
+  b.cyl(0.08, 0.08, 0.28, 0x9fe0d8, { y: 0.07, rz: Math.PI / 2, seg: 12, glow: 0.25 });
+  b.sphere(0.08, 0x9fe0d8, { x: -0.14, y: 0.07, sx: 0.5, ws: 12, hs: 8, glow: 0.25 });
+  b.cyl(0.035, 0.07, 0.08, 0x9fe0d8, { x: 0.18, y: 0.07, rz: Math.PI / 2, seg: 10, glow: 0.25 });
+  b.cyl(0.034, 0.034, 0.06, 0x9fe0d8, { x: 0.25, y: 0.07, rz: Math.PI / 2, seg: 10, glow: 0.25 });
+  b.sphere(0.07, 0xf6e4b8, { x: 0.04, y: 0.005, sx: 2.6, sy: 0.35, ws: 10, hs: 5, outline: false });   // a little sand drift
+  l.cyl(0.03, 0.026, 0.05, 0xb07a48, { x: 0.3, y: 0.07, rz: Math.PI / 2, seg: 8 });                  // the cork
+  l.cyl(0.04, 0.04, 0.16, 0xfff4d8, { x: -0.01, y: 0.07, rz: Math.PI / 2, seg: 10, outline: false, glow: 0.3 });   // the rolled message
+  l.cyl(0.042, 0.042, 0.02, 0xd0503a, { x: -0.01, y: 0.07, rz: Math.PI / 2, seg: 10, outline: false });           // its ribbon
+  return { main: b.build(), lid: l.build() };
+}
+function secretPouch() {
+  const b = new GB();
+  b.sphere(0.13, 0xc8a070, { y: 0.11, sy: 0.85, ws: 14, hs: 10, colorFn: (x, y) => (Math.floor(y * 60) % 2 ? 0xc8a070 : 0xbc9466) });
+  b.cyl(0.05, 0.08, 0.08, 0xc8a070, { y: 0.24, seg: 10 });
+  b.torus(0.055, 0.012, 0xd0503a, { y: 0.23, rx: Math.PI / 2, ts: 14, rs: 4 });
+  for (let i = 0; i < 5; i++) b.cone(0.03, 0.07, 0xc8a070, { x: Math.sin(i * 1.26) * 0.045, y: 0.3, z: Math.cos(i * 1.26) * 0.045, rx: Math.cos(i * 1.26) * 0.4, rz: -Math.sin(i * 1.26) * 0.4, seg: 4, outline: false });
+  for (const [x, z] of [[0.16, 0.08], [0.12, 0.15], [0.2, 0.02]]) b.sphere(0.022, 0xf5c040, { x, y: 0.015, z, sy: 0.7, ws: 6, hs: 4, outline: false, glow: 0.8 });   // spilled golden seeds
+  return { main: b.build() };
+}
+const SECRET_MODELS = { acorn: secretAcorn, stone: secretStone, bottle: secretBottle, pouch: secretPouch };
+/** a keepsake's model parts ({ main, lid? }), cached; null for an unknown id */
+export function secretModel(id) {
+  const k = 'secret_' + id;
+  return cache[k] || (SECRET_MODELS[id] ? (cache[k] = SECRET_MODELS[id]()) : null);
+}
 function crystal() {
   const b = new GB();
   b.add(new THREE.OctahedronGeometry(0.16, 0), 0xa8e4ff, { y: 0.22, sy: 1.8, glow: 0.35, flat: true, outline: false });

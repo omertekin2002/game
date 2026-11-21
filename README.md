@@ -113,8 +113,13 @@ Open Settings from the pause menu or the title.
 - Guardian rematches after the bloom: the three guardians nap in their arenas again. Walking in wakes nobody; aim at one
   and press Use (`Wake`) for a friendly but harder rematch: 1.25× HP, enraged sooner, the same moves. The first win
   against each gives 40 gems; no Starseed drops.
+- Four landmark secrets: a small keepsake is tucked against each region landmark (a glowing acorn at Grumble's Crown, a
+  humming crystal stone below the Summit Crystal Cairn, a message in a bottle at Pinch's Lighthouse, a seed pouch at the
+  Meadow Windmill), on the side away from its path. Nothing points at them: each twinkles faintly only within 6 m. Use
+  reads it like a sign and gives 25 gems, once. Digby drops a hint once the first Starseed is home.
 - A completion tracker on the pause menu and the map card: chests opened, heart containers (the four heart chests and
-  Miso's shop heart), guardians beaten, regions visited, Starseeds home, errands done, Miso's guardian plushies bought and guardian rematches won, each as found / total with a ✓ when full,
+  Miso's shop heart), guardians beaten, regions visited, Starseeds home, errands done, Miso's guardian plushies bought, guardian rematches won and landmark secrets found (0/4), each as found /
+  total with a ✓ when full,
   plus an overall percentage (★ 100% when everything is found). Totals come from the island, so any `?seed=` counts
   its own chests.
 - Art: 2D sprites and painted cards in `assets/`, GLB models listed in `assets/manifest.js`; anything missing falls back
@@ -130,7 +135,7 @@ bun test             # unit tests: world generation, content tables, shop stock,
 bun run test:smoke   # headless Chromium: New Game, completion tracker, Continue a valid / corrupt / newer save, stored settings, rebound keys, no service worker; fails on any error
 bun run test:pwa     # headless Chromium on the Pages build under /game/: install, offline play (and ?seed=7), an update, ?nosw=1
 bun run test:opening # headless Chromium, real input only: New Game, Shellby's intro, then look, walk and swing until the first-run coach marks are done; desktop (keyboard + mouse) and a portrait phone (taps, swipe, stick, Swing); checks the portrait objective line keeps "N m" whole; fails on any error
-bun run test:playthrough  # headless Chromium: New Game → three guardians (Clover's shell errand after Captain Pinch) → Starseeds on the pedestal → ending → free roam → Ribbit's lantern parade → Miso's plushies bought through the shop → a guardian rematch (Wake with Use, win, dizzy reset, repeat win) → Save & Quit, reload and Continue; fails on any error
+bun run test:playthrough  # headless Chromium: New Game → three guardians (Clover's shell errand after Captain Pinch) → Starseeds on the pedestal → ending → free roam → Ribbit's lantern parade → Miso's plushies bought through the shop → a guardian rematch (Wake with Use, win, dizzy reset, repeat win) → the four landmark keepsakes (one before the bloom) → Save & Quit, reload and Continue; fails on any error
 ```
 
 The browser tests need Playwright's Chromium once: `bunx playwright install chromium`. On failure they save a
@@ -160,7 +165,9 @@ Without `?debug=1` these keys do nothing.
 
 Console helpers live on `G.debug` (full list in `docs/ARCHITECTURE.md` §17), for example `teleport(x, z, yaw?, pitch?)`,
 `pose('woods')`, `spawn('slime', 4, 0)`, `setTime(21)`, `toBoss('peaks')`, `killBoss()`, `giveSeeds()`,
-`setView('tp')`, `cutscene('ending')`, `hud(false)`, `await perf()`, `info()`.
+`setView('tp')`, `cutscene('ending')`, `hud(false)`, `await perf()`, `info()`. To test the landmark secrets,
+`standAt('secret', i)` puts Pip in front of keepsake `i` of `G.world.secrets` (0 acorn, 1 stone, 2 bottle, 3 pouch) aimed
+at it, so Use reads it; `G.game.S.secrets` holds the ones found (the tracker's Secrets chip counts them).
 
 In-page tests (`docs/ARCHITECTURE.md` §18) run in the page itself, with `?debug=1`, from the browser console:
 
