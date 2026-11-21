@@ -284,8 +284,10 @@ export const combat = {
   traumaKill: 0.15, traumaClink: 0.15, shakeTPHit: 0.15,
   fxNear: 0.6,                // FP: sparks never spawn inside this distance of the eye
   // crosshair interaction (feel §9.1): aim point height (NPC: fraction of its height) and radius per kind
-  aimPts: { npc: [0.62, 0.35], sign: [1.05, 0.45], door: [1.1, 0.55], chest: [0.45, 0.55], pedestal: [0.75, 1.0], well: [0.9, 1.1], shell: [0.25, 0.5] },
+  // guardian: a napping rematch guardian, [fraction of its height, m] (the others: [m above the base, m])
+  aimPts: { npc: [0.62, 0.35], sign: [1.05, 0.45], door: [1.1, 0.55], chest: [0.45, 0.55], pedestal: [0.75, 1.0], well: [0.9, 1.1], shell: [0.25, 0.5], guardian: [0.4, 1.0] },
   shellRange: 1.6,            // a rainbow shell (Clover's errand) is offered within this + rangeAdd (XZ)
+  guardianRange: 1.6,         // a napping rematch guardian is offered within its radius + this + rangeAdd (XZ, from its centre)
   // accept: angle ≤ clamp(atan(R/d) + add, min, cap) (touch × touchTol), XZ distance to the aim point ≤ range + 0.6
   npcRange: 1.9, rangeAdd: 0.6, tolAdd: 6, tolMin: 8, tolCap: 25, touchTol: 1.6,
   keepDeg: 4, keepDist: 0.3, keepT: 0.125, beatDeg: 3, // hysteresis: hold +4° / +0.3 m, drop within 150 ms of failing, rivals beat it by 3°
@@ -367,6 +369,7 @@ export const actors = {
   // personal space (centre distance, m): far enough that an FP eye sees the boss's tells and the floor at its feet,
   // within wooden-sword reach (r + 1.6) − 0.2; a walking boss stops roomWalk further out
   room: { woods: 2.55, shores: 2.65, peaks: 2.75 }, roomWalk: 0.25,
+  rematchBack: 4.5,           // a rematch intro (woken with Use from right next to it) steps Pip back to this far from its centre (m)
   // the closest Pip's centre (the FP eye) gets to a boss's centre (m): its body's reach at 0.5–1.2 m height (GLB models:
   // Shroom 1.39, Pinch 1.46, Frostbun 1.64) + the near plane's corner (≈ 0.15). Used by separate(), the leap's landing
   // offset and the body collider (game.dynamicColliders, boss.colliderR)

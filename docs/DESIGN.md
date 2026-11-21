@@ -163,6 +163,15 @@ Measured on the current build: careful wins every fight in 37–55 s losing 1–
 wins 2 of 45 and is never downed before 17 s. With the Shiny Sword, careful fights take 25–36 s and the never-dodging
 player wins about two in three. The wooden sword is the balance reference.
 
+**Rematches** (after the ending, opt-in): each guardian naps in its arena again. Walking in starts nothing; aiming at it
+shows `[E] Wake · Grumble Shroom` and Use starts the normal fight flow (vines, intro, a name card reading "Grumble Shroom ·
+Rematch"; Pip steps back from it to 4.5 m during the intro, facing it). A rematch guardian has 1.25 × its HP (60, 60, 63)
+and is enraged from 75 % of it instead of half; its moves, wind-ups (every tell ≥ 0.55 s) and damage are the first
+fight's. Its win drops no Starseed: the first win per guardian gives 40 gems once (`S.rematches`), later wins only the
+burst and fanfare, and the guardian naps again once Pip is out of the arena's middle. Getting dizzy resets it like a first
+fight. The numbers are `REMATCH` in `js/data.js`. Targets: the never-dodging player is not downed before 10 s and wins no
+rematch in under 20 s (wp5-heavy "rematch balance"; measured: downed in every run at 26–29 s, no win).
+
 ## 9. People, places to poke, and the ending
 
 - **Interaction** is aimed: look at someone or something and press E / F / Enter (pad Y, touch Use or a tap). The prompt
@@ -210,6 +219,9 @@ player wins about two in three. The wooden sword is the balance reference.
 - **Pedestal and ending**: at the altar by the Great Tree each carried Starseed flies into its star socket. With all
   three, the view looks up the trunk, the tree blooms, the camera cranes up and around it, and the card "✿ Starseed Isle
   is blooming again! ✿ — Thanks for playing" appears. Free roaming continues; the village music becomes the ending theme.
+- **After the ending**: the three guardians nap in their arenas again for an opt-in, harder rematch (§8); Elder Shellby
+  says so ("Wake one if you fancy a friendly rematch!"), and each guardian's tip-giver (Hoot, Clover, Digby) has one
+  short line once its rematch is won. The arenas keep their ✓ on the map and the compass shows no rematch markers.
 
 ## 10. HUD and menus
 
@@ -242,7 +254,8 @@ generated icons that each have a drawn fallback.
   backdrop. Everything works with mouse, keyboard, gamepad and touch.
 - **Completion tracker** (pause menu under the seed row, map card under the legend): a row of chips, each an icon and
   found / total, for chests opened, heart containers (the heart chests plus Miso's shop heart), guardians beaten, regions
-  visited, Starseeds home, errands done (an errand counts once, not its shells) and Miso's guardian plushies bought, then the overall percentage of
+  visited, Starseeds home, errands done (an errand counts once, not its shells), Miso's guardian plushies bought and
+  guardian rematches won (shown from the start, like the errands, so ★ 100% means everything), then the overall percentage of
   distinct things found. A full chip turns green and gets a
   ✓ badge, and the finished tally reads ★ 100%, so completion never rests on colour alone. It is read-only over the save
   (`js/completion.js`, a pure module): totals come from the generated island and `data.js`, and save keys for things
@@ -324,10 +337,11 @@ One save slot in the browser (`starseed-isle-save-v2`): autosave every 30 s outs
 chests, purchases, defeats). It keeps the island seed, Pip's place and look, hearts, gems, potions, sword, Starseeds
 (found and placed), chests, defeated bosses, the shop heart, the ending, the time of day, visited regions, errands
 (started or done) and their items found (rainbow shells picked up, parade lanterns lit), Miso's guardian plushies bought,
-and your map marker. Continue resumes there; Save & Quit returns to the title.
+the guardian rematches won, and your map marker. A save made mid-fight (a first fight or a rematch) resumes outside the
+arena. Continue resumes there; Save & Quit returns to the title.
 
 The schema lives in `js/save.js` (pure, unit-tested in `tests/save.test.js`). Every save carries a `v` field,
-`SAVE_VERSION` (currently 4); the version comes from `v`, not from the storage key, which stays
+`SAVE_VERSION` (currently 5); the version comes from `v`, not from the storage key, which stays
 `starseed-isle-save-v2`. Loading runs `loadSave(raw, seed)`: `migrate` applies the `MIGRATIONS[n]` steps
 (version n → n + 1) up to `SAVE_VERSION` and rejects non-objects, saves without `seed`, saves newer than
 `SAVE_VERSION` or with no migration path; then `normalize` fills missing fields from `freshState` and
@@ -342,7 +356,9 @@ Mayor Ribbit's parade needs no new version: its state is `errands.ribbit` and ea
 `shells` map (the errand item flags: `lantern1`…`lantern4` beside `shell1`…`shell5`), so any v3 build loads it.
 `MIGRATIONS[3]` (v3 → v4, Miso's guardian plushies) keeps every v3 field and adds `plushies: {}` (guardian id → true);
 `normalize` keeps only guardian ids (`BOSSES` keys) set to `true`. As with v3, a build from before v4 treats a v4 save
-as newer, so as no save.
+as newer, so as no save. `MIGRATIONS[4]` (v4 → v5, guardian rematches) keeps every v4 field and adds `rematches: {}`
+(guardian id → true once its rematch is won); `normalize` keeps only guardian ids, as flags. A build from before v5
+treats a v5 save as newer: to roll the rematches back, keep the v4 → v5 step and drop only the gameplay.
 
 The first-person build adds two optional fields without a version bump (`normalize` keeps unknown fields): `pitch`,
 the look angle, which `Game.startSession` restores clamped; and `controlsV`, the version of the controls card the

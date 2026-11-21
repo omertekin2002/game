@@ -270,6 +270,7 @@ export const CutsceneMixin = {
     this.player.state = 'normal';
     this.ui.showHud(true);
     this.S.ending = true;
+    this.spawnRematches(true);   // the guardians nap in their arenas again, for a friendly rematch (fight.js)
     this.events.emit(EV.CUTSCENE_END, { type: 'ending' });
     this.save(false);
     // the eyelids blink, and under them the camera is back in the eye at the altar, facing the tree a little upward

@@ -15,9 +15,13 @@
 //     gems); then Miso's guardian plushies through her real shop (Use on Miso, arrow keys that wrap over the rows on
 //     show, E and a mouse click to buy): the heart and sword first if needed, then all three plushies (a sold-out and a
 //     not-enough-gems buy refused), each on her counter at once and saved; the pause menu's tracker reads 3/3 guardians,
-//     3/3 Starseeds, 2/2 errands and 3/3 plushies;
-//  4. Save & Quit, reload the page, Continue: the bloomed tree, the placed seeds, the finished errands and the plushies
-//     on Miso's counter come back.
+//     3/3 Starseeds, 2/2 errands and 3/3 plushies; then a guardian rematch (Grumble Shroom napping in his arena again):
+//     walking in starts nothing, the "Wake · Grumble Shroom" prompt and Use start a sealed rematch with a "· Rematch" name
+//     card and 60 HP; a win gives +40 gems once, drops no Starseed and saves S.rematches; getting dizzy in a second one
+//     resets it (napping again, Pip by the Great Tree); a third win gives nothing more; the tracker reads 1/3 rematches;
+//  4. Save & Quit, reload the page, Continue: the bloomed tree, the placed seeds, the finished errands, the plushies
+//     on Miso's counter and the rematch flag come back, with the three guardians napping again.
+// PLAYTHROUGH_SHOTS=1 also saves screenshots of the Wake prompt and the rematch name card to test-results/.
 // The simulation is stepped through the real frame loop (game.runFrame with the manual clock) rather than waited for in
 // real time, because software WebGL runs at about 1–11 fps. Fails on any page error, console error or failed request.
 // Usage: node tests/playthrough.mjs   (or `bun run test:playthrough`). On failure a screenshot lands in test-results/.
@@ -366,7 +370,7 @@ async function main() {
       e = await clickRow(5);
       if (e.coins !== 0 || e.plushies.join() !== 'peaks,shores,woods' || e.shown.join() !== 'peaks,shores,woods' || e.rows.slice(3).some((r) => r.price !== 'SOLD OUT')) fail(`a click did not buy the Frostbun plushie: ${JSON.stringify(e)}`);
       e = await shopKey('Escape');
-      if (e.open || !e.saved || e.saved.v !== 4 || e.saved.plushies.join() !== 'peaks,shores,woods' || e.saved.coins !== 0) fail(`leaving the shop did not save the plushies: ${JSON.stringify(e)}`);
+      if (e.open || !e.saved || e.saved.v !== 5 || e.saved.plushies.join() !== 'peaks,shores,woods' || e.saved.coins !== 0) fail(`leaving the shop did not save the plushies: ${JSON.stringify(e)}`);
       await frames(2);
       // Miso is still the Use target with three plushies on her counter, and she talks about them
       await talkToNpc('miso', 'after the plushies');
@@ -375,6 +379,102 @@ async function main() {
       if (!e.open || !said.includes('All three guardian plushies')) fail(`Miso after all three plushies: ${JSON.stringify({ e, said })}`);
       await shopKey('Escape');
       step(`Miso's plushies: shop bought out, 6 rows (↑↓ wrap), 3 plushies bought (2 with E, 1 by click; sold-out and not-enough-gems refused), on her counter at once and saved`);
+    };
+
+    // Guardian rematches, after the bloom: each guardian naps in its arena again. Walking in starts nothing; aiming at it
+    // shows "Wake · <name>" and Use (the real interact press) starts a sealed rematch with its intro and a "· Rematch" name
+    // card. Here Grumble Shroom: a win (killBoss) gives +40 gems once, drops no Starseed and sets S.rematches; getting
+    // dizzy in a second rematch resets it (napping again, Pip by the Great Tree); a third win gives nothing more
+    const RID = 'woods', RNAME = 'Grumble Shroom';
+    const rematchState = () => page.evaluate(([k, id]) => {
+      const G = window.G, g = G.game, S = g.S, b = g.bosses[id], a = g.world.arenas[id], p = g.player.pos, saved = JSON.parse(localStorage.getItem(k) || 'null');
+      return {
+        napping: Object.keys(g.bosses).filter((q) => g.bosses[q].rematch && g.bosses[q].state === 'sleep').sort(),
+        boss: b ? { rematch: b.rematch, state: b.state, hp: b.hp, maxHp: b.maxHp } : null,
+        fight: g.fight ? { id: g.fight.id, phase: g.fight.phase, rematch: g.fight.boss.rematch, hp: g.fight.boss.hp, maxHp: g.fight.boss.maxHp } : null,
+        coins: S.coins, seeds: { ...S.seeds }, bosses: { ...S.bosses }, rematches: { ...(S.rematches || {}) },
+        seedPickups: g.pickups.filter((q) => q.kind === 'seed').length, pState: g.player.state, hp: S.hp, maxHp: S.maxHp,
+        toArena: Math.hypot(p.x - a.x, p.z - a.z), toSpawn: Math.hypot(p.x - g.world.spawn.x, p.z - g.world.spawn.z),
+        vines: g.vines[id].target, card: document.querySelector('#bosscard .bt')?.textContent || null,
+        target: g.target ? { kind: g.target.kind, label: g.target.label } : null,
+        prompt: G.ui.promptEl.classList.contains('hidden') ? null : { verb: G.ui.promptEl.querySelector('.pv').textContent, name: G.ui.promptEl.querySelector('.pn').textContent, key: G.ui.promptEl.querySelector('.pk').textContent.trim() },
+        saved: saved && { v: saved.v, rematches: saved.rematches, coins: saved.coins },
+      };
+    }, [SAVE_KEY, RID]);
+    const shoot = async (name) => {
+      if (!process.env.PLAYTHROUGH_SHOTS) return;
+      await mkdir(new URL('../test-results/', import.meta.url), { recursive: true });
+      await page.screenshot({ path: fileURLToPath(new URL(`../test-results/${name}.png`, import.meta.url)) });
+      step(`  screenshot test-results/${name}.png`);
+    };
+    // walk in through the arena's entrance up to the napping guardian (no fight may start), aim at it, Use: the rematch
+    const wakeGuardian = async (what) => {
+      await page.evaluate((id) => { const G = window.G, a = G.world.arenas[id]; G.debug.teleport(a.outside.x, a.outside.z, Math.atan2(a.x - a.outside.x, a.z - a.outside.z), 0); }, RID);
+      await frames(2);
+      let e = await rematchState();
+      if (!e.boss || !e.boss.rematch || e.boss.state !== 'sleep') fail(`${RNAME} is not napping for a rematch (${what}): ${JSON.stringify(e)}`);
+      if (e.boss.maxHp !== 60 || e.boss.hp !== 60) fail(`the napping ${RNAME} does not have the rematch HP (${what}): ${JSON.stringify(e.boss)}`);
+      await page.evaluate(() => window.G.debug.move(0, 1));
+      await framesUntil(`Pip to walk up to the napping ${RNAME} (${what})`, `game.fight || Math.hypot(game.player.pos.x - G.world.arenas['${RID}'].x, game.player.pos.z - G.world.arenas['${RID}'].z) < 2.3`, 15,
+        `{ const a = G.world.arenas['${RID}']; const p = game.player.pos; G.debug.look(Math.atan2(a.x - p.x, a.z - p.z), 0); }`);
+      await frames(30);   // keep walking into its body for half a second
+      await page.evaluate(() => window.G.debug.move(0, 0));
+      e = await rematchState();
+      if (e.fight || e.vines || e.boss.state !== 'sleep') fail(`walking into the arena started the rematch (${what}): ${JSON.stringify(e)}`);
+      await page.evaluate((id) => { const G = window.G, b = G.game.bosses[id]; G.debug.aimAt(b.pos.x, b.arena.h + b.height * 0.4, b.pos.z); }, RID);
+      await framesUntil(`the napping ${RNAME} to be the Use target (${what})`, `game.target && game.target.kind === 'guardian' && game.target.o === game.bosses['${RID}']`, 2);
+      await frames(1);
+      e = await rematchState();
+      if (!e.target || e.target.label !== `Wake · ${RNAME}`) fail(`the Use target on the napping guardian is not "Wake · ${RNAME}" (${what}): ${JSON.stringify(e.target)}`);
+      if (!e.prompt || e.prompt.verb !== 'Wake' || e.prompt.name !== RNAME || !e.prompt.key) fail(`the prompt does not read "[key] Wake · ${RNAME}" (${what}): ${JSON.stringify(e.prompt)}`);
+      if (what === 'first') await shoot('rematch-wake-prompt');
+      await pressUse(1);
+      e = await rematchState();
+      if (!e.fight || e.fight.phase !== 'intro' || !e.fight.rematch || e.fight.maxHp !== 60 || e.vines !== 1) fail(`Use did not start a sealed rematch with its intro (${what}): ${JSON.stringify(e)}`);
+      await framesUntil(`the "${RNAME} · Rematch" name card (${what})`, `(document.querySelector('#bosscard .bt') || {}).textContent === '${RNAME} · Rematch' && document.querySelector('#bosscard').classList.contains('show')`, 3);
+      if (what === 'first' && process.env.PLAYTHROUGH_SHOTS) { await frames(40); await page.waitForTimeout(800); await frames(1); await shoot('rematch-name-card'); }   // the card's fade-in is a wall-clock CSS transition
+      await framesUntil(`the rematch intro to hand over to the fight (${what})`, "game.fight && game.fight.phase === 'fight'", 10);
+      return e;
+    };
+    // win a rematch with G.debug.killBoss → the state once the fight wound down and Pip walked clear of the arena middle
+    const winRematch = async (what) => {
+      if (!(await page.evaluate(() => window.G.debug.killBoss()))) fail(`G.debug.killBoss() found no rematch to win (${what})`);
+      await framesUntil(`the rematch to wind down (${what})`, '!game.fight', 10);
+      const won = await rematchState();
+      if (won.napping.includes(RID) && won.toArena < 4) fail(`${RNAME} napped again on top of Pip (${what}): ${JSON.stringify(won)}`);
+      // back out of the arena's middle: the guardian naps again (a soft poof) once Pip is clear of it
+      await page.evaluate(() => window.G.debug.move(0, -1));
+      await framesUntil(`${RNAME} to nap again (${what})`, `game.bosses['${RID}'] && game.bosses['${RID}'].rematch && game.bosses['${RID}'].state === 'sleep'`, 5);
+      await page.evaluate(() => window.G.debug.move(0, 0));
+      return { won, after: await rematchState() };
+    };
+    const guardianRematch = async () => {
+      let e = await rematchState();
+      if (e.napping.join() !== 'peaks,shores,woods') fail(`after the bloom, the three guardians are not napping in their arenas: ${JSON.stringify(e.napping)}`);
+      if (JSON.stringify(e.rematches) !== '{}') fail(`rematches won before any: ${JSON.stringify(e.rematches)}`);
+      const c0 = e.coins, seeds0 = JSON.stringify(e.seeds), bosses0 = JSON.stringify(e.bosses);
+      // 1: the first win → +40 gems once, no Starseed, S.rematches set and saved
+      await wakeGuardian('first');
+      let r = await winRematch('first');
+      e = r.won;
+      if (e.coins !== c0 + 40 || e.rematches[RID] !== true || JSON.stringify(e.seeds) !== seeds0 || JSON.stringify(e.bosses) !== bosses0 || e.seedPickups) fail(`the first rematch win is wrong (expected +40 gems, no Starseed, S.rematches.${RID}): ${JSON.stringify({ c0, ...e })}`);
+      if (!e.saved || e.saved.v !== 5 || !e.saved.rematches || e.saved.rematches[RID] !== true || e.saved.coins !== e.coins) fail(`the rematch win was not saved: ${JSON.stringify(e.saved)}`);
+      step(`rematch 1: walking into ${RNAME}'s arena started nothing; "Wake · ${RNAME}" + Use started a sealed rematch (60 HP, "· Rematch" card); won: +40 gems (${e.coins}), no Starseed, saved; napping again`);
+      // 2: dizzy in a rematch → it resets: the guardian naps again, Pip wakes by the Great Tree, nothing gained
+      await wakeGuardian('dizzy');
+      await page.evaluate(() => { const g = window.G.game; g.fight.boss.hp = 30; g.playerDown(); });
+      await framesUntil('Pip to wake up after getting dizzy in the rematch', "!game.fight && game.player.state === 'normal' && !game.trans", 10);
+      await frames(2);
+      e = await rematchState();
+      if (e.fight || !e.boss || !e.boss.rematch || e.boss.state !== 'sleep' || e.boss.hp !== 60 || e.vines) fail(`getting dizzy did not reset the rematch: ${JSON.stringify(e)}`);
+      if (!(e.toSpawn < 6) || e.hp !== e.maxHp || e.coins !== c0 + 40) fail(`after getting dizzy Pip is not back by the Great Tree with full hearts (and no gems gained): ${JSON.stringify(e)}`);
+      step(`rematch 2: dizzy → reset: ${RNAME} napping again at full HP, Pip by the Great Tree (${e.toSpawn.toFixed(1)} m from the spawn)`);
+      // 3: a repeat win gives nothing more
+      await wakeGuardian('repeat');
+      r = await winRematch('repeat');
+      if (r.won.coins !== c0 + 40 || JSON.stringify(r.won.rematches) !== JSON.stringify({ [RID]: true }) || r.won.seedPickups || JSON.stringify(r.won.seeds) !== seeds0) fail(`a repeat rematch win changed the reward or the seeds: ${JSON.stringify(r.won)}`);
+      if (r.after.napping.join() !== 'peaks,shores,woods') fail(`not every guardian is napping after the rematches: ${JSON.stringify(r.after.napping)}`);
+      step(`rematch 3: a repeat win gave nothing more (${r.won.coins} gems); all three guardians napping`);
     };
 
     // ---- 1. New Game from a clean localStorage, through Shellby's intro
@@ -462,6 +562,7 @@ async function main() {
     step(`ending card shown and closed; free roam, Pip walked ${moved.toFixed(2)} m`);
     await ribbitParade();
     await misoPlushies();
+    await guardianRematch();
 
     // the completion tracker on the pause menu
     const tally = await page.evaluate(() => {
@@ -472,7 +573,8 @@ async function main() {
     for (const k of ['guardians', 'seeds']) if (!tally[k] || tally[k].text !== '3/3' || !tally[k].full) fail(`pause tracker ${k}: ${JSON.stringify(tally[k])}, expected 3/3`);
     if (!tally.errands || tally.errands.text !== '2/2' || !tally.errands.full) fail(`pause tracker errands: ${JSON.stringify(tally.errands)}, expected 2/2`);
     if (!tally.plushies || tally.plushies.text !== '3/3' || !tally.plushies.full) fail(`pause tracker plushies: ${JSON.stringify(tally.plushies)}, expected 3/3`);
-    step(`pause tracker: guardians ${tally.guardians.text}, Starseeds ${tally.seeds.text}, errands ${tally.errands.text}, plushies ${tally.plushies.text}`);
+    if (!tally.rematches || tally.rematches.text !== '1/3' || tally.rematches.full) fail(`pause tracker rematches: ${JSON.stringify(tally.rematches)}, expected 1/3`);
+    step(`pause tracker: guardians ${tally.guardians.text}, Starseeds ${tally.seeds.text}, errands ${tally.errands.text}, plushies ${tally.plushies.text}, rematches ${tally.rematches.text}`);
 
     // ---- 4. Save & Quit (from the pause menu), reload, Continue: the bloom comes back
     await page.evaluate(() => window.G.ui.onPauseChoice(5));
@@ -496,7 +598,8 @@ async function main() {
       // the bloomed tree: the blossom model when the tree is the GLB pair, else the built canopy's bloom group
       const bloom = T.glb ? (T.glb.b ? T.glb.b.visible && !T.glb.a.visible : null) : T.bloom.visible && !T.canopy.visible;
       return {
-        ending: S.ending, seeds: S.seeds, bosses: S.bosses, bloom, liveBosses: Object.keys(g.bosses), errands: S.errands, shells: S.shells,
+        ending: S.ending, seeds: S.seeds, bosses: S.bosses, bloom, liveBosses: Object.keys(g.bosses), errands: S.errands, shells: S.shells, rematches: S.rematches,
+        napping: Object.keys(g.bosses).filter((q) => g.bosses[q].rematch && g.bosses[q].state === 'sleep').sort(), fight: !!g.fight,
         shellsShown: [...g.scenery.shells.values()].filter((q) => q.shown).length,
         lanternsLit: [...g.scenery.lanterns.values()].filter((q) => q.shown && q.lit && q.glow === 1).length, ribbitFollows: g.npcs.find((n) => n.id === 'ribbit').follow,
         plushies: S.plushies, plushiesShown: [...g.scenery.plushies.entries()].filter(([, o]) => o.visible).map(([q]) => q).sort(), v: S.v,
@@ -505,15 +608,17 @@ async function main() {
     });
     if (back.ending !== true) fail('S.ending is not restored by Continue');
     if (!GUARDIANS.every((id) => back.seeds[id] === 2 && back.bosses[id] === true)) fail(`seeds or guardians not restored: ${JSON.stringify(back)}`);
-    if (back.liveBosses.length) fail(`guardians back on the island after Continue: ${back.liveBosses}`);
+    // the guardians are back only as napping rematch guardians (nothing awake, no fight)
+    if (back.liveBosses.length !== 3 || back.napping.join() !== 'peaks,shores,woods' || back.fight) fail(`after Continue the guardians are not all napping for a rematch: ${JSON.stringify({ live: back.liveBosses, napping: back.napping, fight: back.fight })}`);
+    if (JSON.stringify(back.rematches) !== JSON.stringify({ [RID]: true })) fail(`the rematch flag is not restored after Continue: ${JSON.stringify(back.rematches)}`);
     if (back.bloom === false) fail(`the Great Tree is not bloomed after Continue: ${JSON.stringify(back)}`);
     if (back.bloom === null && back.treeSeeds !== true) fail(`no bloom shown after Continue: ${JSON.stringify(back)}`);
     if (!back.pedSeeds.every(Boolean)) fail(`pedestal seeds not shown after Continue: ${JSON.stringify(back.pedSeeds)}`);
     if (back.errands.clover !== 2 || Object.keys(back.shells).filter((k) => k.startsWith('shell')).length !== 5 || back.shellsShown !== 0) fail(`Clover's errand not restored: ${JSON.stringify({ errands: back.errands, shells: back.shells, shown: back.shellsShown })}`);
     if (back.errands.ribbit !== 2 || ['lantern1', 'lantern2', 'lantern3', 'lantern4'].some((k) => back.shells[k] !== true) || back.lanternsLit !== 4 || back.ribbitFollows) fail(`Ribbit's parade not restored: ${JSON.stringify({ errands: back.errands, shells: back.shells, lit: back.lanternsLit, follows: back.ribbitFollows })}`);
-    if (JSON.stringify(back.plushies) !== JSON.stringify({ woods: true, shores: true, peaks: true }) || back.plushiesShown.join() !== 'peaks,shores,woods' || back.v !== 4) fail(`Miso's plushies not restored: ${JSON.stringify({ plushies: back.plushies, shown: back.plushiesShown, v: back.v })}`);
+    if (JSON.stringify(back.plushies) !== JSON.stringify({ woods: true, shores: true, peaks: true }) || back.plushiesShown.join() !== 'peaks,shores,woods' || back.v !== 5) fail(`Miso's plushies not restored: ${JSON.stringify({ plushies: back.plushies, shown: back.plushiesShown, v: back.v })}`);
     if (problems.length) fail('errors after Continue');
-    step(`Continue restored the ending: bloomed tree, ${back.pedSeeds.length} seeds on the pedestal, no guardians left, Clover's errand done, Ribbit's parade done with 4 lanterns lit, 3 plushies on Miso's counter`);
+    step(`Continue restored the ending: bloomed tree, ${back.pedSeeds.length} seeds on the pedestal, the guardians napping for rematches (${RNAME}'s won), Clover's errand done, Ribbit's parade done with 4 lanterns lit, 3 plushies on Miso's counter`);
   } catch (e) {
     for (const p of problems) console.error(`  - ${p}`);
     if (page) {

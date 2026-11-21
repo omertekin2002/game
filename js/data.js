@@ -64,6 +64,12 @@ export const BOSSES = {
   peaks: { name: 'Frostbun', title: 'Chilly Champion of Frostcap Peaks', key: 'boss_frost', hp: 50 },
 };
 
+// Guardian rematches after the bloom (opt-in: a napping guardian is woken with Use, never by walking in). Harder, still
+// fair: hpK × its first-fight HP (rounded: 48 → 60, Frostbun 50 → 63), enraged from `enrage` of its HP (first fights:
+// half), the same moves and wind-ups. The first rematch win per guardian gives `gems` once (S.rematches[id], save v5);
+// no Starseed drops. js/fight.js runs it, js/bosses.js reads the numbers
+export const REMATCH = { hpK: 1.25, enrage: 0.75, gems: 40 };
+
 export const SHOP = [
   { id: 'potion', name: 'Potion', price: 25, icon: 'potion', desc: 'Heals every heart. Carry up to 3.' },
   { id: 'heart', name: 'Heart Container', price: 120, icon: 'heart_container', desc: '+1 max heart. Only one in stock!' },
@@ -107,6 +113,26 @@ export const shop = {
   plushies: (S) => PLUSHIES.filter((p) => plushGot(S, p.boss)).length,
   /** plushies on sale right now (shown and not bought yet) */
   inStock: (S) => shop.items(S).filter((it) => it.boss && !plushGot(S, it.boss)).length,
+};
+
+/** guardian rematch rules, pure so `bun test` covers them (fight.js applies them) */
+export const rematch = {
+  /** a guardian naps in its arena for a rematch: after the ending, once it is beaten (it always is by then) */
+  available: (S, id) => !!S && S.ending === true && Object.hasOwn(BOSSES, id) && beaten(S, id),
+  /** a rematch guardian's HP: REMATCH.hpK × its first-fight HP, rounded */
+  hp: (id) => Math.round(BOSSES[id].hp * REMATCH.hpK),
+  /** has Pip won this guardian's rematch (its one-time reward taken) */
+  won: (S, id) => isObj(S && S.rematches) && S.rematches[id] === true,
+  /** rematches won (the tracker's row): only guardian ids, only true flags */
+  count: (S) => Object.keys(BOSSES).filter((id) => rematch.won(S, id)).length,
+  /** a rematch win: the first one per guardian sets S.rematches[id] and adds REMATCH.gems to S.coins → the gems given
+   *  (0 on a repeat win, which changes nothing). Mutates S */
+  win(S, id) {
+    if (!Object.hasOwn(BOSSES, id) || rematch.won(S, id)) return 0;
+    S.rematches = { ...(isObj(S.rematches) ? S.rematches : {}), [id]: true };
+    S.coins = (S.coins || 0) + REMATCH.gems;
+    return REMATCH.gems;
+  },
 };
 
 // ---------------- dialogue ----------------
@@ -198,7 +224,9 @@ export const NPCS = [
       'Without its Starseeds the Tree is wilting. Bring them home to this old pedestal, in any order you like. Off you sprout!',
     ],
     lines(S) {
-      if (S.ending) return ['Look at her bloom... Thank you, Pip. You are the bravest little sprout on the whole isle.', 'Take your time and explore. The isle is yours to enjoy now.'];
+      // after the bloom: a pointer to the guardian rematches (REMATCH), and a thank-you once all three are won
+      if (S.ending) return ['Look at her bloom... Thank you, Pip. You are the bravest little sprout on the whole isle.', 'Take your time and explore. The isle is yours to enjoy now.',
+        rematch.count(S) >= Object.keys(BOSSES).length ? 'You won a friendly rematch with every guardian! They say it was the most fun they have had in a hundred years.' : 'The guardians are napping in their arenas again. Wake one if you fancy a friendly rematch!'];
       if (progress.carried(S) > 0) return ['Ooh, I can feel a Starseed humming in your pocket! Set it in a socket on the pedestal, dear. Just walk up and press {interact}.'];
       if (placed(S) > 0) return [(3 - placed(S)) + ' more to go! The Great Tree already looks a little perkier.', 'Remember: Woods to the north, Peaks to the east, Shores to the south. Just follow the letters on your compass, dear.'];
       return [
@@ -267,6 +295,7 @@ export const NPCS = [
         if (st === 2) {
           const out = ['My rainbow shells are lined up on my windowsill. They glow pink when the sun goes down!', 'Shell hunting is more fun with a friend. Thanks again, Pip!'];
           if (S.ending) out.push('And now the Great Tree is blooming too. Best. Summer. Ever!');
+          if (rematch.won(S, 'shores')) out.push('You beat Captain Pinch AGAIN? He says it was a friendly match. He is already practising for the next one!');
           return out;
         }
         if (st === 1 && left <= 0) return ['All five rainbow shells! They are even prettier up close.', 'I found these gems by my sandcastle. They are yours, Pip. Thank you!'];
@@ -288,6 +317,7 @@ export const NPCS = [
   {
     id: 'hoot', name: 'Professor Hoot', key: 'npc_owl', wander: 0.9,
     lines(S) {
+      if (rematch.won(S, 'woods')) return ['Remarkable! Simply remarkable! I shall write a paper: "On the Gentle Defeat of Grumble Shroom", by Pip.', 'And now a sequel: "Grumble Shroom, Once More, With Feeling". He asked me to mention he was only warming up. Hoo!'];
       if (S.bosses.woods) return ['Remarkable! Simply remarkable! I shall write a paper: "On the Gentle Defeat of Grumble Shroom", by Pip.'];
       return [
         'Hoo-hoo! Professor Hoot, scholar of the Whispering Woods. Grumble Shroom lurks at the north end, under that giant purple mushroom.',
@@ -301,6 +331,7 @@ export const NPCS = [
     lines(S) {
       const hc = ['hc_meadow', 'hc_shores', 'hc_peaks', 'hc_woods'].filter((k) => S.chests[k]).length;
       const out = ['Oh! Did not see you there. Did not see much of anything, honestly. Digby\'s the name, digging\'s the game.'];
+      if (rematch.won(S, 'peaks')) out.push('Frostbun hopped by my tunnels to say you won your rematch fair and square. Then he sat on my roof for a while. Comfy, I suppose.');
       if (!S.bosses.peaks) out.push('Frostbun loves to hop. When a pillar of light shoots up around you and something whistles overhead, LOOK UP! Then roll out of the glowing circle with {dash}, quick!');
       if (hc < 4) out.push('Psst... my tunnels rumble near four heart-shaped treasures: a ring of tall sunflowers here in the Meadow, the little islet off the western beach, a nook behind the Peaks boulders, and a hidden glade in the Woods.');
       else out.push('You found all four heart treasures? My tunnels feel so empty now. In a good way!');

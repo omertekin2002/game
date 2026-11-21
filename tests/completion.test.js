@@ -24,6 +24,7 @@ function fullSave(W) {
   S.shopHeart = true;
   for (const e of ERRANDS) S.errands[e.id] = 2;
   for (const p of PLUSHIES) S.plushies[p.boss] = true;
+  for (const id of Object.keys(BOSSES)) S.rematches[id] = true;
   return S;
 }
 
@@ -32,7 +33,7 @@ const counts = (c) => Object.fromEntries(COMPLETION_ROWS.map((r) => [r.k, [c[r.k
 test('fresh save on the default seed: nothing found, the documented totals', () => {
   const W = world(CFG.seed);
   const c = completion(W, freshState(W.seed));
-  expect(counts(c)).toEqual({ chests: [0, 14], hearts: [0, 5], guardians: [0, 3], regions: [0, 5], seeds: [0, 3], errands: [0, 2], plushies: [0, 3] });
+  expect(counts(c)).toEqual({ chests: [0, 14], hearts: [0, 5], guardians: [0, 3], regions: [0, 5], seeds: [0, 3], errands: [0, 2], plushies: [0, 3], rematches: [0, 3] });
   expect(c.pct).toBe(0);
   expect(c.done).toBe(false);
   for (const r of COMPLETION_ROWS) expect(c[r.k].full).toBe(false);
@@ -48,9 +49,10 @@ test('a partial save counts what is set, and a heart chest counts as a chest and
   S.visited[0] = true; S.visited[3] = true;
   S.seeds.woods = 2; S.seeds.peaks = 1;          // 1 = carried, not home yet
   const c = completion(W, S);
-  expect(counts(c)).toEqual({ chests: [2, 14], hearts: [1, 5], guardians: [1, 3], regions: [2, 5], seeds: [1, 3], errands: [0, 2], plushies: [0, 3] });
-  // distinct things: 14 chests + shop heart + 3 guardians + 5 regions + 3 seeds + 2 errands + 3 plushies = 31; found 2 + 1 + 2 + 1 = 6
-  expect(c.pct).toBe(Math.floor((100 * 6) / 31));
+  expect(counts(c)).toEqual({ chests: [2, 14], hearts: [1, 5], guardians: [1, 3], regions: [2, 5], seeds: [1, 3], errands: [0, 2], plushies: [0, 3], rematches: [0, 3] });
+  // distinct things: 14 chests + shop heart + 3 guardians + 5 regions + 3 seeds + 2 errands + 3 plushies + 3 rematches = 34;
+  // found 2 + 1 + 2 + 1 = 6
+  expect(c.pct).toBe(Math.floor((100 * 6) / 34));
   expect(c.done).toBe(false);
 }, SLOW);
 
@@ -66,12 +68,12 @@ test('the errands row: a started errand or its items count nothing; each done on
   S.errands.clover = 2;
   c = completion(W, S);
   expect(c.errands).toEqual({ found: 1, total: 2, full: false });
-  expect(c.pct).toBe(Math.floor(100 / 31));
+  expect(c.pct).toBe(Math.floor(100 / 34));
   expect(c.done).toBe(false);
   S.errands.ribbit = 2;
   c = completion(W, S);
   expect(c.errands).toEqual({ found: 2, total: 2, full: true });
-  expect(c.pct).toBe(Math.floor(200 / 31));
+  expect(c.pct).toBe(Math.floor(200 / 34));
   expect(completion(W, { ...S, errands: { clover: 2, ribbit: 2, nobody: 2 } }).errands.found).toBe(2);   // unknown errand ids
 }, SLOW);
 
@@ -83,7 +85,7 @@ test('everything but one errand is not done and stays under 100 %', () => {
     const c = completion(W, S);
     expect(c.errands).toEqual({ found: 1, total: 2, full: false });
     expect(c.done).toBe(false);
-    expect(c.pct).toBe(96);   // 30 of 31
+    expect(c.pct).toBe(97);   // 33 of 34
   }
 }, SLOW);
 
@@ -94,12 +96,12 @@ test("the plushies row: each guardian plushie bought counts once; 100 % only wit
   let c = completion(W, S);
   expect(c.plushies).toEqual({ found: 0, total: 3, full: false });
   expect(c.done).toBe(false);
-  expect(c.pct).toBe(90);   // 28 of 31
+  expect(c.pct).toBe(91);   // 31 of 34
   S.plushies = { woods: true, shores: true };
   c = completion(W, S);
   expect(c.plushies).toEqual({ found: 2, total: 3, full: false });
   expect(c.done).toBe(false);
-  expect(c.pct).toBe(96);   // 30 of 31
+  expect(c.pct).toBe(97);   // 33 of 34
   // unknown ids and non-true values count nothing (even without normalize)
   c = completion(W, { ...S, plushies: { woods: true, shores: true, kraken: true, peaks: 1 } });
   expect(c.plushies.found).toBe(2);
@@ -110,6 +112,30 @@ test("the plushies row: each guardian plushie bought counts once; 100 % only wit
   expect(c.pct).toBe(100);
   expect(COMPLETION_ROWS.map((r) => r.k)).toContain('plushies');
   expect(COMPLETION_ROWS.find((r) => r.k === 'plushies').name).toBe('Plushies');
+}, SLOW);
+
+test('the rematches row: each guardian rematch won counts once, only guardian ids; 100 % only with all three', () => {
+  const W = world(CFG.seed);
+  const S = fullSave(W);
+  S.rematches = {};
+  let c = completion(W, S);
+  expect(c.rematches).toEqual({ found: 0, total: 3, full: false });
+  expect(c.done).toBe(false);
+  expect(c.pct).toBe(91);   // 31 of 34
+  S.rematches = { woods: true };
+  c = completion(W, S);
+  expect(c.rematches).toEqual({ found: 1, total: 3, full: false });
+  expect(c.pct).toBe(94);   // 32 of 34
+  // unknown ids and non-true values count nothing (even without normalize)
+  c = completion(W, { ...S, rematches: { woods: true, kraken: true, constructor: true, shores: 1 } });
+  expect(c.rematches.found).toBe(1);
+  S.rematches = { woods: true, shores: true, peaks: true };
+  c = completion(W, S);
+  expect(c.rematches).toEqual({ found: 3, total: 3, full: true });
+  expect(c.done).toBe(true);
+  expect(c.pct).toBe(100);
+  const r = COMPLETION_ROWS.find((q) => q.k === 'rematches');
+  expect(r && r.name).toBe('Rematches');
 }, SLOW);
 
 test('the shop heart alone counts as one heart container', () => {
@@ -147,14 +173,14 @@ test('stale and unknown keys do not inflate the counts', () => {
     visited: { village: true, woods: true, 5: true, 99: true, '-1': true, 1.5: true },
     seeds: { woods: 2, moon: 2 },
   }, W.seed);
-  expect(counts(completion(W, S))).toEqual({ chests: [0, 14], hearts: [0, 5], guardians: [0, 3], regions: [0, 5], seeds: [1, 3], errands: [0, 2], plushies: [0, 3] });
+  expect(counts(completion(W, S))).toEqual({ chests: [0, 14], hearts: [0, 5], guardians: [0, 3], regions: [0, 5], seeds: [1, 3], errands: [0, 2], plushies: [0, 3], rematches: [0, 3] });
   // inherited object keys are never "set", even on a bare object without normalize()
   const bare = { chests: {}, bosses: {}, visited: {}, seeds: {} };
   expect(counts(completion({ chests: [{ id: 'constructor', kind: 'coins' }] }, bare)).chests).toEqual([0, 1]);
 }, SLOW);
 
 test('missing world or save fields count as nothing found', () => {
-  expect(counts(completion({ chests: [] }, {}))).toEqual({ chests: [0, 0], hearts: [0, 1], guardians: [0, 3], regions: [0, 5], seeds: [0, 3], errands: [0, 2], plushies: [0, 3] });
+  expect(counts(completion({ chests: [] }, {}))).toEqual({ chests: [0, 0], hearts: [0, 1], guardians: [0, 3], regions: [0, 5], seeds: [0, 3], errands: [0, 2], plushies: [0, 3], rematches: [0, 3] });
   expect(completion(undefined, undefined).pct).toBe(0);
 });
 

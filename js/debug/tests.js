@@ -23,6 +23,7 @@ import * as THREE from 'three';
 import { G, store } from '../core.js';
 import { EV } from '../events.js';
 import { SAVE_KEY } from '../data.js';
+import { SAVE_VERSION } from '../save.js';
 import { settings, SCHEMA, SETTINGS_KEY } from '../settings.js';
 import { STEP } from '../clock.js';
 import { LAYER, wrapAngle, yawOf, dir3 } from '../util.js';
@@ -255,7 +256,7 @@ suite('smoke', [
     t.ok(G.game === game && G.player === game.player, 'G.game / G.player');
     t.ok(typeof game.newGame === 'function', 'G.game.newGame');
     t.eq(game.state, 'play', 'state'); t.eq(game.playing, true, 'playing');
-    t.ok(game.S && game.S.v === 2, 'S.v 2'); t.ok(typeof game.fps === 'number', 'fps');
+    t.ok(game.S && game.S.v === SAVE_VERSION, 'S.v ' + SAVE_VERSION); t.ok(typeof game.fps === 'number', 'fps');
     t.ok(D.game() === game && D.world() === game.world, 'game() / world()');
   }],
   ['debug API v2 (arch §13 + feel §15 aliases)', (t) => {
