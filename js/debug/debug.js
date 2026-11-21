@@ -40,7 +40,7 @@ export function perfLocations(W) {
   return (W._perfLocs = L);
 }
 // natural standing distance from each kind of interactable's aim point (debug standAt)
-const STAND = { npc: 1.3, sign: 1.4, door: 1.1, chest: 1.3, pedestal: 2.1, well: 2.2 };
+const STAND = { npc: 1.3, sign: 1.4, door: 1.1, chest: 1.3, pedestal: 2.1, well: 2.2, shell: 1.1, secret: 1.1 };
 
 /** expose a namespace of debug helpers as G.debug[ns] (modules call this from attach). An existing namespace is never
  *  lost: an object merges its members into it (registerDebug('cam', {…}) keeps G.debug.cam() callable and adds cam.*);
@@ -76,6 +76,8 @@ export const DebugMixin = {
       /** optional yaw/pitch: also set the look (and the body facing) */
       teleport(x, z, yaw = null, pitch = 0) { const p = game.player; const y = game.world.ground(x, z); p.pos.set(x, y, z); p.prev.copy(p.pos); if (yaw != null) { p.turnTo(yaw); view.setLook(yaw, pitch); } view.snap(); game.clock.resetPhase(); return [x, y, z]; },
       giveSeeds() { for (const id of SEED_ORDER) { if (!game.S.seeds[id]) game.S.seeds[id] = 1; game.S.bosses[id] = true; if (game.bosses[id]) { game.bosses[id].remove(); delete game.bosses[id]; } } game.pickups.filter((p) => p.kind === 'seed').forEach((p) => p.remove()); game.ui.updateHud(game.S, true); game.ui.toast('Got all seeds (debug)'); },
+      /** add n gems (the G key's +100 as a call) → the new total */
+      gems(n = 100) { game.S.coins = Math.max(0, (game.S.coins || 0) + Math.floor(n)); game.ui.updateHud(game.S); return game.S.coins; },
       setTime(h) { game.S.tod = (((h % 24) + 24) % 24) / 24; return h; },
       killBoss() { const f = game.fight; if (f && f.boss && !f.boss.dying) { if (f.phase === 'intro') { f.phase = 'fight'; game.player.autoMove = null; const face = game.bossFace(f.boss); if (f.shot) view.clearShot(f.shot, { face }); else view.lookAtPoint(face.x, face.y, face.z, 0.6); game.player.state = 'normal'; game.events.emit(EV.CUTSCENE_END, { type: 'bossIntro' }); game.events.emit(EV.BOSS_FIGHT, { id: f.id }); } f.boss.hp = 0; f.boss.startDying(); return true; } return false; },
       /** teleport outside a boss arena (id 'woods' | 'peaks' | 'shores', else the nearest unbeaten one) → id */
@@ -151,13 +153,25 @@ export const DebugMixin = {
         return view.setLook(yaw, pitch);
       },
       /** stand at a natural spot in front of an interactable and aim at it: kind 'npc' (id), 'sign' | 'door' | 'chest' |
-       *  'well' | 'pedestal' (index n among that kind, nearest first from the spawn); returns { x, z, kind, point } */
+       *  'well' | 'pedestal' (index n among that kind, nearest first from the spawn), 'shell' (Clover's rainbow shell n in
+       *  W.shells order, picked up or not), 'secret' (landmark keepsake n in W.secrets order, found or not; from the side
+       *  away from its landmark); returns { x, z, kind, point } */
       standAt(kind, n = 0, o = {}) {
         const W = game.world;
         let pt = null, front = null;
         if (kind === 'npc' || game.npcs.some((q) => q.id === kind)) {
           const npc = game.npcs.find((q) => q.id === (kind === 'npc' ? n : kind)) || game.npcs[n | 0];
           pt = { x: npc.pos.x, y: npc.pos.y + TC.aimPts.npc[0] * npc.height, z: npc.pos.z }; front = npc.facing; kind = 'npc';
+        } else if (kind === 'shell') {
+          const it = (W.shells || [])[n | 0];
+          if (!it) return null;
+          pt = { x: it.x, y: it.y + (TC.aimPts.shell || [0.25])[0], z: it.z };
+          front = yawOf(W.spawn.x - it.x, W.spawn.z - it.z);
+        } else if (kind === 'secret') {
+          const it = (W.secrets || [])[n | 0];
+          if (!it) return null;
+          pt = { x: it.x, y: it.y + (TC.aimPts.secret || [0.25])[0], z: it.z };
+          front = it.rot;   // out from the landmark
         } else {
           const its = W.interact.filter((it) => it.kind === kind && !(it.kind === 'chest' && game.S.chests[it.chest.id])).sort((a, b) => len2(a.x - W.spawn.x, a.z - W.spawn.z) - len2(b.x - W.spawn.x, b.z - W.spawn.z));
           const it = its[n | 0];
@@ -337,7 +351,7 @@ export const DebugMixin = {
         };
       },
       /** in-page test suites (js/debug/tests.js, loaded on first use, only with ?debug=1): run(name | 'all') → Promise of
-       *  { suite, pass, fail, ms, results: [{ name, pass, msg, data }] }; list() → suite names */
+       *  { suite, pass, fail, ms, results: [{ name, pass, msg, data }] }; list() → [{ name, desc, tests, heavy, names }] */
       test: {
         async run(name = 'all', o = {}) {
           if (!G.debugAllowed) return { suite: name, pass: 0, fail: 1, results: [{ name: 'load', pass: false, msg: 'in-page tests need ?debug=1' }] };

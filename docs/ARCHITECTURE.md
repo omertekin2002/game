@@ -38,7 +38,7 @@ names use it too.
 | Layers | `LAYER = { WORLD: 0, BODY: 1, PRESENT: 2, DEBUG: 3 }` (`PRESENT` is unused now); scatter's `LAYER_SHADOW = 4` (shadow-only casters); layer 30 only during the boot warm-up. Layers are not inherited: `setLayer(obj, layer, skip)` sets every descendant |
 | FOV | settings store horizontal degrees at 16:9; the camera uses vertical degrees, Hor+ (`vFovFor(hDeg, aspect)`); a narrow screen keeps ≥ 70° horizontal up to a 100° vertical cap |
 | Tunables | new numbers go into `js/tune.js` (`TUNE`, §16), never into `CFG` (`js/data.js` keeps the original game constants and content) |
-| Storage | only through `store.get / set / del` (`core.js`, wrapped in try/catch). Keys: save `starseed-isle-save-v2`, settings `starseed-isle-settings-v1`, HUD memory `starseed-isle-hud-v1`, mute `starseed-isle-muted` |
+| Storage | only through `store.get / set / del` (`core.js`, wrapped in try/catch). Keys: save `starseed-isle-save-v2`, settings `starseed-isle-settings-v1` (object-valued `keys` and `pad` inside it), HUD memory `starseed-isle-hud-v1`, mute `starseed-isle-muted` |
 
 Grep rules (must stay empty): `grep -rnE "\.yawTarget|cam\.bias|cam\.yaw" js` and
 `grep -rnE "player\.facing\s*=|pl\.facing\s*=" js` (the body facing is written only inside `player.js`, or through
@@ -65,7 +65,7 @@ Grep rules (must stay empty): `grep -rnE "\.yawTarget|cam\.bias|cam\.yaw" js` an
 | `js/combat.js`, `js/targeting.js`, `js/interact.js`, `js/spawn.js` | sword hit test, damage, kills, hurt, dizzy; module `wp4-targeting` (lock-on, aim friction, crosshair interaction); gameplay input, talk, shop, chests, pedestal, sim-time scheduler; spawner | §10, [WP4](wp/WP4.md) |
 | `js/entities.js`, `js/bosses.js`, `js/fight.js`, `js/npcs.js`, `js/fx-ground.js`, `js/actors-mod.js`, `js/audio-bus.js`, `js/audio.js` | enemies and projectiles, bosses, boss fights, villagers, ground telegraphs, module `wp5-actors`, event-driven audio, the sound engine | §10, §14.4, [WP5](wp/WP5.md) |
 | `js/cutscenes.js` | pedestal and ending cutscenes, world anchors | §7.5, [WP1](wp/WP1.md) |
-| `js/input.js`, `js/input-lock.js`, `js/touch.js`, `js/keybinds.js` | input, pointer lock, touch controls; keyboard bindings (pure; unit-tested in `tests/keys.test.js`) | §11, [WP6](wp/WP6.md) |
+| `js/input.js`, `js/input-lock.js`, `js/touch.js`, `js/keybinds.js`, `js/padbinds.js` | input, pointer lock, touch controls; keyboard bindings and controller buttons (pure; unit-tested in `tests/keys.test.js`, `tests/padbinds.test.js`) | §11, [WP6](wp/WP6.md) |
 | `js/ui.js`, `js/hud/*.js`, `styles.css`, `index.html` | HUD, menus, dialogue, title, module `wp6-hud` | §15, [WP6](wp/WP6.md) |
 | `js/toon.js`, `js/scatter.js`, `js/fx.js`, `js/perf/perf.js`, `js/perf/lod.js`, `js/perf/grass.js` | materials, instanced scenery, particles, module `wp7-perf` (culling, LOD, cutaway, lights, warm-up, resolution), tree proxies, near grass | §14.2, [WP7](wp/WP7.md) |
 | `js/perf/dynres.js` | the dynamic-resolution decisions: `dynDecide`, `dynPause`, `titlePace`, `clampDyn` (pure; unit-tested in `tests/dynres.test.js`) | §14.2 |
@@ -383,6 +383,9 @@ streams, so the main stream (and with it the scatter) of a seed stays stable.
 | `W.shots.{ place, ending, endingCrane, spawn, bossIntro.{woods, peaks, shores} }` | camera hints `{ pos, look }` |
 | `W.arenas[id] { x, z, r, h, entAng, entrance, outside, ring }` | the three boss arenas (r 14 m) and their edge rings |
 | `W.paths`, `W.pathF / pathFAt`, `W.woodsGaps`, `W.signpost`, `W.waymarkers`, `W.lamps`, `W.chests`, `W.houses`, `W.shop`, `W.npcSpots`, `W.interact` | paths and dressing, interactables |
+| `W.shells [{ id: 'shell1'…'shell5', kind: 'shell', x, y, z, at }]` | Clover's rainbow shells (`at`: `lighthouse`, `islet1`, `islet2`, `cove`, `path`). `placeShells()` runs after everything else in `generate()` on its own RNG (`seed × 41 + 29`), adds nothing to any other list and restores `W.walk` / `W.reach`, so no existing placement moves on any seed (`tests/world.test.js` compares with `tests/fixtures/world-prints.json`). Each spot is dry Shores sand (an islet counts as Shores), flat, ≥ 3 m off the path, clear of solids, colliders, reservations (bar the islets' own), bridges, chests and NPC spots, outside the arena ring and reachable. A spot is tried 160 times at random in its ring, then the whole ring is scanned every 0.5 m, so the shell is where Clover says (seeds 1–300 checked; `tests/world.test.js` checks 1–40); only then does it widen. `generateWorld(seed, { shells: false })` skips the pass. Not in `W.interact`: `interactables()` (`js/targeting.js`) offers the ones that are out |
+| `W.lanterns [{ id: 'lantern1'…'lantern4', kind: 'lantern', x, y, z, rot, paper: { x, y, z }, at }]` | Mayor Ribbit's parade lanterns (`at`: `altar`, `signpost`, `shop`, `meadow`). `placeLanterns()` runs last in `generate()`, after `placeShells()`, on its own RNG (`seed × 53 + 7`) with the same guarantees: nothing added to any other list (a lantern has no collider), `W.walk` / `W.reach` restored. Each spot is inside `TUNE.world.paradeR − 6` of the plaza centre, flat (slope < 0.45), ≥ 2.2 m off the paths and off the z = 9 test line, clear of solids, colliders, bridges, chests, interactables, NPC spots and the spawn, ≥ 8 m from the others and reachable; 160 random tries per centre, then a 0.5 m scan (the Meadow spot tries four points along its path). `generateWorld(seed, { lanterns: false })` skips the pass. Not interactables: `tickErrands` lights them |
+| `W.secrets [{ id, landmark, kind: 'secret', x, y, z, rot, at }]` | The landmark keepsakes (`SECRETS` in `js/data.js`: `acorn` woods, `stone` peaks, `bottle` shores, `pouch` meadow; none at the Great Tree). `placeSecrets()` runs last in `generate()`, after `placeLanterns()`, as a pure scan with no RNG draws and the same guarantees: nothing added to any other list (a keepsake has no collider), `W.walk` / `W.reach` restored. Each spot is on rings 0.6–3 m outside its landmark's collider (`prop.r`), every 5°: dry, walkable (slope < 0.7), off bridges and arenas, clear of every solid and collider but its own landmark's (by 0.5 m), of chests, interactables, NPC spots, rainbow shells and parade lanterns, and reachable. The lowest cost wins: the angle (`at`, rad) off the side away from the region's path (the lighthouse: toward the nearest sea), then 0.35 per metre out. Only with nothing valid within 3 m (the cairn's needle summit, unreachable on most seeds) does it widen out to 40 m (`SECRET_RING`), so the stone lies as close below the cairn as Pip can stand. `rot`: facing out from the landmark. `generateWorld(seed, { secrets: false })` skips the pass. Not in `W.interact`: `interactables()` offers the ones not found |
 
 **9.3 Colliders.** `W.colliders`, hashed in 4 m cells: `{ x, z, r (bounding), kind, shape: 'circle'|'obb'|'star', hx, hz,
 rot, y0, y1, camTop, rEye, stand, over, canopy, body, … }`. Heights are baked from `COLLIDER_H` (per kind) unless a prop
@@ -473,13 +476,18 @@ and an aimed snowball shows a landing reticle. Helpers: `telegraph(source, kind,
 
 **10.5 Bosses and fights** (`bosses.js`, `fight.js`, `fx-ground.js`). `Boss` has `name, maxHp, hp, opening` (a free-hit
 window: stunned or recovering), `enraged` (hp ≤ half), `busy`, `room` (personal space, 2.55–2.75 m), `keepOut`,
-`colliderR`, `touchR`, `shrug(wind)`, `snapLen / slideLen`, `forceAtk` (debug). Telegraphs are exact ground shapes from
+`colliderR`, `touchR`, `shrug(wind)`, `snapLen / slideLen`, `forceAtk` (debug), `rematch` (`new Boss(id, arena,
+{ rematch: true })`: `REMATCH.hpK` × HP, `enraged` from `REMATCH.enrage` of it). Telegraphs are exact ground shapes from
 `G.fx.ground`: `shockwave` rings (advanced in the fixed step with `stepRings`; a jump with `player.alt > 0.30` clears
 them), `band`, `stripe` (charge, snap, slide paths), `zone` (Frostbun's landing disc, rim wall and pillar), `crack`,
 `alert`, `aura`, `glint`. Every telegraph mesh carries `userData.cull = { dist: Infinity }`. Fight flow: entering the
 arena (within r − 2.5) starts a 2.4 s intro (`EV.BOSS_INTRO`, `CUTSCENE_START`, vine gate rises, Pip walks in, look
 locked), then `EV.BOSS_FIGHT`; defeat → `EV.BOSS_DEFEATED`, the Starseed drops, `EV.FIGHT_END` after 3.2 s; a respawn
-resets an unbeaten boss (`endFight(true)`).
+resets an unbeaten boss (`endFight(true)`). Rematches (after the ending): `spawnRematches` keeps a napping rematch `Boss`
+in each beaten guardian's arena (at session start, after the ending, and once Pip is clear of the arena's middle after a
+win). The walk-in trigger skips them; targeting offers a napping one as a Use target (`kind: 'guardian'`, verb `Wake`)
+and `interact` → `wakeRematch` → `startFight`. A rematch win drops no Starseed and calls `rematch.win(S, id)` (40 gems
+once, `S.rematches`); a respawn puts it back to sleep.
 
 **10.6 NPCs and encounters.** `NPC` (`npcs.js`): head (or body) turns to Pip within 4 m, waves within 2.6 m, faces him
 while talking, hops back when a talk starts closer than 1.1 m (never Miso, who stays at her counter). Spawning
@@ -507,17 +515,40 @@ are not rebindable. `buildKeymap(keys)` gives `input.js` its code → action map
 a key from its `KeyboardEvent.code` (`KeyT` → `T`, `Digit1` → `1`, `ShiftLeft` → `Shift`, `Semicolon` → `;`).
 While the Settings card waits for a key, `input.keyCapture = fn(code)` takes the next key press instead of the game.
 
+**Controller buttons** (`js/padbinds.js`, setting `pad`: `{ action: Gamepad button index }`, standard mapping). The
+player picks the button of each action in `PAD_ACTIONS` (Settings → Controls → Buttons): `jump dash attack interact
+potion view shoulder lockOn lockHold sprintToggle map`, defaults A B X Y LB RB D-pad ← R3 LT L3 Back. The held `sprint`
+follows the roll button; `lockHold` is held-only (no press edge). The shoulder swap is one rebindable action: D-pad ←
+with D-pad → as its extra button. **Fixed**: Start pauses (`PAD_FIXED`); the sticks are not buttons. **Reserved**: Start
+(9) and Home (16). **Extra buttons** (`PAD_SECONDARY`: RT swing, D-pad ↓ potion, D-pad ↑ view, D-pad → shoulder) work only
+while their action keeps its default button, and a button bound to any action wins over them. `buildPadmap(pad)` gives
+`input.js` its button → action map (`PADMAP`) and the held-only actions (`PAD_HELD`); `input.js` (`BINDINGS.pad`) and
+`hud/keys.js` (`GLYPHS.pad`, `ALL.pad`, face buttons keep their `PADCLS` colour) rebuild on every change of the setting.
+`padLabel(i)` names a button (`0` → `A`, `6` → `LT`, `12` → `D-pad ↑`).
+**Menus keep the standard layout.** Every pad press gives two edges: a gameplay one from `PADMAP` (into `pressed(a)`) and
+a menu one from `MENU_PADMAP`, the default map, which never changes (into `menuPressed(a)`). Keyboard, mouse, touch and
+debug presses go to both. Menus, dialogue, the shop, the map, the title, the log and the Settings / Controls cards read
+only `menuPressed` (and `confirm()`, `cancel()`, `menuNav()`, which use it), so A confirms, B goes back, LB / RB switch
+tabs and the D-pad / stick move whatever the bindings are; `navUp` / `navDown` stay the physical D-pad ↑ / ↓ and the
+stick. With the default bindings both edge sets are the same. The per-frame toggles that also run under modal UI (view
+and shoulder in dialogue, the sprint latch) read `framePressed(a)`: menu edges when the frame began with dialogue, the
+shop or a menu open (`input.modal`, set by Game), else `pressed`, so a button remapped onto A / B does not also toggle
+while it confirms or goes back. Lock-on (`updateLock`) skips such a frame altogether. While the Settings card waits for a button,
+`input.padCapture = fn(index)` takes the next pad button press (once) instead of the game and the menus; Start (9)
+cancels the wait, and so does B (1) while an action has B (a B nothing is bound to binds, or it could never be reached
+again); Esc and the other keyboard / mouse / touch presses stop it too.
+
 | Device | Bindings |
 |---|---|
 | Keyboard + mouse (default keys) | WASD / arrows move (with `arrowLook` the arrows look instead), mouse look, LMB / J attack, Space jump, Shift / K roll (held: sprint), E / F / Enter / NumpadEnter interact, R potion, V view, X shoulder, Q / MMB lock toggle, RMB lock hold, wheel zoom, M / Tab map, Esc / P pause |
-| Pad (standard mapping) | L stick move, R stick look, A jump, B roll (held: sprint), X / RT attack, Y interact, LB / D-pad ↓ potion, RB / D-pad ↑ view, R3 lock toggle, LT lock hold, L3 sprint toggle, D-pad ← / → shoulder, Back map, Start pause |
+| Pad (standard mapping, default buttons) | L stick move, R stick look, A jump, B roll (held: sprint), X / RT attack, Y interact, LB / D-pad ↓ potion, RB / D-pad ↑ view, R3 lock toggle, LT lock hold, L3 sprint toggle, D-pad ← / → shoulder, Back map, Start pause |
 | Touch | floating move stick (left zone; right with `touchLeftHanded`), drag elsewhere to look, Swing, Roll (held: sprint), Hop, Use (only with a target, labelled with its verb), Pause, Map, View, Potion, Lock (only near enemies or in fights); a quick tap is `click` + `tap` |
 
 | `Input` | |
 |---|---|
 | `update(dt)` | per frame: held set, pad poll (look dead zone 0.15–0.92 with the `padCurve` exponent, move 0.18–0.95), edges, arrow look, last device (`EV.DEVICE` after 300 ms) |
-| `pressed(a)`, `held(a)`, `keyPressed(code)`, `consume(a)`, `consumeAll()`, `confirm()`, `cancel()`, `menuNav()`, `axis() → { x, y, l }` | `confirm` = attack / interact / click / jump; `cancel` = pause / dash |
-| `keyCapture` | `fn(code)` or null: the next key press goes to it (once) and is no input; set by the Settings card's Keys rows |
+| `pressed(a)`, `menuPressed(a)`, `framePressed(a)`, `held(a)`, `keyPressed(code)`, `consume(a)`, `consumeAll()`, `confirm()`, `cancel()`, `menuNav()`, `axis() → { x, y, l }` | `menuPressed` = the menus' edges (the pad in its default layout); `confirm` = attack / interact / click / jump, `cancel` = pause / dash, both menu edges |
+| `keyCapture`, `padCapture` | `fn(code)` / `fn(buttonIndex)` or null: the next key / pad button press goes to it (once) and is no input; set by the Settings card's Keys / Buttons rows |
 | `addMouse(dx, dy, k)`, `takeMouse()`, `takeTouch()`, `takeWheel()`, `lookStick`, `keyLook`, `arrowStick(kx, ky, dt)` | look accumulators; single mouse events > 300 counts are dropped. Arrow look feeds `view.applyLook`'s pad path as a stick deflection (yaw 60 → 140 °/s over 0.25 s, pitch 90 °/s), so it counts as look input everywhere |
 | `lastDevice` (`firstDevice()`: `'touch'` on a coarse-only pointer, else `'keyboard'`), `cursorMenu` | set by Game; closing a cursor menu keeps canvas presses inert for 300 ms |
 | `setTouchMode(mode)`, `setTouchVisible(on)`, `showTouch()`, `layoutTouch()` | Game sends `'hidden'` (title), `'modal'` (menu or shop), `'dialogue'` or `'play'` every frame; a `'play'` during a cutscene, fade, boss intro or with the HUD off becomes `'cinema'`. Only `'play'` shows the controls |
@@ -535,10 +566,12 @@ modal closes.
 
 `settings.get(k)`, `set(k, v) → effective value` (coerced to the schema, persisted debounced 250 ms, only non-default
 values stored, emits `EV.SETTINGS`), `on(k | '*', fn(value, key)) → off`, `reset(k?)`, `all()`, `flush()`; `SCHEMA`,
-`SETTINGS_KEY`. Unknown stored keys are kept. One key is object-valued: `keys` (schema rule `obj`: a sanitizer). A
-stored `keys` that is no plain object is ignored; otherwise unknown actions, non-strings, odd or reserved codes and
-codes equal to the default are dropped, and actions that would share a key fall back to their defaults (`sanitizeKeys`);
-an empty result is not stored. Device defaults: a coarse pointer in portrait → `view: 'tp'`;
+`SETTINGS_KEY`. Unknown stored keys are kept. Two keys are object-valued: `keys` and `pad` (schema rule `obj`: a
+sanitizer). A stored `keys` that is no plain object is ignored; otherwise unknown actions, non-strings, odd or reserved
+codes and codes equal to the default are dropped, and actions that would share a key fall back to their defaults
+(`sanitizeKeys`); an empty result is not stored. `pad` works the same way (`sanitizePad`): non-integers, indices outside
+0–16, Start (9), Home (16) and buttons equal to the default are dropped, and actions that would share a button fall back
+to their defaults. Older builds keep it as an unknown key and ignore it. Device defaults: a coarse pointer in portrait → `view: 'tp'`;
 `prefers-reduced-motion` → `reduceMotion: true`. The Settings card is generated from `SCHEMA` with labels and groups
 from `META` (`js/hud/menus.js`); a key without `META` still gets a row.
 
@@ -551,6 +584,7 @@ from `META` (`js/hud/menus.js`); a key without `META` still gets a row.
 | `touchSens`, `touchLeftHanded` | 1 (0.5–2), false | view; touch, HUD, viewmodel |
 | `arrowLook` | false | input |
 | `keys` | `{}`: an object `{ action: KeyboardEvent.code }` with only the rebound actions (`js/keybinds.js`) | input, HUD key glyphs |
+| `pad` | `{}`: an object `{ action: Gamepad button index }` with only the rebound actions (`js/padbinds.js`) | input, HUD key glyphs |
 | `headBob`, `shake`, `speedFx` | 1 (0–1 each) | view feel, viewmodel, HUD speed lines |
 | `cameraRoll`, `reduceMotion` | true, false | view feel, viewmodel, HUD (`#ui.calm`; flashes capped at `TUNE.hud.flashCap`) |
 | `dialogueLookAt` | true | view feel (dialogue look assist) |
@@ -563,9 +597,13 @@ from `META` (`js/hud/menus.js`); a key without `META` still gets a row.
 | `hudScale`, `minimap` | 1 (0.8–1.2), `heading` (`heading`, `north`, `off`) | HUD |
 | `quality`, `dynRes` | `auto` (`auto`, `low`, `high`), true | perf (DPR, grass, shadow map, dynamic resolution), assets (HD / lo, anisotropy), atmosphere (terrain layers) |
 
-Save (`game.S`, key `starseed-isle-save-v2`, `v: 2`): seed, position, facing, hp, maxHp, coins, potions, swordLevel,
+Save (`game.S`, key `starseed-isle-save-v2`, `v: 6`): seed, position, facing, hp, maxHp, coins, potions, swordLevel,
 seeds (0 none, 1 carried, 2 placed), chests, bosses, shopHeart, ending, time of day, visited regions, playTime, intro and
-controls flags, plus the optional `pitch` (restored clamped ±0.6 rad), `controlsV` (< 2 → the first-run coach marks once)
+controls flags, `errands` (errand id → 1 started, 2 done; `ERRANDS` and the `errands` helpers in `js/data.js`), `shells`
+(the errand item flags: item id → true, a rainbow shell picked up `shell1`… or a parade lantern lit `lantern1`…; no two
+errands share an id), `plushies` (v4: Miso's guardian plushies bought, guardian id → true), `rematches` (v5: guardian
+rematches won after the bloom, guardian id → true; `REMATCH` and the `rematch` helpers in `js/data.js`), `secrets` (v6:
+landmark keepsakes found, keepsake id → true; `SECRETS` and the `secrets` helpers in `js/data.js`), plus the optional `pitch` (restored clamped ±0.6 rad), `controlsV` (< 2 → the first-run coach marks once)
 and `waypoint { x, z }` (the map marker). Non-numeric optional fields fall back to defaults. Autosave every 30 s outside
 fights and at key events. `wp9-world.onSession` moves a Continue whose saved spot is now inside a collider to the
 nearest free spot.
@@ -574,7 +612,53 @@ Every read of the save goes through `loadSave(raw, seed)` in `js/save.js`: `Game
 seed lookup at boot in `main.js`. It migrates older versions (`MIGRATIONS`), rejects unusable saves (treated as no save)
 and fills, clamps or coerces the known fields; unknown fields such as `pitch`, `controlsV` and `waypoint` pass through.
 `js/save.js` imports only `js/data.js`, so `bun test` can load it. To change the layout, bump `SAVE_VERSION` and add a
-`MIGRATIONS[old]` step with a test (`docs/DESIGN.md` §15).
+`MIGRATIONS[old]` step with a test (`docs/DESIGN.md` §15). `MIGRATIONS[2]` (v2 → v3) adds `errands: {}` and
+`shells: {}` and keeps every v2 field; `MIGRATIONS[3]` (v3 → v4) adds `plushies: {}`; `MIGRATIONS[4]` (v4 → v5) adds
+`rematches: {}`; `MIGRATIONS[5]` (v5 → v6) adds `secrets: {}`.
+
+Errands (`js/interact.js`), driven by their `ERRANDS` entry (`js/data.js`): `item` (the id prefix and the scenery kind),
+`list` (the world list of its spots), `how` (`'use'`: picked up with Use; `'walk'`: lit by walking past), `keep` (a found
+item stays shown, in its found look), `follow` (the villager follows Pip while it is under way), and the feed texts. A
+villager's lines (`NPCS`) read the errand state before a talk; when the talk ends, `errandTalk` calls `errands.talk(S, e)`,
+which starts the errand (`syncErrands` shows its items) or, with every item found, finishes it and adds the reward to
+`S.coins` once (the feed gets an `EV.COLLECT` gem line); either way the game saves. A `follow` errand also sets the
+villager following (`npc.setFollow(errands.following(S, e))`), so a talk after Continue picks it up again.
+`findErrandItem(e, it)` marks an item (`errands.pick`), sets its scenery (`scenery.setErrandItem`), counts it in the feed
+and saves; the last one sends a following villager home (`npc.goHome()`). `syncErrands` runs at every session start, and
+`resetErrandNpcs` puts a following or homing villager back on his spot (following is not saved).
+
+- Clover's rainbow shells (`how: 'use'`): an interactable of kind `shell` from `interactables()` in `js/targeting.js`
+  (`Pick up · Rainbow shell`, aim point `TUNE.combat.aimPts.shell`, range `shellRange`); Use calls `findErrandItem`,
+  which hides it (`scenery.setShellShown`). The scenery draws each shell as a small group (`rainbowShellModel()` in
+  `js/props.js`, procedural) that turns and bobs.
+- Mayor Ribbit's parade lanterns (`how: 'walk'`, `keep`, `follow`; unlocked by `S.ending`): never a Use target.
+  `tickErrands()` (each fixed step, free play only) lights an unlit one within `TUNE.actors.paradeLight` m (XZ) of Pip
+  while Ribbit follows within `paradeNear` m of him; the motes and twinkles sit on the hanging paper (`it.paper`, with the post's turn `it.rot` from the world pass). Each is a post and a paper body on its own material
+  (`paradeLanternModels()` in `js/props.js`, procedural); `scenery.setLantern(id, shown, lit, instant)` tints the paper
+  and ramps its glow (`glowK`) from cream to warm over ≈ 0.8 s, or at once on a session start.
+- Follow mode (`js/npcs.js`, `TUNE.actors.follow*`): `followUpdate` steps toward Pip (with moveCircle, Pip a dynamic
+  circle), stopping `followGap` m short, at `followK` × the distance left up to `followSpeed` with a small hop every
+  `followHop` s; blocked for `followStuck` s he stands (no walking on the spot). Closer than `followGap − 0.8` m (Pip
+  walked back into him) he steps back out of the way, and while following he is left out of `dynamicColliders`, so he
+  never blocks Pip in a narrow spot. Further than `followFar` m or blocked for `followStuck` s, he is put on a clear spot
+  (`penetration` 0, walkable, inside the village) just behind Pip with a hop (`catchUps` counts them; no clear spot: a
+  retry every 0.25 s). With Pip outside the village circle (`TUNE.world.paradeR`) his target is that circle's edge on
+  Pip's side, and no catch-up. `homeUpdate` walks him home after the parade (blocked for a while: a hop home).
+
+`tickErrandFx` twinkles each item still out within 40 m (each render frame, skipped while the clock holds or a dialogue is up; Motion comfort thins the lantern twinkles and stops their sway). The tracker's `errands` row
+counts errands done (`errands.done(S)`) over `ERRANDS.length`.
+
+Landmark keepsakes (`js/interact.js`, `SECRETS` and `secrets` in `js/data.js`): an interactable of kind `secret` from
+`interactables()` in `js/targeting.js` while not found (`<verb> · <label>` from its entry, so the prompt does not name
+it: `Look · Something glowing`; aim point `TUNE.combat.aimPts.secret`, range `secretRange`), before and after the bloom.
+Use calls `findSecret(it)`: its lines through `ui.say` with its name as the speaker, then, the first time only,
+`secrets.find(S, id)` (the flag and 25 gems in `S.coins`), `scenery.setSecret(id, true, keep)` (gone; the `keep` bottle
+loses only its cork and message), a few motes, an `EV.COLLECT` gem line, a "Secret found n/4" feed note and a save.
+`syncSecrets` sets the scenery from the save at every session start. `tickSecretFx` (with `tickErrandFx`) twinkles each
+keepsake not found within `TUNE.combat.secretFx` (6) m, fewer with Motion comfort. The scenery builds each as a group
+(`secretModel(id)` in `js/props.js`: `main` and an optional `lid`, procedural) scaled 1.4. The tracker's `secrets` row
+counts `secrets.count(S)` over `SECRETS.length`. Digby has a hint line once a Starseed is home and a thank-you once all
+four are found.
 
 ## 13. Viewmodel (`js/view/viewmodel.js`, module `wp2-viewmodel`) — detail: [WP2](wp/WP2.md)
 
@@ -801,7 +885,7 @@ comparison only).
 
 | Helper | |
 |---|---|
-| `teleport(x, z, yaw = null, pitch = 0) → [x, y, z]`, `pose(name)`, `standAt(kind \| npcId, n, { dist })` | `pose`: `spawn`, `plaza-N`, `plaza-S`, `tree`, `village`, `woods`, `peaks`, `shores`, `meadow`, `hilltop`, `arena-woods / peaks / shores` (an unknown name lists them) |
+| `teleport(x, z, yaw = null, pitch = 0) → [x, y, z]`, `pose(name)`, `standAt(kind \| npcId, n, { dist })` (`kind` `'shell'`: rainbow shell n of `W.shells`; `'secret'`: landmark keepsake n of `W.secrets`, from outside its landmark) | `pose`: `spawn`, `plaza-N`, `plaza-S`, `tree`, `village`, `woods`, `peaks`, `shores`, `meadow`, `hilltop`, `arena-woods / peaks / shores` (an unknown name lists them) |
 | `spawn(type, dist = 4, relDeg = null, { alt, face, state, st })`, `last`, `enemies()`, `freezeAI(on)`, `freezeTime(on)`, `god(on)`, `hurt(dmg, relDeg)`, `down()` | `relDeg` from the view yaw (+ = left); the new enemy is `G.debug.last` |
 | `setTime(h)`, `giveSeeds()`, `toBoss(id)`, `killBoss()`, `cutscene(name, id)` | `cutscene`: `'place'`, `'ending'`, `'bossIntro'`, `'itemGet'` |
 | `aim()`, `target()`, `aimAt(x, y, z)` | what a full swing would hit now; the interaction target; aim the crosshair at a point (TP: from the camera the rig settles at for that look, which it runs the live rig to; where a slide flips shoulders with the aim it keeps the best look) |
@@ -838,9 +922,20 @@ corrupt and a newer-version save, each load with stored settings: valid, wrong-t
 `tests/pwa.mjs` (the Pages build under `/game/`: install, offline play, an update, `?nosw=1`; §14.5) and
 `tests/playthrough.mjs` (a whole game from a clean `localStorage`: New Game, Shellby's intro, each guardian's arena walked
 into, beaten with `G.debug.killBoss()` and its Starseed walked onto, Use at the pedestal, the ending and its card, free roam,
-the pause tracker at 3/3, Save & Quit, a reload and Continue with the bloom restored; it steps the real frame loop
-(`game.runFrame`, drawing one frame in 60) on the manual clock without its redraws instead of waiting in real time).
-`tests/lib/browser.mjs` holds the static server and Chromium options the smoke and playthrough tests share. `jsconfig.json` maps `three` to the vendored copy for `bun test`, as the import map
+Clover's errand after Captain Pinch (talk, Use on the five rainbow shells, talk again for the reward once), Mayor
+Ribbit's parade after the ending (a talk; for each lantern Pip walks in from about 9 m and it lights only with Ribbit
+close behind, having walked or catch-up hopped there himself; a mid-parade Save & Quit → Continue; Pip out of the village
+while Ribbit waits at its edge; a talk for the reward once), Miso's plushies through her shop, a guardian rematch
+(walking into the arena starts nothing; the `Wake` prompt and Use start it; a win gives 40 gems once and no Starseed; a
+dizzy reset; a repeat win gives nothing), the four landmark keepsakes (the acorn before the bloom: Use reads it, 25 gems
+once, saved; the twinkle near-only and calmer with Motion comfort), the pause tracker at 3/3, errands 2/2 and secrets 4/4, Save & Quit, a reload and Continue
+with the bloom, both finished errands and the rematch flag restored and the guardians napping again; it steps the real frame loop
+(`game.runFrame`, drawing one frame in 60) on the manual clock without its redraws instead of waiting in real time), and
+`tests/opening.mjs` (the opening with real input events only, never `G.debug` input: New Game, Shellby's intro page by page,
+then look, walk and swing until the first-run coach marks mark the save; on desktop with keyboard and mouse and on a
+390×844 touch phone with taps, a swipe, the floating stick and Swing; it also checks the portrait objective line never
+leaves the distance unit on a line of its own; same manual clock).
+`tests/lib/browser.mjs` holds the static server and Chromium options the browser tests share. `jsconfig.json` maps `three` to the vendored copy for `bun test`, as the import map
 in `index.html` does for the browser, because `js/world.js` reaches `js/props.js` and so three.js. The Pages build
 (`tools/build-pages.mjs`) scans every `js/**/*.js` for `from '…'` with a regular expression, comments and strings
 included, so text such as `from 'dash'` in a comment fails it: keep that pattern out of comments and messages.

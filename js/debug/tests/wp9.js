@@ -419,8 +419,10 @@ export default function register(suite) {
       t.eq(bad.length, 0, 'old wording: ' + bad.join(' | '));
       const toks = [...txt.join(' ').matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
       t.ok(toks.length >= 4 && toks.every((k) => TOKENS.includes(k)), 'tokens ' + [...new Set(toks)].join(','));
-      const sh = NPCS.find((n) => n.id === 'shellby').intro.join(' ');
-      t.ok(/compass/i.test(sh) && /Great Tree/.test(sh) && /tallest/i.test(sh), 'Shellby teaches the compass and the tree landmark');
+      // #36 cut the intro to three pages and moved the compass and the tree landmark ("over the treetops", was "the
+      // tallest thing") into his first lines, which a fresh save hears on the next talk
+      const shellby = NPCS.find((n) => n.id === 'shellby'), sh = shellby.intro.concat(shellby.lines({ seeds: { woods: 0, peaks: 0, shores: 0 }, bosses: {}, chests: {}, ending: false })).join(' ');
+      t.ok(/compass/i.test(sh) && /Great Tree/.test(sh) && /tallest|over the treetops/i.test(sh), 'Shellby teaches the compass and the tree landmark');
       const all = txt.join(' ');
       t.ok(/\{jump\}/.test(all) && /ring/i.test(all), 'jump the shockwave'); t.ok(/stripe/i.test(all) && /sidestep/i.test(all), 'sidestep Pinch'); t.ok(/LOOK UP/i.test(all) && /pillar/i.test(all), 'watch the sky pillar (Frostbun)');
     }],

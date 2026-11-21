@@ -46,7 +46,7 @@ const fxm = {
   },
   onSession() { this.toggle = false; this.warping = false; this.clearPrints(); },
   onTitle() { this.toggle = false; },
-  frameInput(input) { if (input.pressed('sprintToggle')) this.toggle = !this.toggle; },
+  frameInput(input) { if (input.framePressed('sprintToggle')) this.toggle = !this.toggle; },   // (not from a menu press: input.modal)
   intent(it) { it.sprintToggle = this.toggle; },
   afterStep() {
     const game = this.game, pl = game.player;

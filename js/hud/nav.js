@@ -233,7 +233,7 @@ export class Compass {
     }
     const xq = Math.round(x * 2) / 2;
     if (xq !== e._x) { e._x = xq; e.style.transform = 'translateX(' + xq + 'px)'; w++; }
-    if (isObj) { const dm = dd < 1000 ? Math.round(dd) : -1; if (dm !== e._dm) { e._dm = dm; e.lastChild.textContent = dm >= 0 ? dm + ' m' : ''; w++; } }
+    if (isObj) { const dm = dd < 1000 ? Math.round(dd) : -1; if (dm !== e._dm) { e._dm = dm; e.lastChild.textContent = dm >= 0 ? dm + '\u00a0m' : ''; w++; } }
     else e._dm = -1;
     return w;
   }

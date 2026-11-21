@@ -163,6 +163,15 @@ Measured on the current build: careful wins every fight in 37–55 s losing 1–
 wins 2 of 45 and is never downed before 17 s. With the Shiny Sword, careful fights take 25–36 s and the never-dodging
 player wins about two in three. The wooden sword is the balance reference.
 
+**Rematches** (after the ending, opt-in): each guardian naps in its arena again. Walking in starts nothing; aiming at it
+shows `[E] Wake · Grumble Shroom` and Use starts the normal fight flow (vines, intro, a name card reading "Grumble Shroom ·
+Rematch"; Pip steps back from it to 4.5 m during the intro, facing it). A rematch guardian has 1.25 × its HP (60, 60, 63)
+and is enraged from 75 % of it instead of half; its moves, wind-ups (every tell ≥ 0.55 s) and damage are the first
+fight's. Its win drops no Starseed: the first win per guardian gives 40 gems once (`S.rematches`), later wins only the
+burst and fanfare, and the guardian naps again once Pip is out of the arena's middle. Getting dizzy resets it like a first
+fight. The numbers are `REMATCH` in `js/data.js`. Targets: the never-dodging player is not downed before 10 s and wins no
+rematch in under 20 s (wp5-heavy "rematch balance"; measured: downed in every run at 26–29 s, no win).
+
 ## 9. People, places to poke, and the ending
 
 - **Interaction** is aimed: look at someone or something and press E / F / Enter (pad Y, touch Use or a tap). The prompt
@@ -170,12 +179,51 @@ player wins about two in three. The wooden sword is the balance reference.
 - **Dialogue** pauses the world. In first person the view eases onto the speaker's face and the portrait hides (their real
   face is in view; a speaker more than 3.5 m away, like Elder Shellby at the wake-up, keeps it); in third person the
   camera cuts to a two-shot that keeps the speaker's face clear of Pip, and the portrait shows. Lines use the device's keys.
-- **Villagers**: Elder Shellby (turtle, by the pedestal; the intro and hints), Mayor Ribbit (frog; names the landmarks),
-  Miso (cat; runs the shop), Clover (bunny; Captain Pinch tips), Professor Hoot (owl; Grumble Shroom tips), Digby (mole;
-  Frostbun tips and hidden heart chests). They look at Pip, wave when he comes close and step back if he stands too
+- **Villagers**: Elder Shellby (turtle, by the pedestal; the three-page intro and hints), Mayor Ribbit (frog; names the landmarks, then his parade),
+  Miso (cat; runs the shop), Clover (bunny; Captain Pinch tips, then her errand), Professor Hoot (owl; Grumble Shroom tips), Digby (mole;
+  Frostbun tips, hidden heart chests and, once the first Starseed is home, a hint at the landmark secrets). They look at Pip, wave when he comes close and step back if he stands too
   close (Miso stays behind her counter).
+- **Errands**: small favours villagers ask once Pip has done enough (`ERRANDS` in `js/data.js`). The first is Clover's:
+  after Captain Pinch is beaten, talking to her asks Pip to find **5 rainbow shells** on the Sunny Shores (one by the
+  striped lighthouse, one on each islet, one outside Captain Pinch's cove, one beside the beach path). Only then do the
+  shells appear: rainbow-striped, glowing, turning and twinkling, so they stand apart from the plain pink shells on the
+  sand. Use picks one up (the prompt reads `Pick up · Rainbow shell`), a feed line counts "Rainbow shell 2/5" and it is
+  saved at once. With fewer than five Clover cheers Pip on with the count and the hint; with all five she thanks him and
+  gives 50 gems, once, and from then on looks back on it (and on the bloom, after the ending). No quest log: the
+  tracker's Errands chip is the only UI.
+  The second is **Mayor Ribbit's bloom parade**: after the ending, his old "This calls for a parade. You lead, I will hop
+  behind" is the start of it. Talking to him puts out **4 paper lanterns** around Sprout Village (one beside the walk up
+  to the Great Tree's altar, one by the plaza signpost, one in front of Miso's shop, one at the village edge on the Meadow
+  path; he says where) and he hops along a few metres behind Pip, stopping when Pip stops and stepping aside if Pip turns back into him. Far behind or stuck, he hops
+  to a spot just behind Pip; if Pip leaves the village he waits at its edge and follows again when Pip comes back. A
+  lantern lights when Pip walks within 2.5 m of it with Ribbit within 6 m of Pip: no button, the paper warms from cream
+  to a soft amber glow over a moment (a chime and a few slow motes; Motion comfort thins them and stills the lanterns' sway), a feed line counts "Parade
+  lantern 2/4" and it is saved at once. With all four lit Ribbit hops home, and a talk there finishes the parade: his
+  victory croak finally works and he gives 50 gems, once. The lanterns stay lit for good. Following is not saved: after
+  Continue Ribbit is home again, the lit lanterns still lit, and a talk picks the parade up again.
+- **Landmark secrets**: one small keepsake tucked against each region landmark (`SECRETS` in `js/data.js`; none at the
+  Great Tree), on the side facing away from that region's path:
+  - a **glowing acorn** at the foot of Grumble's Crown's stem;
+  - a **humming crystal stone** below the Summit Crystal Cairn. The cairn's needle summit is too steep to walk up to, so
+    the stone lies as close below it as Pip can stand (seeds 1–150: a median 8 m from the cairn's ring, at most 28 m);
+  - a **message in a bottle** at the base of Pinch's Lighthouse, on the sea side;
+  - a **tiny seed pouch** against the Meadow Windmill's footing.
+
+  Each is a small procedural model with no compass or map marker. It twinkles faintly only while Pip is within 6 m (fewer
+  motes with Motion comfort), so it stays a secret from a distance. Looking at it, the prompt reads `Look · Something
+  glowing` (`Open · A bottle`), so its name is a surprise. Use reads its two original lines like a sign (small hints about
+  the isle's past and the Great Tree) and gives **25 gems once**, with the usual gem feed line and a "Secret found 1/4"
+  note. Then it is gone, or for the bottle, left opened. It works before and after the bloom. Digby's hint, once the first
+  Starseed is home: "Every tall thing on this isle keeps something tucked round its back. Digby's dug near all of them."
+  With all four found he thanks Pip instead. The tracker's Secrets chip counts them.
 - **Shop (Miso)**: Potion 25 gems (carry 3), Heart Container 120 (once), Shiny Sword 150 (once: double damage, longer
-  reach, sparkly). In first person the purchase is held up in Pip's paws.
+  reach, sparkly). In first person the purchase is held up in Pip's paws. Once the heart and the sword are both sold,
+  Miso's keepsakes give spare gems a use: a guardian plushie (Grumble Shroom, Captain Pinch, Frostbun; `PLUSHIES` in
+  `js/data.js`) for 80 gems each, one of each, in stock once its guardian is beaten. Each one bought sits on her
+  counter as a small copy of its guardian (a scaled clone of the boss model, no shadow, at fixed spots outside the clear
+  stretch in front of her: `PLUSHIE_SPOTS` in `js/props.js`, no colliders), and she has a line for plushies in stock,
+  some bought and all three bought. The stock rules (`shop.items` / `shop.state` / `shop.check` in `js/data.js`) are
+  pure and unit-tested; the shop's ↑↓ wrap over the rows on show.
 - **Chests**: 4 heart-container chests (a ring of sunflowers in the meadow, the islet off the western beach, a nook
   behind the peaks boulders, a hidden glade in the woods) and 10 gem chests hidden 8–40 m off the paths. A gem chest
   spills gems; a heart container (like a Starseed) is raised in Pip's paws in first person or over his head in third
@@ -186,6 +234,9 @@ player wins about two in three. The wooden sword is the balance reference.
 - **Pedestal and ending**: at the altar by the Great Tree each carried Starseed flies into its star socket. With all
   three, the view looks up the trunk, the tree blooms, the camera cranes up and around it, and the card "✿ Starseed Isle
   is blooming again! ✿ — Thanks for playing" appears. Free roaming continues; the village music becomes the ending theme.
+- **After the ending**: the three guardians nap in their arenas again for an opt-in, harder rematch (§8); Elder Shellby
+  says so ("Wake one if you fancy a friendly rematch!"), and each guardian's tip-giver (Hoot, Clover, Digby) has one
+  short line once its rematch is won. The arenas keep their ✓ on the map and the compass shows no rematch markers.
 
 ## 10. HUD and menus
 
@@ -218,7 +269,10 @@ generated icons that each have a drawn fallback.
   backdrop. Everything works with mouse, keyboard, gamepad and touch.
 - **Completion tracker** (pause menu under the seed row, map card under the legend): a row of chips, each an icon and
   found / total, for chests opened, heart containers (the heart chests plus Miso's shop heart), guardians beaten, regions
-  visited and Starseeds home, then the overall percentage of distinct things found. A full chip turns green and gets a
+  visited, Starseeds home, errands done (an errand counts once, not its shells), Miso's guardian plushies bought,
+  guardian rematches won and landmark secrets found (0/4; shown from the start, like the errands, so ★ 100% means
+  everything), then the overall percentage of
+  distinct things found. A full chip turns green and gets a
   ✓ badge, and the finished tally reads ★ 100%, so completion never rests on colour alone. It is read-only over the save
   (`js/completion.js`, a pure module): totals come from the generated island and `data.js`, and save keys for things
   this island does not have are not counted. It is filled each time the card opens.
@@ -267,6 +321,7 @@ village and lamps along the first stretch. A river runs down the east side to th
 | Mouse sensitivity, invert, raw input (Controls) | 0.25–4 ×; up / down and left / right, each on its own switch; pointer lock without OS acceleration |
 | Arrow keys look around (Controls) | the arrow keys turn the view (WASD still walks); hidden on a touch-only screen |
 | Controller look speed, invert, stick response (Controls) | 0.5–2 ×; up / down and left / right, each on its own switch (the arrow keys follow them when they look); linear / smooth / precise |
+| Buttons (Controls · Controller) | the controller button of each gameplay action: Hop, Roll (hold: sprint), Swing, Use, Potion, View, Swap shoulder, Lock on, Lock on while held, Sprint on / off, Map. Confirm a row, then press a button; B / Start / Esc cancel (B binds instead while no action has it); Start and Home can't be bound; a button in use swaps the two. RT, D-pad ↓ / ↑ / → stay extra buttons of Swing, Potion, View and Swap shoulder only while those keep their default. Menus, dialogue, the shop and the map keep the standard layout (A confirm, B back, LB / RB tabs, D-pad / stick move). Always listed, so a pad can be set up before it is in use; Reset restores the defaults |
 | Touch look sensitivity, left-handed buttons (Controls) | 0.5–2 ×; mirrors the stick and buttons |
 | Swing assist, lock-on button, lock-on turns the camera, lock on to bosses by itself (Controls · Sword) | magnetism off / low / high / auto; press or hold; on / off; auto (pad and touch) / on / off |
 | Camera drifts behind Pip, Pip faces where you look (Controls · Third person) | with a pad or touch the camera eases behind Pip while he runs (never near enemies); Pip strafes instead of turning |
@@ -297,17 +352,33 @@ low 1.0, high 2.0) and dynamic resolution of the main pass between 0.70 and 1.0.
 
 One save slot in the browser (`starseed-isle-save-v2`): autosave every 30 s outside fights and at key moments (seeds,
 chests, purchases, defeats). It keeps the island seed, Pip's place and look, hearts, gems, potions, sword, Starseeds
-(found and placed), chests, defeated bosses, the shop heart, the ending, the time of day, visited regions and your map
-marker. Continue resumes there; Save & Quit returns to the title.
+(found and placed), chests, defeated bosses, the shop heart, the ending, the time of day, visited regions, errands
+(started or done) and their items found (rainbow shells picked up, parade lanterns lit), Miso's guardian plushies bought,
+the guardian rematches won, the landmark secrets found, and your map marker. A save made mid-fight (a first fight or a rematch) resumes outside the
+arena. Continue resumes there; Save & Quit returns to the title.
 
 The schema lives in `js/save.js` (pure, unit-tested in `tests/save.test.js`). Every save carries a `v` field,
-`SAVE_VERSION` (currently 2); the version comes from `v`, not from the storage key, which stays
+`SAVE_VERSION` (currently 6); the version comes from `v`, not from the storage key, which stays
 `starseed-isle-save-v2`. Loading runs `loadSave(raw, seed)`: `migrate` applies the `MIGRATIONS[n]` steps
 (version n → n + 1) up to `SAVE_VERSION` and rejects non-objects, saves without `seed`, saves newer than
 `SAVE_VERSION` or with no migration path; then `normalize` fills missing fields from `freshState` and
 clamps or coerces the rest (hp 1..maxHp, maxHp ≤ `CFG.maxHp`, potions ≤ `CFG.potionMax`, coins ≥ 0,
 swordLevel 1 or 2, map fields always plain objects, position finite or null). A rejected save is treated
 as no save. To change the layout: bump `SAVE_VERSION`, add a `MIGRATIONS[old]` step and a test for it.
+`MIGRATIONS[2]` (v2 → v3, Clover's errand) is the first step: it keeps every v2 field and adds `errands: {}` (errand id →
+1 started, 2 done) and `shells: {}` (rainbow shell id → true); `normalize` clamps errand states to 1 or 2 (0 and junk
+dropped) and turns shells into flags. A build from before v3 treats a v3 save as newer, so as no save: if this ever has
+to be reverted after release, ship a build that accepts v3 and ignores its extra fields rather than a plain revert.
+Mayor Ribbit's parade needs no new version: its state is `errands.ribbit` and each lit lantern a flag in the same
+`shells` map (the errand item flags: `lantern1`…`lantern4` beside `shell1`…`shell5`), so any v3 build loads it.
+`MIGRATIONS[3]` (v3 → v4, Miso's guardian plushies) keeps every v3 field and adds `plushies: {}` (guardian id → true);
+`normalize` keeps only guardian ids (`BOSSES` keys) set to `true`. As with v3, a build from before v4 treats a v4 save
+as newer, so as no save. `MIGRATIONS[4]` (v4 → v5, guardian rematches) keeps every v4 field and adds `rematches: {}`
+(guardian id → true once its rematch is won); `normalize` keeps only guardian ids, as flags. A build from before v5
+treats a v5 save as newer: to roll the rematches back, keep the v4 → v5 step and drop only the gameplay.
+`MIGRATIONS[5]` (v5 → v6, the landmark secrets) keeps every v5 field and adds `secrets: {}` (keepsake id → true once
+found); `normalize` keeps only `SECRETS` ids set to `true`. A build from before v6 treats a v6 save as newer, so as no
+save: to roll the secrets back, keep the v5 → v6 step and drop only the gameplay.
 
 The first-person build adds two optional fields without a version bump (`normalize` keeps unknown fields): `pitch`,
 the look angle, which `Game.startSession` restores clamped; and `controlsV`, the version of the controls card the

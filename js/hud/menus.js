@@ -5,8 +5,9 @@
 import { G, sfx, isMuted, toggleMute } from '../core.js';
 import { settings, SCHEMA } from '../settings.js';
 import { vFovFor } from '../view/view.js';
-import { fmtKeys, keyCap, deviceKind, esc, ALL, hasKeys } from './keys.js';
+import { fmtKeys, keyCap, deviceKind, esc, ALL, hasKeys, PADCLS } from './keys.js';
 import { KEY_ACTIONS, FIXED, effectiveKeys, activeSecondary, bindKey, keyLabel } from '../keybinds.js';
+import { PAD_ACTIONS, effectivePad, activePadSecondary, bindPad, padLabel } from '../padbinds.js';
 import { iconHtml } from './icons.js';
 import { uiSfx } from './sound.js';
 
@@ -14,13 +15,15 @@ import { uiSfx } from './sound.js';
 export class Nav {
   constructor() { this.padX = 0; this.dp = [false, false]; this.rep = 0; this.dir = 0; }
   read(input, dt) {
-    // tabs: LB / RB (R / V on the keyboard) arrive as 'potion' / 'view'. The pad map also gives the D-pad's ↓ / ↑ those
-    // actions (with navDown / navUp), and in a menu the D-pad moves the selection, so a press that came from it is no tab
+    // (menu edges: input.menuPressed, the pad in its default layout whatever its bindings, so A / B / LB / RB / the D-pad
+    // keep their menu jobs after a remap.) Tabs: LB / RB (R / V on the keyboard) arrive as 'potion' / 'view'. That layout
+    // also gives the D-pad's ↓ / ↑ those actions (with navDown / navUp), and in a menu the D-pad moves the selection, so a
+    // press that came from it is no tab
     const pp = input.padPrev || [];
-    const dDown = !!pp[13] && !pp[4] && input.pressed('navDown'), dUp = !!pp[12] && !pp[5] && input.pressed('navUp');
-    const o = { y: input.menuNav(), x: 0, ok: input.pressed('interact') || input.pressed('jump') || (input.pressed('attack') && input.lastDevice !== 'mouse'), back: input.cancel(), prev: input.pressed('potion') && !dDown, next: input.pressed('view') && !dUp };
-    if (input.pressed('left')) o.x = -1;
-    if (input.pressed('right')) o.x = 1;
+    const dDown = !!pp[13] && !pp[4] && input.menuPressed('navDown'), dUp = !!pp[12] && !pp[5] && input.menuPressed('navUp');
+    const o = { y: input.menuNav(), x: 0, ok: input.menuPressed('interact') || input.menuPressed('jump') || (input.menuPressed('attack') && input.lastDevice !== 'mouse'), back: input.cancel(), prev: input.menuPressed('potion') && !dDown, next: input.menuPressed('view') && !dUp };
+    if (input.menuPressed('left')) o.x = -1;
+    if (input.menuPressed('right')) o.x = 1;
     const ax = input.padAxis ? input.padAxis.x : 0, px = ax < -0.6 ? -1 : ax > 0.6 ? 1 : 0;
     if (px && px !== this.padX) o.x = px;
     this.padX = px;
@@ -86,6 +89,8 @@ export const META = {
   padInvertY: { tab: 'controls', g: 'Controller', label: 'Invert controller up / down' },
   padInvertX: { tab: 'controls', g: 'Controller', label: 'Invert controller left / right' },
   padCurve: { tab: 'controls', g: 'Controller', label: 'Stick response', names: { linear: 'Linear', default: 'Smooth', precise: 'Precise' } },
+  // (one row per action under its own "Buttons" heading in the Controller group, always shown: SettingsCard.padRowsHtml)
+  pad: { tab: 'controls', g: 'Controller', label: 'Buttons' },
   // (the two third-person rows: their own group right after the device's and Sword, so a portrait phone, which plays in
   // third person, finds the drift it gets by default without scrolling past other devices' rows)
   tpAutoRecenter: { tab: 'controls', g: 'Third person', label: 'Camera drifts behind Pip', note: 'With a controller or touch, while you run and leave the camera alone' },
@@ -117,6 +122,19 @@ const FIXED_BY = {};
 for (const c in FIXED) (FIXED_BY[FIXED[c]] || (FIXED_BY[FIXED[c]] = [])).push(keyLabel(c));
 const ARROW_L = '↑↓←→';
 const KEY_MSG = { wait: 'Press a key · Esc cancels', reserved: 'Esc, P, the arrows, Enter, Tab and ` stay as they are · press another key' };
+// the Buttons rows (setting `pad`): one per rebindable pad action, in PAD_ACTIONS order. Confirm one, then press a button.
+// Menus keep the standard layout (A / B / LB / RB / D-pad) whatever is bound here, so no row names a menu job
+export const PAD_LABEL = {
+  jump: 'Hop', dash: 'Roll · hold to sprint', attack: 'Swing', interact: 'Use (talk, read, open)', potion: 'Potion',
+  view: 'First ↔ third person', shoulder: 'Swap shoulder', lockOn: 'Lock on', lockHold: 'Lock on while held',
+  sprintToggle: 'Sprint on / off', map: 'Map',
+};
+const PAD_MSG = { wait: 'Press a button · B or Start cancels', waitB: 'Press a button · Start cancels', reserved: 'Start and Home stay as they are · press another button' };
+// these cancel a wait (the menus' back buttons). B only while an action has it: a B nothing is bound to binds instead,
+// or it could never be bound again (the swap that reaches it needs an action on B)
+const PAD_B = 1, PAD_START = 9;
+const bOwned = () => Object.values(effectivePad(settings.get('pad'))).includes(PAD_B);
+const shortName = (l) => l.split(/ · | \(/)[0];
 export const TABS = [['view', 'View'], ['controls', 'Controls'], ['sound', 'Sound'], ['comfort', 'Comfort']];
 const DEV_GROUP = { kbm: 'Keyboard + mouse', touch: 'Touch', pad: 'Controller' };
 let touchOnly = null;
@@ -172,7 +190,7 @@ export class SettingsCard {
   show(fromTitle) { this.open = true; this.fromTitle = !!fromTitle; this.kb = false; this.setTab(this.tab); this.f = -1; this.mark(); }
   hide() { this.unbind(); this.open = false; }
   setTab(t) {
-    if (this.cap) { if (G.input) G.input.keyCapture = null; this.cap = null; }
+    this.stopCapture();
     this.keyMsg = null;
     this.tab = t;
     this.tabsEl.querySelectorAll('.tab').forEach((b) => b.classList.toggle('on', b.dataset.t === t));
@@ -184,7 +202,7 @@ export class SettingsCard {
       const m = META[k] || { g: 'More', label: k }, sc = SCHEMA[k];
       const grp = k === '_mute' ? 'Volume' : m.g;
       if (grp !== g) { g = grp; html += `<div class="sgrp">${esc(g)}</div>`; }
-      html += k === 'keys' ? this.keyRowsHtml(m) : this.rowHtml(k, m, sc);
+      html += k === 'keys' ? this.keyRowsHtml(m) : k === 'pad' ? this.padRowsHtml(m) : this.rowHtml(k, m, sc);
     }
     this.body.innerHTML = html;
     this.body.scrollTop = 0;                // a new tab opens at its top (the cue then says what is below)
@@ -193,7 +211,7 @@ export class SettingsCard {
       const k = r.dataset.k;
       r.addEventListener('mousemove', () => { if (this.f !== i || this.kb) { this.kb = false; this.f = i; this.mark(false); } });
       const kb = r.querySelector('.kbind');
-      if (kb) kb.addEventListener('click', () => { this.f = i; this.mark(false); this.bind(r.dataset.a); });
+      if (kb) kb.addEventListener('click', () => { this.f = i; this.mark(false); this.bind(r.dataset.a, k); });
       r.querySelectorAll('.seg button').forEach((b) => b.addEventListener('click', () => { this.f = i; this.set(k, decode(SCHEMA[k], b.dataset.v)); }));
       const tg = r.querySelector('.tog');
       if (tg) tg.addEventListener('click', () => { this.f = i; this.toggle(k); });
@@ -224,45 +242,95 @@ export class SettingsCard {
     }
     return html;
   }
-  /** wait for the next key press and bind it to action a (Esc cancels; a reserved key is refused and the wait goes on) */
-  bind(a) {
+  /** the Buttons heading and one row per rebindable pad action: its label, the extra buttons it also has, its button */
+  padRowsHtml(m) {
+    let html = `<div class="sgrp skeys">${esc(m.label)}</div>`;
+    for (const [a] of PAD_ACTIONS) {
+      html += `<div class="srow skey" data-k="pad" data-a="${a}"><div class="slab">${esc(PAD_LABEL[a] || a)}<div class="snote"></div></div>`
+        + `<div class="sctl"><button class="kbind" aria-label="${esc(PAD_LABEL[a] || a)}: change button"><kbd></kbd></button></div></div>`;
+    }
+    return html;
+  }
+  /** wait for the next key press (k 'keys': Esc cancels) or pad button press (k 'pad': B / Start cancel) and bind it to
+   *  action a; a reserved key / button is refused and the wait goes on. Confirming the waiting row again cancels */
+  bind(a, k = 'keys') {
     const input = G.input;
     if (!input) return;
-    if (this.cap === a) { this.unbind(); return; }      // confirming the waiting row again cancels
-    this.cap = a; this.keyMsg = { a, text: KEY_MSG.wait };
+    if (this.cap === a && this.capK === k) { this.unbind(); return; }
+    this.stopCapture();
+    this.cap = a; this.capK = k; this.keyMsg = { a, k, text: k === 'pad' ? (bOwned() ? PAD_MSG.wait : PAD_MSG.waitB) : KEY_MSG.wait };
     uiSfx('uiSelect');
-    input.keyCapture = (code) => this.onKey(a, code);
+    this.arm();
     this.sync();
   }
+  /** (re)arm the input capture for the waiting row */
+  arm() {
+    const input = G.input, a = this.cap;
+    if (!input || !a) return;
+    if (this.capK === 'pad') input.padCapture = (i) => this.onPad(a, i);
+    else input.keyCapture = (code) => this.onKey(a, code);
+  }
   onKey(a, code) {
-    if (this.cap !== a) return;
+    if (this.cap !== a || this.capK !== 'keys') return;
     if (code === 'Escape') { this.unbind(); uiSfx('uiBack'); return; }
     const r = bindKey(settings.get('keys'), a, code);
     if (r.error) {                                      // reserved: say so and keep waiting
-      this.keyMsg = { a, text: KEY_MSG.reserved, warn: true };
-      if (G.input) G.input.keyCapture = (c) => this.onKey(a, c);
+      this.keyMsg = { a, k: 'keys', text: KEY_MSG.reserved, warn: true };
+      this.arm();
       uiSfx('uiBack'); this.sync(); return;
     }
     this.cap = null;
-    this.keyMsg = r.swapped ? { a, text: 'Swapped with ' + (KEY_LABEL[r.swapped] || r.swapped).split(/ · | \(/)[0] + ', now on ' + keyLabel(effectiveKeys(r.keys)[r.swapped]) } : null;
+    this.keyMsg = r.swapped ? { a, k: 'keys', text: 'Swapped with ' + shortName(KEY_LABEL[r.swapped] || r.swapped) + ', now on ' + keyLabel(effectiveKeys(r.keys)[r.swapped]) } : null;
     settings.set('keys', r.keys);
     uiSfx('uiSelect');
     this.sync();
   }
-  /** stop waiting for a key */
+  onPad(a, i) {
+    if (this.cap !== a || this.capK !== 'pad') return;
+    if (i === PAD_START || (i === PAD_B && bOwned())) { this.unbind(); uiSfx('uiBack'); return; }
+    const r = bindPad(settings.get('pad'), a, i);
+    if (r.error) {                                      // reserved (Home): say so and keep waiting
+      this.keyMsg = { a, k: 'pad', text: PAD_MSG.reserved, warn: true };
+      this.arm();
+      uiSfx('uiBack'); this.sync(); return;
+    }
+    this.cap = null;
+    this.keyMsg = r.swapped ? { a, k: 'pad', text: 'Swapped with ' + shortName(PAD_LABEL[r.swapped] || r.swapped) + ', now on ' + padLabel(effectivePad(r.pad)[r.swapped]) } : null;
+    settings.set('pad', r.pad);
+    uiSfx('uiSelect');
+    this.sync();
+  }
+  /** drop the input capture of a waiting row (no sync) */
+  stopCapture() {
+    if (this.cap && G.input) { if (this.capK === 'pad') G.input.padCapture = null; else G.input.keyCapture = null; }
+    this.cap = null;
+  }
+  /** stop waiting for a key or button */
   unbind() {
-    if (this.cap && G.input) G.input.keyCapture = null;
-    this.cap = null; this.keyMsg = null;
+    this.stopCapture();
+    this.keyMsg = null;
     this.sync();
   }
   /** reflect the current values (also after V / X change a setting from the keyboard) */
   sync() {
     const K = effectiveKeys(settings.get('keys')), sec = activeSecondary(settings.get('keys')), arrowLook = settings.get('arrowLook');
+    const P = effectivePad(settings.get('pad')), psec = activePadSecondary(settings.get('pad'));
     for (const r of this.rows || []) {
       const k = r.dataset.k;
       if (k === '_mute') { r.querySelector('.tog').classList.toggle('on', !isMuted()); continue; }
+      if (k === 'pad') {
+        const a = r.dataset.a, waiting = this.cap === a && this.capK === 'pad', msg = this.keyMsg && this.keyMsg.a === a && this.keyMsg.k === 'pad' ? this.keyMsg : null;
+        const also = (psec[a] || []).map(padLabel), lab = padLabel(P[a]), kbd = r.querySelector('kbd');
+        kbd.textContent = waiting ? '…' : lab;
+        kbd.className = !waiting && PADCLS[lab] ? 'kp ' + PADCLS[lab] : '';   // face buttons keep their coloured round cap
+        r.classList.toggle('waiting', waiting);
+        const n = r.querySelector('.snote');
+        n.textContent = msg ? msg.text : also.length ? 'also ' + also.join(', ') : '';
+        n.classList.toggle('warn', !!(msg && msg.warn));
+        continue;
+      }
       if (k === 'keys') {
-        const a = r.dataset.a, waiting = this.cap === a, msg = this.keyMsg && this.keyMsg.a === a ? this.keyMsg : null;
+        const a = r.dataset.a, waiting = this.cap === a && this.capK !== 'pad', msg = this.keyMsg && this.keyMsg.a === a && this.keyMsg.k !== 'pad' ? this.keyMsg : null;
         // the keys it also has: its extra keys (Right Shift is the same "Shift") and its fixed ones (no arrows while they look)
         const also = [...(sec[a] || []).filter((c) => c !== 'ShiftRight').map(keyLabel), ...(FIXED_BY[a] || []).filter((l) => !(arrowLook && ARROW_L.includes(l)))];
         r.querySelector('kbd').textContent = waiting ? '…' : keyLabel(K[a]);
@@ -293,7 +361,7 @@ export class SettingsCard {
     const r = this.rows[this.f]; if (!r) return;
     const k = r.dataset.k;
     if (k === '_mute') return this.toggle(k);
-    if (k === 'keys') return;                           // a key row only takes confirm
+    if (k === 'keys' || k === 'pad') return;            // a key / button row only takes confirm
     const sc = SCHEMA[k], v = settings.get(k);
     if (sc.opts) { const i = sc.opts.indexOf(v); this.set(k, sc.opts[Math.max(0, Math.min(sc.opts.length - 1, (i < 0 ? 0 : i) + d))]); }
     else if (typeof sc.def === 'boolean') this.set(k, d > 0);
@@ -315,7 +383,8 @@ export class SettingsCard {
     const o = this.nav.read(input, dt);
     if ((o.x || o.y || o.ok || o.prev || o.next) && !this.kb) { this.kb = true; this.mark(false); }
     // waiting for a key: the keyboard's presses go to the capture (input.keyCapture), so these come from a pad, the
-    // mouse or touch; back (or any move) stops the wait, nothing else happens this frame
+    // mouse or touch; waiting for a button: the pad's presses go to input.padCapture, so these come from the keyboard
+    // (Esc), the stick, the mouse or touch. Back (or any move) stops the wait, nothing else happens this frame
     if (this.cap) { if (o.back || o.x || o.y || o.prev || o.next || o.ok) { this.unbind(); uiSfx('uiBack'); } return; }
     if (this.keyMsg && (o.x || o.y || o.prev || o.next)) { this.keyMsg = null; this.sync(); }
     if (o.back) { this.ui.closeSettings(); return; }
@@ -330,7 +399,7 @@ export class SettingsCard {
       else if (this.f === this.rows.length + 1) this.ui.closeSettings();
       else if (this.f >= 0) {
         const k = this.rows[this.f].dataset.k, sc = SCHEMA[k];
-        if (k === 'keys') this.bind(this.rows[this.f].dataset.a);
+        if (k === 'keys' || k === 'pad') this.bind(this.rows[this.f].dataset.a, k);
         else if (k === '_mute' || (sc && typeof sc.def === 'boolean')) this.toggle(k);
         else if (sc && sc.opts) { const i = sc.opts.indexOf(settings.get(k)); this.set(k, sc.opts[(i + 1) % sc.opts.length]); }
       } else { this.f = 0; this.mark(); }

@@ -24,7 +24,7 @@
 // turns Pip's body to the target (it.bodyYaw: movement strafes) and aims swings at it (it.faceYaw / it.facePitch). The
 // lock target also gets the strongest swing magnetism (combat.js). Touch auto-face (feel §8.7): see touchAutoFace.
 import * as THREE from 'three';
-import { progress } from './data.js';
+import { ERRANDS, progress, errands, secrets } from './data.js';
 import { NPC } from './npcs.js';
 import { Boss } from './bosses.js';
 import { EV } from './events.js';
@@ -35,8 +35,8 @@ import { hudFields } from './combat.js';
 import { MOUSE_K } from './view/view.js';
 
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
-const VERB = { sign: 'Read', door: 'Knock', chest: 'Open', well: 'Peek' };
-const NAME = { sign: 'Sign', door: 'Door', chest: 'Chest', pedestal: 'Starseed Pedestal', well: 'Well' };
+const VERB = { sign: 'Read', door: 'Knock', chest: 'Open', well: 'Peek', shell: 'Pick up', guardian: 'Wake' };
+const NAME = { sign: 'Sign', door: 'Door', chest: 'Chest', pedestal: 'Starseed Pedestal', well: 'Well', shell: 'Rainbow shell' };
 const _o = new THREE.Vector3(), _d = new THREE.Vector3(), _p = new THREE.Vector3(), _e = new THREE.Vector3(), _ce = new THREE.Vector3(), _se = new THREE.Vector3(), _hb = {}, _probe = {};
 /** signs are read (from the viewer's side) and chests opened (from Pip's side) from the front hemisphere only: a chest's
  *  lid hinges at its back, so opened from behind it swings up into the FP eye and hides the reward */
@@ -62,6 +62,30 @@ export const TargetingMixin = {
       if (it.kind === 'chest' && (S.chests[it.chest.id] || it.chest._opening)) continue;   // open, or in its lid beat
       const a = A[it.kind] || [0.8, 0.5];
       out.push({ o: it, kind: it.kind, px: it.x, py: it.y + a[0], pz: it.z, R: a[1], range: it.r, x: it.x, y: it.y, z: it.z, h: it.h });
+    }
+    // a guardian napping for a rematch after the bloom (fight.js): woken with Use, never by walking in. Aimed at its
+    // body (TUNE.combat.aimPts.guardian: fraction of its height, radius), offered within its own radius + guardianRange
+    if (!this.fight) for (const id in this.bosses) {
+      const b = this.bosses[id];
+      if (!b.rematch || b.state !== 'sleep' || Math.abs(b.pos.x - pl.pos.x) > 6 || Math.abs(b.pos.z - pl.pos.z) > 6) continue;
+      const a = A.guardian, y = b.arena.h;
+      out.push({ o: b, kind: 'guardian', px: b.pos.x, py: y + a[0] * b.height, pz: b.pos.z, R: a[1], range: b.r + TC.guardianRange, x: b.pos.x, y, z: b.pos.z, h: b.height + 0.3 });
+    }
+    // errand items picked up with Use (ERRANDS how 'use': Clover's rainbow shells, W.shells), offered like a chest while
+    // the errand has them out. Items lit by walking past (Ribbit's parade lanterns) are never a Use target
+    if (S) for (const e of ERRANDS) {
+      if (e.how !== 'use') continue;
+      for (const sh of this.world[e.list] || []) {
+        if (Math.abs(sh.x - pl.pos.x) > 5 || Math.abs(sh.z - pl.pos.z) > 5 || !errands.itemOut(S, e, sh.id)) continue;
+        const a = A[e.item] || [0.25, 0.45];
+        out.push({ o: sh, kind: e.item, px: sh.x, py: sh.y + a[0], pz: sh.z, R: a[1], range: TC[e.item + 'Range'] || 1.6, x: sh.x, y: sh.y, z: sh.z, h: 0.8 });
+      }
+    }
+    // the landmark keepsakes not found yet (W.secrets, data.js SECRETS): read with Use, before and after the bloom
+    if (S) for (const it of this.world.secrets || []) {
+      if (Math.abs(it.x - pl.pos.x) > 5 || Math.abs(it.z - pl.pos.z) > 5 || secrets.got(S, it.id)) continue;
+      const a = A.secret || [0.25, 0.5];
+      out.push({ o: it, kind: 'secret', px: it.x, py: it.y + a[0], pz: it.z, R: a[1], range: TC.secretRange || 1.6, x: it.x, y: it.y, z: it.z, h: 0.8 });
     }
     return out;
   },
@@ -146,6 +170,8 @@ export const TargetingMixin = {
   labelTarget(t) {
     const o = t.o;
     if (o instanceof NPC) { t.verb = o.def.shop ? 'Shop' : 'Talk'; t.name = o.name; }
+    else if (isBoss(o)) { t.verb = VERB.guardian; t.name = o.name; }   // a napping rematch guardian: 'Wake · Grumble Shroom'
+    else if (t.kind === 'secret') { const s = secrets.get(o.id); t.verb = (s && s.verb) || 'Look'; t.name = (s && s.label) || 'Something'; }   // 'Look · Something glowing'
     else {
       t.verb = t.kind === 'pedestal' ? (progress.carried(this.S) > 0 ? 'Place' : 'Look') : VERB[t.kind] || 'Use';
       t.name = NAME[t.kind] || t.kind;
@@ -248,7 +274,9 @@ export const TargetingMixin = {
   updateLock(input, dt) {
     const L = this.lockS(), pl = this.player, v = this.view;
     L.flickCD = Math.max(0, L.flickCD - dt);
-    const free = this.playing && pl.state !== 'dizzy';
+    // (not in a frame that began with dialogue, the shop or a menu open: the press that closed it, A / B in the pad's
+    // menu layout, may be a remapped lock button: input.modal)
+    const free = this.playing && !input.modal && pl.state !== 'dizzy';
     const holdMode = this.settings.get('lockMode') === 'hold';
     const holdNow = input.held('lockHold');
     if (free) {

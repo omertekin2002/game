@@ -501,10 +501,13 @@ kbd.kp.a { background: #6cc35a; } kbd.kp.b { background: #ef7a6a; } kbd.kp.x { b
   background: linear-gradient(90deg, var(--green) 0 var(--p), #f0d9b0 var(--p) 100%); }
 .sctl input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50% 0 50% 0; transform: rotate(45deg); background: var(--cream); border: 3px solid var(--brown); box-shadow: 0 2px 0 rgba(74,44,26,0.4); }
 .sctl input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50% 0 50% 0; transform: rotate(45deg); background: var(--cream); border: 3px solid var(--brown); }
-/* Keys rows: the key button waits for a press (gold while waiting); a refused key's note turns coral */
+/* Keys / Buttons rows: the key button waits for a press (gold while waiting); a refused key's note turns coral. A pad
+   face button (A B X Y) keeps its coloured round cap; hovered or focused it gets a pale ring instead of the pale fill */
 .kbind { font: 700 16px var(--font); color: var(--ink); background: none; border: 0; padding: 2px; cursor: pointer; border-radius: 10px; }
 .kbind kbd { min-width: 3.4em; padding: 2px 0.6em; background: #fffaf0; }
-.kbind:hover kbd, .kbnav .srow.foc .kbind kbd { background: #effbe2; }
+.kbind kbd.kp { min-width: 1.75em; padding: 2px 0; }
+.kbind:hover kbd:not(.kp), .kbnav .srow.foc .kbind kbd:not(.kp) { background: #effbe2; }
+.kbind:hover kbd.kp, .kbnav .srow.foc .kbind kbd.kp { box-shadow: 0 0 0 3px #effbe2; }
 .srow.waiting .kbind kbd { background: var(--gold); }
 .snote.warn { color: #c0503c; }
 .sval { min-width: 82px; font-size: 16px; font-weight: 700; text-align: right; }
@@ -788,6 +791,15 @@ kbd.kp.a { background: #6cc35a; } kbd.kp.b { background: #ef7a6a; } kbd.kp.x { b
 #ui.lay-port .controls-grid { grid-template-columns: 1fr; }
 #ui.lay-port #mapview canvas { width: calc(100vw - 52px); height: calc(100vw - 52px); }
 #ui.lay-port .shop-item .ds { font-size: 12px; }
+/* the plushie rows (up to six): tighter rows on phones so the list and the Bye button fit a portrait screen */
+#ui.lay-port #shop .items.many { gap: 6px; margin-top: 6px; }
+#ui.lay-port #shop .items.many .shop-item { padding: 5px 10px; gap: 10px; border-radius: 12px; }
+#ui.lay-port #shop .items.many .shop-item > img { width: 34px; height: 34px; }
+#ui.lay-port #shop .items.many .shop-item .nm { font-size: 16px; line-height: 1.15; }
+#ui.lay-port #shop .items.many .shop-item .pr { font-size: 16px; }
+#ui.lay-land #shop .items.many { gap: 4px; }
+#ui.lay-land #shop .items.many .shop-item { padding: 3px 10px; }
+#ui.lay-land #shop .items.many .shop-item > img { width: 32px; height: 32px; }
 #ui.lay-port #dizzy .dt { font-size: 34px; }
 
 /* phone menus: every tap target at least 40 px tall (a thumb, art §13); toggles and sliders get a taller hit area

@@ -237,7 +237,7 @@ export default function register(suite) {
         D.teleport(W.pedestal.x + 7, W.pedestal.z + 1, -Math.PI / 2, 0); ui.markersDirty = true; t.frames(3);
         const e = ui.compass.els.get('altar'), pl = game.player.pos;
         t.ok(ui.obj && ui.obj.id === 'altar' && !!e && /obj/.test(e.className), 'the compass objective badge is the altar', ui.obj);
-        t.eq(e && e.lastChild.textContent, Math.round(Math.hypot(W.pedestal.x - pl.x, W.pedestal.z - pl.z)) + ' m', 'its pill counts to the altar');
+        t.eq(e && e.lastChild.textContent, Math.round(Math.hypot(W.pedestal.x - pl.x, W.pedestal.z - pl.z)) + '\u00a0m', 'its pill counts to the altar');
         t.ok(ui.objShown.endsWith(e.lastChild.textContent), 'the objective line says the same distance', ui.objShown);
         S.seeds.woods = 2;
         t.ok(!navMarkers(W, S).some((m) => m.id === 'altar'), 'placed: no altar marker');
@@ -596,7 +596,11 @@ export default function register(suite) {
       ui.openPause(); ui.onPauseChoice(1); t.frames(1);
       try {
         b.style.maxHeight = '160px'; card.setTab('view'); b.scrollTop = 0; card.cue();
-        await t.wait(400);                                   // the card's opening animation has settled
+        // the overlay gets .show on the next animation frame (ui.showOverlay), which a slow software-WebGL frame can hold
+        // back past a fixed wait (headless CI, tests/inpage.mjs): wait for it, then for the opening animation to settle
+        let w = 0; for (; w < 100 && !ui.settingsEl.classList.contains('show'); w++) await t.wait(50);
+        t.note('showWait', w * 50);
+        await t.wait(400);
         const c = R(chip), at = (x, y) => document.elementFromPoint(x, y), hit = (x, y) => { const e = at(x, y); return !!(e && (e === chip || chip.contains(e))); };
         const r = { on: hit(c.left + c.width / 2, c.top + c.height / 2), above: hit(c.left + c.width / 2, c.top - 3), left: hit(c.left - 4, c.top + c.height / 2), right: hit(c.right + 4, c.top + c.height / 2), under: hit(c.left + c.width / 2, c.bottom + 6) };
         const e0 = at(c.left + c.width / 2, c.top + c.height / 2);

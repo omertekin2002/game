@@ -8,7 +8,9 @@
     "test": "bun test",
     "test:smoke": "node tests/smoke.mjs",
     "test:pwa": "node tests/pwa.mjs",
-    "test:playthrough": "node tests/playthrough.mjs"
+    "test:playthrough": "node tests/playthrough.mjs",
+    "test:opening": "node tests/opening.mjs",
+    "test:inpage": "node tests/inpage.mjs"
   },
   "devDependencies": {
     "@gltf-transform/core": "4.5.1",

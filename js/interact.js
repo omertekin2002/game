@@ -1,16 +1,17 @@
-// Gameplay input routing, potions, pickups, item-get, talking, shop, chests, pedestal (Game mixin). Event names and
+// Gameplay input routing, potions, pickups, item-get, talking, shop, chests, pedestal, errands (Game mixin). Event names and
 // function names here are hooks for WP1 (camera), WP2 (hands) and WP6 (UI): keep them stable. Timed beats (the chest
 // freeze) run on sim time (later / tickLater), so they hold while a menu or the shop pauses the world.
 import * as THREE from 'three';
 import { sfx } from './core.js';
-import { CFG, SEED_ORDER, SEEDS, progress } from './data.js';
+import { BOSSES, CFG, SEED_ORDER, SEEDS, ERRANDS, SECRETS, progress, errands, secrets } from './data.js';
 import { NPC } from './npcs.js';
+import { Boss } from './bosses.js';
 import { Pickup } from './entities.js';
 import { toonMat, sharedOutline, meshWithOutline } from './toon.js';
 import { seedBuilt, heartContainerBuilt } from './models.js';
-import { rand, pick, LAYER, setLayer } from './util.js';
+import { rand, pick, len2, LAYER, setLayer } from './util.js';
 import { EV } from './events.js';
-import { combat as TC } from './tune.js';
+import { combat as TC, actors as TA } from './tune.js';
 
 const _v = new THREE.Vector3(), _a = new THREE.Vector3();
 
@@ -128,14 +129,17 @@ export const InteractMixin = {
     pl.endSwing();          // E mid-swing: the swing stops here (talking pauses the world; no hits during it)
     pl.vel.set(0, 0);
     this.faceSubject(t.px ?? t.x, t.py ?? (t.y ?? pl.pos.y) + 0.8, t.pz ?? t.z); // FP eases onto the aim point (NPC face, sign board, lid…)
-    this.events.emit(EV.INTERACT, { kind: o instanceof NPC ? (o.def.shop ? 'shop' : 'npc') : o.kind, target: o });
+    this.events.emit(EV.INTERACT, { kind: o instanceof NPC ? (o.def.shop ? 'shop' : 'npc') : o instanceof Boss ? 'guardian' : o.kind, target: o });
     if (o instanceof NPC) return this.talkTo(o);
+    if (o instanceof Boss) return this.wakeRematch(o);   // a napping rematch guardian (fight.js)
     switch (o.kind) {
       case 'sign': sfx('talk'); this.ui.say(o.lines, { name: 'Sign' }); break;
       case 'door': sfx('door'); this.ui.say(o.lines, {}); break;
       case 'well': sfx('splash'); this.ui.say(o.lines, {}); break;
       case 'chest': this.openChest(o.chest); break;
       case 'pedestal': this.usePedestal(); break;
+      case 'secret': this.findSecret(o); break;   // a landmark keepsake
+      default: { const e = errands.forItem(o.kind); if (e && e.how === 'use') this.findErrandItem(e, o); }   // a rainbow shell
     }
   },
   talkTo(npc) {
@@ -151,8 +155,156 @@ export const InteractMixin = {
           this.ui.openShop(S, (it) => this.buy(it), () => { npc.talkEnd(); this.events.emit(EV.SHOP_CLOSE, {}); this.events.emit(EV.TALK_END, { npc }); this.ui.updateHud(S); this.save(true); });
           this.events.emit(EV.SHOP_OPEN, {});
         } else { npc.talkEnd(); this.events.emit(EV.TALK_END, { npc }); }
+        const e = errands.forNpc(npc.id);
+        if (e && this.state === 'play' && !this.leaving) this.errandTalk(npc, e);
       },
     });
+  },
+  /** a talk with an errand's villager ended: start the errand (its items appear) or finish it (the reward, once). A
+   *  `follow` errand under way sets the villager following Pip (again after a Continue, which sends him home) */
+  errandTalk(npc, e) {
+    const S = this.S, res = errands.talk(S, e);
+    if (e.follow) npc.setFollow(errands.following(S, e));
+    if (!res) return;
+    if (res === 'start') {
+      this.syncErrands();
+      this.ui.toast('✿ ' + e.startToast);
+    } else {
+      const gems = (e.reward && e.reward.gems) || 0;   // errands.talk already added them to S.coins
+      sfx('fanfare');
+      this.fx.burst(npc.pos.x, npc.pos.y + 1.2, npc.pos.z, 0xb8fff0, 18, 3);
+      for (let i = 0; i < 10; i++) this.fx.sparkle(npc.pos.x, npc.pos.y + 1, npc.pos.z, pick([0xb8fff0, 0xfff4a0, 0xffc8f0]), 1, 0.8);
+      if (gems) this.events.emit(EV.COLLECT, { kind: 'gem', value: gems });   // the feed's "+50 gems" line and the gem sound
+      this.ui.toast('✿ Errand done: ' + e.name);
+      this.ui.updateHud(S);
+    }
+    this.save(true);
+  },
+  /** Miso's counter: the guardian plushies Pip bought (S.plushies), from the save */
+  syncPlushies() {
+    if (!this.scenery.setPlushie) return;
+    for (const id of Object.keys(BOSSES)) this.scenery.setPlushie(id, !!this.S && !!this.S.plushies && this.S.plushies[id] === true);
+  },
+  /** every errand item's scenery from the save: shown while it is out (a `keep` item also once found, in its found look:
+   *  a lit lantern), hidden otherwise. `instant`: no warm-up (a session start) */
+  syncErrands(instant = true) {
+    const W = this.world, S = this.S;
+    if (!this.scenery.setErrandItem) return;
+    for (const e of ERRANDS) for (const it of W[e.list] || []) {
+      this.scenery.setErrandItem(e.item, it.id, !!S && errands.itemShown(S, e, it.id), !!S && errands.itemFound(S, e, it.id), instant);
+    }
+  },
+  /** a new session: a villager who was following (the parade) or walking home is back on his spot, not following;
+   *  talking to him picks the parade up again */
+  resetErrandNpcs() {
+    for (const n of this.npcs) if (n.follow || n.homing) n.resetHome();
+  },
+  /** Pip finds an errand item: a rainbow shell picked up with Use (it disappears) or a parade lantern lit by walking past
+   *  (it warms up and stays lit). Counted and saved at once; the last one sends a parade villager home */
+  findErrandItem(e, it) {
+    const S = this.S;
+    const n = e ? errands.pick(S, e, it.id) : null;
+    if (n == null) return false;
+    this.scenery.setErrandItem(e.item, it.id, !!e.keep, true, false);
+    if (e.how === 'use') {
+      sfx('coin');
+      this.fx.burst(it.x, it.y + 0.3, it.z, 0xfff4a0, 10, 2);
+      for (let i = 0; i < 8; i++) this.fx.sparkle(it.x, it.y + 0.3, it.z, pick([0xff9fb6, 0xfff4a0, 0xa8e4ff, 0xb8ffb0, 0xd8b0ff]), 1, 0.5);
+    } else {
+      // a soft light-up: a warm chime and a few slow motes (fewer with motion comfort), no flash or burst
+      sfx('sparkle', it.paper || { x: it.x, y: it.y + 1.1, z: it.z });
+      const k = this.calmFx() ? 2 : 5, c = it.paper || { x: it.x, y: it.y + 1.1, z: it.z };
+      for (let i = 0; i < k; i++) this.fx.sparkle(c.x + rand(-0.2, 0.2), c.y + rand(-0.1, 0.3), c.z + rand(-0.2, 0.2), pick([0xfff4a0, 0xffd38a]), 1, 0.25);
+    }
+    this.ui.selfFloater(e.itemLabel + ' ' + n + '/' + e.count, e.itemColor);
+    if (n >= e.count) {
+      this.ui.toast('✿ ' + e.allToast);
+      const npc = e.follow ? this.errandNpc(e) : null;
+      if (npc) npc.goHome();
+    }
+    this.save(true);
+    return true;
+  },
+  /** Motion comfort is on: errand effects stay calm (fewer motes, no lantern sway) */
+  calmFx() { return !!(this.settings && this.settings.get('reduceMotion')); },
+  /** the villager an errand belongs to (looked up once) */
+  errandNpc(e) {
+    const m = this._errandNpcs || (this._errandNpcs = new Map());
+    if (!m.has(e.id)) m.set(e.id, this.npcs.find((q) => q.id === e.npc) || null);
+    return m.get(e.id);
+  },
+  /** fixed step: a 'walk' errand item lights when Pip passes within TA.paradeLight m (XZ) of it while its villager
+   *  follows close behind (within TA.paradeNear m of Pip). Free play only: never during a talk, a menu or a cutscene */
+  tickErrands() {
+    const S = this.S, W = this.world, pl = this.player;
+    if (!S || !this.playing) return;
+    for (const e of ERRANDS) {
+      if (e.how !== 'walk' || errands.state(S, e.id) !== 1) continue;
+      if (e.follow) {
+        const npc = this.errandNpc(e);
+        if (!npc || !npc.follow || len2(npc.pos.x - pl.pos.x, npc.pos.z - pl.pos.z) > TA.paradeNear) continue;
+      }
+      for (const it of W[e.list] || []) {
+        if (len2(it.x - pl.pos.x, it.z - pl.pos.z) <= TA.paradeLight && errands.itemOut(S, e, it.id)) this.findErrandItem(e, it);
+      }
+    }
+  },
+  /** a soft twinkle over each errand item that is still out within 40 m (rainbow over a shell, warm over an unlit
+   *  lantern, fewer with Motion comfort). Called each render frame, skipped while the clock holds or a dialogue is up */
+  tickErrandFx(dt) {
+    const W = this.world, S = this.S, pl = this.player, calm = this.calmFx();
+    this.scenery.calm = calm;   // the lanterns' sway
+    if (!S) return;
+    this._shellT = (this._shellT || 0) - dt;
+    if (this._shellT > 0) return;
+    this._shellT = 0.35;
+    for (const e of ERRANDS) {
+      if (errands.state(S, e.id) !== 1) continue;
+      const lantern = e.how === 'walk';
+      for (const it of W[e.list] || []) {
+        if (!errands.itemOut(S, e, it.id) || Math.abs(it.x - pl.pos.x) > 40 || Math.abs(it.z - pl.pos.z) > 40) continue;
+        if (lantern) { const c = it.paper || it; if (Math.random() < (calm ? 0.2 : 0.5)) this.fx.sparkle(c.x + rand(-0.12, 0.12), c.y + rand(-0.12, 0.18), c.z + rand(-0.12, 0.12), pick([0xfff4a0, 0xffe2a8]), 1, 0.25); }
+        else this.fx.sparkle(it.x + rand(-0.15, 0.15), it.y + rand(0.35, 0.7), it.z + rand(-0.15, 0.15), pick([0xff9fb6, 0xfff4a0, 0xa8e4ff, 0xb8ffb0, 0xd8b0ff]), 1, 0.3);
+      }
+    }
+  },
+  /** the landmark keepsakes from the save: the found ones gone (an opened bottle stays, without its cork) */
+  syncSecrets() {
+    if (!this.scenery.setSecret) return;
+    for (const it of this.world.secrets || []) { const s = secrets.get(it.id); this.scenery.setSecret(it.id, !!this.S && secrets.got(this.S, it.id), !!(s && s.keep)); }
+  },
+  /** Pip reads a landmark keepsake with Use: its lines like a sign, and the first time its gems (the usual gem feedback)
+   *  and a save. A found one is no longer offered, so a repeat never happens in play; secrets.find gives 0 then anyway */
+  findSecret(it) {
+    const S = this.S, s = secrets.get(it.id);
+    if (!s) return false;
+    const gems = secrets.find(S, s.id);
+    sfx('talk');
+    this.ui.say(s.lines, { name: s.name });
+    if (!gems) return false;
+    this.scenery.setSecret(s.id, true, !!s.keep);
+    sfx('sparkle', { x: it.x, y: it.y + 0.3, z: it.z });
+    const k = this.calmFx() ? 3 : 8;
+    for (let i = 0; i < k; i++) this.fx.sparkle(it.x + rand(-0.15, 0.15), it.y + rand(0.15, 0.45), it.z + rand(-0.15, 0.15), pick([0xfff4a0, 0xb8fff0, 0xffc8f0]), 1, 0.5);
+    this.events.emit(EV.COLLECT, { kind: 'gem', value: gems });   // the feed's "+25 gems" line and the gem sound
+    this.ui.selfFloater('Secret found ' + secrets.count(S) + '/' + SECRETS.length, '#c8fbff');   // the gems are the feed's (EV.COLLECT)
+    this.ui.updateHud(S);
+    this.save(true);
+    return true;
+  },
+  /** a faint twinkle over each keepsake not found yet, only within TUNE.combat.secretFx m (a secret from afar), fewer
+   *  with Motion comfort. Called with tickErrandFx (each render frame, skipped while the clock holds or a dialogue is up) */
+  tickSecretFx(dt) {
+    const W = this.world, S = this.S, pl = this.player, R = TC.secretFx || 6;
+    if (!S || !(W.secrets && W.secrets.length)) return;
+    this._secretT = (this._secretT || 0) - dt;
+    if (this._secretT > 0) return;
+    this._secretT = 0.4;
+    const calm = this.calmFx();
+    for (const it of W.secrets) {
+      if (secrets.got(S, it.id) || len2(it.x - pl.pos.x, it.z - pl.pos.z) > R) continue;
+      if (Math.random() < (calm ? 0.25 : 0.7)) this.fx.sparkle(it.x + rand(-0.15, 0.15), it.y + rand(0.3, 0.6), it.z + rand(-0.15, 0.15), pick([0xfff4a0, 0xb8fff0]), 1, 0.25);
+    }
   },
   buy(it) {
     const S = this.S;
@@ -161,6 +313,7 @@ export const InteractMixin = {
     if (it.id === 'potion') { S.potions++; msg = 'A potion! Bottoms up, later.'; }
     if (it.id === 'heart') { S.shopHeart = true; S.maxHp = Math.min(CFG.maxHp, S.maxHp + 2); S.hp = S.maxHp; msg = 'Max hearts +1! Purr-fect.'; sfx('fanfare'); }
     if (it.id === 'sword') { S.swordLevel = 2; this.player.setSword(2); msg = 'The Shiny Sword! Swish swish~'; sfx('fanfare'); }
+    if (it.boss) { S.plushies = { ...(S.plushies || {}), [it.boss]: true }; this.scenery.setPlushie(it.boss, true); msg = it.got; sfx('fanfare'); }   // data.js PLUSHIES: it sits on Miso's counter at once
     this.ui.updateHud(S);
     return msg;
   },

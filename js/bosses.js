@@ -12,7 +12,7 @@
 // Pip moves itself off him; nothing brings the FP eye inside TA.keepOut[id] of its centre.
 import * as THREE from 'three';
 import { G, sfx } from './core.js';
-import { BOSSES } from './data.js';
+import { BOSSES, REMATCH, rematch } from './data.js';
 import { makeModel } from './assets.js';
 import { instRig, bossDef } from './models.js';
 import { Enemy, telegraph, hint } from './entities.js';
@@ -34,12 +34,16 @@ const GLINTS = { woods: [[0, 0.95, 0.35]], shores: [[1.05, 0.62, 0.95], [-1.05, 
 export const RING_HINT = 'A glowing ring! Hop over it with {jump} or roll through it with {dash}.';
 
 export class Boss {
-  constructor(id, arena) {
+  /** `opts.rematch`: a guardian rematch after the bloom (fight.js): napping until Pip wakes it with Use, REMATCH.hpK ×
+   *  its HP, enraged from REMATCH.enrage of its HP; same moves and wind-ups */
+  constructor(id, arena, opts = {}) {
     this.id = id;
     this.def = BOSSES[id];
     this.name = this.def.name;
     this.arena = arena;
-    this.maxHp = this.def.hp;
+    this.rematch = !!opts.rematch;
+    this.enrageAt = this.rematch ? REMATCH.enrage : 0.5;
+    this.maxHp = this.rematch ? rematch.hp(id) : this.def.hp;
     this.hp = this.maxHp;
     this.r = id === 'shores' ? 1.55 : 1.35;
     this.pos = new THREE.Vector3(arena.x, arena.h, arena.z);
@@ -73,7 +77,7 @@ export class Boss {
   }
   /** blob shadow on the arena floor, shrinking as the boss lifts off (render; arch §8.2 extension point) */
   blob(out) { out.x = this.root.position.x; out.y = this.arena.h; out.z = this.root.position.z; out.r = this.r * (1.1 - Math.min(0.5, this.lift * 0.08)); return out; }
-  get enraged() { return this.hp <= this.maxHp / 2; }
+  get enraged() { return this.hp <= this.maxHp * this.enrageAt; }
   /** in a wind-up or an attack (not walking, recovering or stunned) */
   get busy() { return !(this.state === 'walk' || this.state === 'recover' || this.state === 'stunned' || this.state === 'intro' || this.state === 'sleep'); }
   get speedK() { return this.enraged ? 1.4 : 1; }

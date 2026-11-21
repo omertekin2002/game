@@ -284,7 +284,12 @@ export const combat = {
   traumaKill: 0.15, traumaClink: 0.15, shakeTPHit: 0.15,
   fxNear: 0.6,                // FP: sparks never spawn inside this distance of the eye
   // crosshair interaction (feel §9.1): aim point height (NPC: fraction of its height) and radius per kind
-  aimPts: { npc: [0.62, 0.35], sign: [1.05, 0.45], door: [1.1, 0.55], chest: [0.45, 0.55], pedestal: [0.75, 1.0], well: [0.9, 1.1] },
+  // guardian: a napping rematch guardian, [fraction of its height, m] (the others: [m above the base, m])
+  aimPts: { npc: [0.62, 0.35], sign: [1.05, 0.45], door: [1.1, 0.55], chest: [0.45, 0.55], pedestal: [0.75, 1.0], well: [0.9, 1.1], shell: [0.25, 0.5], guardian: [0.4, 1.0], secret: [0.25, 0.5] },
+  shellRange: 1.6,            // a rainbow shell (Clover's errand) is offered within this + rangeAdd (XZ)
+  secretRange: 1.6,           // a landmark keepsake (data.js SECRETS) is offered within this + rangeAdd (XZ)
+  secretFx: 6,                // a keepsake not found yet twinkles only while Pip is within this many m (XZ): a secret from afar
+  guardianRange: 1.6,         // a napping rematch guardian is offered within its radius + this + rangeAdd (XZ, from its centre)
   // accept: angle ≤ clamp(atan(R/d) + add, min, cap) (touch × touchTol), XZ distance to the aim point ≤ range + 0.6
   npcRange: 1.9, rangeAdd: 0.6, tolAdd: 6, tolMin: 8, tolCap: 25, touchTol: 1.6,
   keepDeg: 4, keepDist: 0.3, keepT: 0.125, beatDeg: 3, // hysteresis: hold +4° / +0.3 m, drop within 150 ms of failing, rivals beat it by 3°
@@ -366,6 +371,7 @@ export const actors = {
   // personal space (centre distance, m): far enough that an FP eye sees the boss's tells and the floor at its feet,
   // within wooden-sword reach (r + 1.6) − 0.2; a walking boss stops roomWalk further out
   room: { woods: 2.55, shores: 2.65, peaks: 2.75 }, roomWalk: 0.25,
+  rematchBack: 4.5,           // a rematch intro (woken with Use from right next to it) steps Pip back to this far from its centre (m)
   // the closest Pip's centre (the FP eye) gets to a boss's centre (m): its body's reach at 0.5–1.2 m height (GLB models:
   // Shroom 1.39, Pinch 1.46, Frostbun 1.64) + the near plane's corner (≈ 0.15). Used by separate(), the leap's landing
   // offset and the body collider (game.dynamicColliders, boss.colliderR)
@@ -390,6 +396,15 @@ export const actors = {
   // NPCs (art §10)
   npcLook: 4.0, npcWave: 2.6, npcBackHop: 1.1,
   npcHome: 0.9,               // a stay-at-home villager the back-hop moved walks back to her spot at this speed (m/s)
+  // Mayor Ribbit's parade (npcs.js follow mode, interact.js tickErrands): he trails followGap m behind Pip (past the TP
+  // camera's 2.6 m boom) and stops inside followStop m, at followK × (distance − gap) m/s up to followSpeed (faster than
+  // Pip's sprint, so he trails ≈ 4.2 m behind a run and ≈ 4.5 m behind a sprint) with a little hop every followHop s;
+  // closer than followGap − 0.8 m he steps back out of Pip's way; further than followFar m, or stuck
+  // for followStuck s, he hops to a spot just behind Pip (followCatch m). With Pip outside the village circle
+  // (world.paradeR) he waits at its edge. A lantern lights with Pip within paradeLight m (XZ) and Ribbit within
+  // paradeNear m of Pip. When the parade is over he walks home at followSpeed (blocked for 2 × followStuck s, he hops there)
+  followGap: 3.2, followStop: 3.6, followSpeed: 6.6, followK: 4.5, followHop: 0.42, followFar: 14, followStuck: 1.2, followCatch: 3.0,
+  paradeLight: 2.5, paradeNear: 6,
   // r4 gem / heart drops in first person (entities.js Pickup): launched away from Pip within ±awayDeg at speed m/s, vy
   // capped at vyMax (apex ≈ 0.34 m over the spawn: under the eye; a chest's own fountain keeps its vy), the magnet pulls
   // to the feet + magnetY (TP: the chest, +0.5) with its height closing magnetYK × faster than the distance. A kill at
@@ -571,6 +586,7 @@ export const world = {
   pedestalTop: 1.05, pedestalTilt: 0.68, socketDX: 0.58, // socket surface height, slab tilt toward +Z (rad, 39°), spacing
   pedestalR: 1.02,            // the altar's collider: a circle round the brick ring and the slab corners (mesh ≈ 1.0 m in the body band)
   spawnZ: 13,
+  paradeR: 36,                // Mayor Ribbit's parade: the village circle he follows Pip inside (he waits at its edge); lanterns sit inside paradeR − 6
   lampR: 16, lampEvery: 18, lampFrom: 16, lampTo: 62, // plaza lamp ring; path lamps every 18 m from 16 to 62 m
   waymarkEvery: 30,           // waymarker posts along the four paths
   edgeStoneR: 45, edgeStoneGap: [0.9, 1.3], edgeStoneOff: 2.15, // path-edge stones within 45 m of the plaza

@@ -242,7 +242,7 @@ export class Player {
       case 'dizzy': case 'frozen': case 'item': {
         if (this.autoMove && this.state === 'frozen') {
           this.vel.set(this.autoMove.x, this.autoMove.z);
-          this.facing = dampAngle(this.facing, Math.atan2(this.autoMove.x, this.autoMove.z), 12, dt);
+          this.facing = dampAngle(this.facing, this.autoMove.face ?? Math.atan2(this.autoMove.x, this.autoMove.z), 12, dt);   // face: a step back
         } else this.vel.multiplyScalar(Math.exp(-12 * dt));
         break;
       }

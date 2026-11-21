@@ -9,7 +9,7 @@ import { STEP_NAME } from '../../audio-bus.js';
 import { yawOf, angDiff, rightXZ, fwdXZ } from '../../util.js';
 import { Boss } from '../../bosses.js';
 import { offView, hintReset } from '../../entities.js';
-import { CFG } from '../../data.js';
+import { CFG, BOSSES, REMATCH } from '../../data.js';
 
 const D2R = Math.PI / 180;
 const TYPES = ['slime', 'mushroom', 'bat', 'bee', 'crab', 'snowpuff'];
@@ -27,8 +27,9 @@ function stubHurt(game) {
   return { calls, restore() { delete game.playerHurt; } };
 }
 function noSpawns(game) { game.spawnT = 1e9; }
-/** start a boss fight and skip its intro; the boss at the arena centre, Pip `dist` m out on the entrance side */
-function fight(t, id, dist = 6) {
+/** start a boss fight and skip its intro; the boss at the arena centre, Pip `dist` m out on the entrance side.
+ *  `rematch`: a guardian rematch (data.js REMATCH), woken the way Use wakes it (game.startFight; walking in never does) */
+function fight(t, id, dist = 6, rematch = false) {
   const { game, D } = t;
   // an earlier test may have beaten this boss (smoke's 'place' gives its seed): bring it back for this run (the runner
   // restores the save afterwards)
@@ -37,7 +38,10 @@ function fight(t, id, dist = 6) {
     for (const p of game.pickups) if (p.kind === 'seed' && p.seedId === id) p.remove();
     if (!game.bosses[id]) game.bosses[id] = new Boss(id, game.world.arenas[id]);
   }
-  D.cutscene('bossIntro', id); t.frames(160);
+  if (rematch) { game.bosses[id].remove(); game.bosses[id] = new Boss(id, game.world.arenas[id], { rematch: true }); }
+  D.cutscene('bossIntro', id);
+  if (rematch) game.startFight(id);
+  t.frames(160);
   const b = game.fight.boss, a = b.arena;
   b.clearTells(); b.lift = 0; b.set('walk', 0); b.cool = 99; b.pos.set(a.x, a.h, a.z); b.prev.copy(b.pos);
   const px = a.x + Math.sin(a.entAng) * dist, pz = a.z + Math.cos(a.entAng) * dist;
@@ -77,6 +81,22 @@ export default function register(suite) {
         t.ok(Number.isFinite(e.hp) && Number.isFinite(e.maxHp) && e.hp === e.maxHp && typeof e.name === 'string' && e.name.length > 1, 'enemy ' + ty, { hp: e.hp, maxHp: e.maxHp, name: e.name });
       }
       for (const id in game.bosses) { const b = game.bosses[id]; t.ok(Number.isFinite(b.hp) && Number.isFinite(b.maxHp) && typeof b.name === 'string', 'boss ' + id); }
+    }],
+    ['rematch guardians: HP × 1.25 (60 / 60 / 63) and enraged from 75 %; first fights keep 48 / 48 / 50 and enrage at 50 %', (t) => {
+      const { game } = t;
+      const want = { woods: 60, shores: 60, peaks: 63 }, first = { woods: 48, shores: 48, peaks: 50 };
+      for (const id of Object.keys(BOSSES)) {
+        const a = game.world.arenas[id], r = new Boss(id, a, { rematch: true }), f = new Boss(id, a);
+        try {
+          t.eq(r.maxHp, want[id], id + ' rematch HP'); t.eq(r.hp, want[id], id + ' rematch starts full');
+          t.ok(r.rematch && r.state === 'sleep', id + ' rematch guardian naps');
+          r.hp = Math.floor(r.maxHp * REMATCH.enrage) + 1; t.ok(!r.enraged, id + ' rematch calm above 75 %', { hp: r.hp });
+          r.hp = Math.floor(r.maxHp * REMATCH.enrage); t.ok(r.enraged, id + ' rematch enraged at 75 %', { hp: r.hp });
+          t.eq(f.maxHp, first[id], id + ' first-fight HP'); t.ok(!f.rematch, id + ' first fight is not a rematch');
+          f.hp = f.maxHp / 2 + 1; t.ok(!f.enraged, id + ' first fight calm above 50 %');
+          f.hp = f.maxHp / 2; t.ok(f.enraged, id + ' first fight enraged at 50 %');
+        } finally { r.remove(); f.remove(); }
+      }
     }],
     ['wind-ups per arch WP5; EV.TELEGRAPH precedes every damaging attack by ≥ 0.55 s (each type, in view, 6 s)', (t) => {
       const { game, D } = t;
@@ -898,6 +918,38 @@ export default function register(suite) {
           t.ok(T >= 15, `${id} (seed ${seed}): the fight lasts ≥ 15 s (${end})`, rows[id + '#' + seed]);
           if (pl.state === 'dizzy') { pl.state = 'normal'; pl.iframes = 0; if (ui.setDizzy) ui.setDizzy(false); }
           S.hp = 6; game.endFight(true); t.resetPlayer(); D.pose('spawn'); t.frames(2);
+        }
+      } finally { S.hp = keep.hp; S.maxHp = keep.maxHp; D.move(0, 0); }
+      t.note('masher', rows);
+    }],
+    ['rematch balance: the same never-dodging player is not downed by a rematch guardian before 10 s, and wins no rematch in under 20 s', (t) => {
+      const { game, D, pl, ui } = t;
+      const rows = {}, S = game.S, keep = { hp: S.hp, maxHp: S.maxHp };
+      try {
+        for (const id of ['woods', 'shores', 'peaks']) for (const seed of [3, 8]) {
+          D.seed(seed);
+          const b = fight(t, id, 6, true);
+          t.ok(b.rematch && b.maxHp === Math.round(BOSSES[id].hp * REMATCH.hpK), id + ': a rematch guardian', { maxHp: b.maxHp });
+          b.cool = 2.0;                                   // as the intro leaves it
+          S.maxHp = 6; S.hp = 6; t.resetPlayer();
+          let T = 0, end = 'time';
+          for (let i = 0; i < 40 * 60; i++) {
+            if (pl.state === 'dizzy' || S.hp <= 0) { end = 'down'; break; }
+            if (b.dying || !game.fight) { end = 'win'; break; }
+            const lp = game.lockPoint(b); D.lookAt(lp.x, lp.y, lp.z); D.move(0, 1);
+            if (i % 11 === 0) t.press('attack');
+            t.frames(1); T += 1 / 60;
+          }
+          D.move(0, 0);
+          rows[id + '#' + seed] = { end, T: +T.toFixed(2), hp: S.hp, bossHp: b.hp, maxHp: b.maxHp };
+          t.ok(end !== 'down' || T >= 10, `${id} (seed ${seed}): not downed before 10 s`, rows[id + '#' + seed]);
+          t.ok(end !== 'win' || T >= 20, `${id} (seed ${seed}): no rematch won in under 20 s`, rows[id + '#' + seed]);
+          if (pl.state === 'dizzy') { pl.state = 'normal'; pl.iframes = 0; if (ui.setDizzy) ui.setDizzy(false); }
+          S.hp = 6; game.endFight(true);
+          // endFight puts a rematch guardian back to nap: leave the first-fight one for the next test
+          if (game.bosses[id]) game.bosses[id].remove();
+          game.bosses[id] = new Boss(id, game.world.arenas[id]);
+          t.resetPlayer(); D.pose('spawn'); t.frames(2);
         }
       } finally { S.hp = keep.hp; S.maxHp = keep.maxHp; D.move(0, 0); }
       t.note('masher', rows);

@@ -484,6 +484,10 @@ export default function register(suite) {
         t.ok(kept === 3 && timed === (gt.ok ? 0 : 3), 'off: the untimed on-time count is kept, the timed one starts again', { kept, timed, timer: gt.ok });
         // the title's own pace (watchPace), frames pumped by hand: 20 ms apart → a 20 ms pace; a visit too short to tell
         // keeps it; an even 60 Hz title is 60 fps
+        // (a watch the real title started may still wait on its frame here, as on a slow CI runner: it would make
+        // watchPace a no-op, so it goes first)
+        if (P.paceRaf) cancelAnimationFrame(P.paceRaf);
+        P.paceRaf = 0;
         let q = [], now = 5000;
         window.requestAnimationFrame = (cb) => { q.push(cb); return q.length; };
         const pump = (n, ms) => { for (let i = 0; i < n; i++) { now += ms; const c = q; q = []; for (const f of c) f(now); } };

@@ -62,9 +62,9 @@ export default {
     on(EV.DASH_START, () => ui.coach.action('dash'));
     on(EV.DOWN, () => ui.notices.hideBanner());       // "Pip got dizzy!" owns the upper screen
     for (const t of [EV.REGION, EV.BOSS_DEFEATED, EV.FIGHT_END, EV.BOSS_FIGHT, EV.SAVE]) on(t, () => { ui.markersDirty = true; });
-    // rebound keys (Settings → Controls → Keys): text formatted once per device shows the new keycaps
+    // rebound keys or buttons (Settings → Controls → Keys / Buttons): text formatted once per device shows the new caps
     on(EV.SETTINGS, (p) => {
-      if (p.key !== 'keys') return;
+      if (p.key !== 'keys' && p.key !== 'pad') return;
       ui.promptKey = ''; ui.keyHints.dev = ''; ui.coach.shownKey = null;
       if (ui.dlg) ui.dlg.dev = '';
       if (ui.shop) ui.renderShop();

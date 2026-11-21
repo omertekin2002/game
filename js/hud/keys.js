@@ -1,12 +1,14 @@
 // Key tokens → the current device's glyph (contract C7). Any player-facing string may carry
 // {move} {look} {attack} {jump} {dash} {sprint} {interact} {potion} {view} {shoulder} {lock} {map} {pause} (aliases {roll},
-// {lockon}, {use}, {swing}, {hop}, {zoom}). ui.js formats every dialogue / sign / toast / banner / prompt / card line
+// {lockon}, {use}, {swing}, {hop}, {zoom}). Menu hints use {ok} {back} {tabPrev} {tabNext}: the menus' own buttons, which on
+// a pad stay A / B / LB / RB whatever the gameplay bindings are (input.menuPressed). ui.js formats every dialogue / sign / toast / banner / prompt / card line
 // at display time; other packages that draw text themselves call fmtKeys(text). A token the device has no control for
 // becomes a plain word (touch has no shoulder swap), so text never names a key the player does not have.
 import { G } from '../core.js';
 import { Assets } from '../assets.js';
 import { settings } from '../settings.js';
 import { effectiveKeys, activeSecondary, keyLabel } from '../keybinds.js';
+import { effectivePad, activePadSecondary, padLabel, DEFAULT_PAD } from '../padbinds.js';
 
 const ALIAS = { roll: 'dash', lockon: 'lock', use: 'interact', swing: 'attack', hop: 'jump', camera: 'look' };
 /** input.lastDevice → glyph family */
@@ -25,27 +27,23 @@ export function hasKeys(text, device) {
   return !m || m.every((t) => { const g = glyph(t.slice(1, -1), device); return !g || !!g.text; });
 }
 // [text, style]: 'key' = keycap, 'pad' = round face button (colour class), 'word' = plain word, 'icon' = touch button icon
-// The keyboard rows (GLYPHS.kbm, ALL.kbm) come from the key bindings in effect (setting `keys`) and are rebuilt when
-// they change (wp6-hud then drops the HUD text it formatted once per device: prompt, coach, key chips, dialogue).
+// The keyboard rows (GLYPHS.kbm, ALL.kbm) come from the key bindings in effect (setting `keys`), the controller rows
+// (GLYPHS.pad, ALL.pad) from the button bindings (setting `pad`); both are rebuilt when their setting changes (wp6-hud
+// then drops the HUD text it formatted once per device: prompt, coach, key chips, dialogue).
 export const GLYPHS = {
   kbm: null,
-  pad: {
-    move: ['L-stick', 'key'], look: ['R-stick', 'key'], attack: ['X', 'pad x'], jump: ['A', 'pad a'], dash: ['B', 'pad b'],
-    sprint: ['hold B', 'pad b'], interact: ['Y', 'pad y'], potion: ['LB', 'key'], view: ['RB', 'key'], shoulder: ['D-pad ◂▸', 'key'],
-    lock: ['R3', 'key'], map: ['Back', 'key'], pause: ['Start', 'key'], zoom: ['', 'word'],
-  },
+  pad: null,
   touch: {
     move: ['the stick', 'word'], look: ['swipe the screen', 'word'], attack: ['Swing', 'icon act_swing'], jump: ['Hop', 'icon act_hop'],
     dash: ['Roll', 'icon act_roll'], sprint: ['hold Roll', 'icon act_roll'], interact: ['Use', 'icon act_use'], potion: ['Potion', 'icon potion'],
     view: ['View', 'icon act_view'], shoulder: ['', 'word'], lock: ['Lock', 'icon act_lock'], map: ['Map', 'icon act_map'], pause: ['Pause', 'icon pause'],
-    zoom: ['pinch', 'word'],
+    zoom: ['pinch', 'word'], ok: ['tap', 'word'], back: ['', 'word'], tabPrev: ['', 'word'], tabNext: ['', 'word'],
   },
 };
 // the full binding list per device (controls reference); first entry is the glyph above
 export const ALL = {
   kbm: null,
-  pad: { move: ['L-stick'], look: ['R-stick'], attack: ['X', 'RT'], jump: ['A'], dash: ['B'], interact: ['Y'], lock: ['R3', 'hold LT'],
-    potion: ['LB', 'D-pad ↓'], view: ['RB', 'D-pad ↑'], shoulder: ['D-pad ◂▸'], map: ['Back'], pause: ['Start'] },
+  pad: null,
   touch: { move: ['stick'], look: ['swipe the screen'], attack: ['Swing'], jump: ['Hop'], dash: ['Roll'], interact: ['Use', 'tap'],
     lock: ['Lock'], potion: ['Potion'], view: ['View'], map: ['Map'], pause: ['Pause'] },
 };
@@ -62,6 +60,7 @@ export function setKbmKeys(k = settings.get('keys')) {
     move: [moveLabel(e), 'key'], look: ['Mouse', 'key'], attack: ['LMB', 'key'], jump: [L(e.jump), 'key'], dash: [L(e.dash), 'key'],
     sprint: ['hold ' + L(e.dash), 'key'], interact: [L(e.interact), 'key'], potion: [L(e.potion), 'key'], view: [L(e.view), 'key'],
     shoulder: [L(e.shoulder), 'key'], lock: [L(e.lockOn), 'key'], map: [L(e.map), 'key'], pause: ['Esc', 'key'], zoom: ['Wheel', 'key'],
+    ok: [L(e.interact), 'key'], back: ['Esc', 'key'], tabPrev: [L(e.potion), 'key'], tabNext: [L(e.view), 'key'],
   };
   ALL.kbm = {
     move: [moveLabel(e, ' '), '← ↑ → ↓'], look: ['Mouse'], attack: ['LMB', L(e.attack)], jump: [L(e.jump)], dash: [L(e.dash), ...alt('dash')],
@@ -71,7 +70,29 @@ export function setKbmKeys(k = settings.get('keys')) {
 }
 setKbmKeys();
 settings.on('keys', (k) => setKbmKeys(k));
-const PADCLS = { A: 'a', B: 'b', X: 'x', Y: 'y' };
+/** a pad button label → its round face-button colour class (A green, B red, X blue, Y yellow); other buttons are keycaps */
+export const PADCLS = { A: 'a', B: 'b', X: 'x', Y: 'y' };
+const padStyle = (label) => (PADCLS[label] ? 'pad ' + PADCLS[label] : 'key');
+/** rebuild the controller glyphs from the button bindings p (default: the setting in effect) */
+export function setPadButtons(p = settings.get('pad')) {
+  const e = effectivePad(p), s = activePadSecondary(p), L = padLabel, g = (a) => [L(e[a]), padStyle(L(e[a]))];
+  const sec = (a) => s[a].map(L);
+  // the default shoulder (D-pad ← with D-pad → still free) reads as one ◂▸ cap
+  const sh = e.shoulder === DEFAULT_PAD.shoulder && s.shoulder.length ? 'D-pad ◂▸' : L(e.shoulder);
+  GLYPHS.pad = {
+    move: ['L-stick', 'key'], look: ['R-stick', 'key'], attack: g('attack'), jump: g('jump'), dash: g('dash'),
+    sprint: ['hold ' + L(e.dash), padStyle(L(e.dash))], interact: g('interact'), potion: g('potion'), view: g('view'), shoulder: [sh, 'key'],
+    lock: g('lockOn'), map: g('map'), pause: ['Start', 'key'], zoom: ['', 'word'],
+    ok: ['A', 'pad a'], back: ['B', 'pad b'], tabPrev: ['LB', 'key'], tabNext: ['RB', 'key'],   // the menus' fixed layout
+  };
+  ALL.pad = {
+    move: ['L-stick'], look: ['R-stick'], attack: [L(e.attack), ...sec('attack')], jump: [L(e.jump)], dash: [L(e.dash)], interact: [L(e.interact)],
+    lock: [L(e.lockOn), 'hold ' + L(e.lockHold)], potion: [L(e.potion), ...sec('potion')], view: [L(e.view), ...sec('view')], shoulder: [sh],
+    map: [L(e.map)], pause: ['Start'],
+  };
+}
+setPadButtons();
+settings.on('pad', (p) => setPadButtons(p));
 const TOKEN = /\{([a-zA-Z]+)\}/g;
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
 export const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ESC[c]);

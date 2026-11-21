@@ -16,7 +16,7 @@ import * as THREE from 'three';
 import { HALF, CHUNK, NCH } from './world.js';
 import { toonMat, sharedOutline, outlineMat, meshWithOutline, outlineGeometry, radialProfile, setHullProfile } from './toon.js';
 import { makeModel, Assets } from './assets.js';
-import { propModel, PROP_KIND, houseA, houseB, shopModel, greatTreeParts, bridgeGeo, chestParts } from './props.js';
+import { propModel, PROP_KIND, houseA, houseB, shopModel, greatTreeParts, bridgeGeo, chestParts, rainbowShellModel, paradeLanternModels, secretModel, SHOP_COUNTER, PLUSHIE_SPOTS, PLUSHIE_SIZE } from './props.js';
 import { hash2 } from './util.js';
 import { perf as TP } from './tune.js';
 import { proxyGeometry } from './perf/lod.js';
@@ -113,6 +113,10 @@ export class Scenery {
     this.meshes = [];
     this.layers = [];
     this.chests = new Map();
+    this.shells = new Map();         // Clover's rainbow shells (W.shells): hidden until her errand puts them out
+    this.lanterns = new Map();       // Ribbit's parade lanterns (W.lanterns): hidden until the parade starts, then unlit / lit
+    this.plushies = new Map();       // Miso's guardian plushies on her counter (guardian id → mesh): hidden until bought
+    this.secrets = new Map();        // the landmark keepsakes (W.secrets): shown until found (an opened bottle stays)
     this.cullOff = false;            // G.debug.perf.cull(false): everything packed, full models only (base for A/B)
     this.packs = 0; this.packMs = 0; // stats
     this._v = null; this.dirty = true;
@@ -125,6 +129,10 @@ export class Scenery {
     this.buildGreatTree();
     this.buildBridges();
     this.buildChests();
+    this.buildShells();
+    this.buildLanterns();
+    this.buildPlushies();
+    this.buildSecrets();
   }
   buildInstanced(list) {
     const byType = new Map();
@@ -453,6 +461,137 @@ export class Scenery {
       this.chests.set(c.id, { group: g, lid: lidPivot, data: c, open: 0, target: 0 });
     }
   }
+  /** one small group per rainbow shell, hidden (game.syncErrands shows the ones that are out). Model and procedural
+   *  only: rainbowShellModel is the decorative shell's shape in rainbow colours, so it needs no asset */
+  buildShells() {
+    const shells = this.W.shells || [];
+    if (!shells.length) return;
+    const model = rainbowShellModel(), mat = toonMat({ glow: true, glowBase: 0.35, rim: 0.6 }), ol = mats().solid.ol;
+    for (const sh of shells) {
+      const g = new THREE.Group(), spin = meshWithOutline(model, mat, ol, { cast: false });
+      spin.scale.setScalar(2.4);
+      g.add(spin);
+      g.position.set(sh.x, sh.y + 0.1, sh.z);
+      g.visible = false;
+      this.root.add(g);
+      this.shells.set(sh.id, { group: g, spin, data: sh, shown: false, ph: hash2(Math.round(sh.x * 10), Math.round(sh.z * 10), 11) * Math.PI * 2 });
+    }
+  }
+  /** `shown` is the game's wish; group.visible also reads false while the distance culler (perf.js, C10) hides it */
+  setShellShown(id, on) {
+    const s = this.shells.get(id);
+    if (s) { s.shown = !!on; s.group.visible = s.shown; }
+  }
+  /** one group per parade lantern: the post and its own paper material (tinted and glowing by how lit it is), hidden
+   *  until game.syncErrands shows them. Procedural only (paradeLanternModels), so it needs no asset */
+  buildLanterns() {
+    const list = this.W.lanterns || [];
+    if (!list.length) return;
+    const m = paradeLanternModels(), postMat = mats().solid.m, ol = mats().solid.ol;
+    for (const it of list) {
+      const g = new THREE.Group(), mat = toonMat({ glow: true, glowBase: 0, rim: 0.5 });
+      g.add(meshWithOutline(m.post, postMat, ol, { cast: false }));
+      const paper = meshWithOutline(m.paper, mat, ol, { cast: false });
+      g.add(paper);
+      g.position.set(it.x, it.y, it.z);
+      g.rotation.y = it.rot;
+      g.visible = false;
+      this.root.add(g);
+      const L = { group: g, paper, mat, data: it, shown: false, lit: false, glow: 0, ph: hash2(Math.round(it.x * 10), Math.round(it.z * 10), 17) * Math.PI * 2 };
+      this.lanterns.set(it.id, L);
+      this.tintLantern(L);
+    }
+  }
+  /** Miso's guardian plushies: one small copy of each guardian's model (one mesh + its outline, no shadow) on the counter,
+   *  in a group that shares the shop's transform, at fixed offsets (props.js PLUSHIE_SPOTS: no world RNG, no colliders).
+   *  All hidden; game.syncPlushies / a purchase shows the bought ones. Without a guardian model, a small toon blob */
+  buildPlushies() {
+    const W = this.W;
+    if (!W.shop) return;
+    const g = new THREE.Group();
+    g.name = 'plushies';
+    g.position.set(W.shop.x, W.shop.y - 0.05, W.shop.z);
+    g.rotation.y = W.shop.rot;
+    g.userData.cull = { dist: 60 };
+    const keys = { woods: 'boss_shroom', shores: 'boss_crab', peaks: 'boss_frost' }, tint = { woods: 0xb07ad8, shores: 0xff7a5a, peaks: 0xc8ecff };
+    const box = new THREE.Box3(), size = new THREE.Vector3();
+    for (const [id, [x, z, ry]] of Object.entries(PLUSHIE_SPOTS)) {
+      const m = makeModel(keys[id], { outline: 'prop', cast: false, height: 1 });
+      let o;
+      if (m) {
+        o = m.group;
+        box.setFromObject(o); box.getSize(size);   // fit the 1 m model inside the plushie's box, feet on the counter
+        o.scale.setScalar(Math.min(PLUSHIE_SIZE.h / Math.max(size.y, 1e-3), PLUSHIE_SIZE.w / Math.max(size.x, size.z, 1e-3)));
+      } else {
+        const mat = toonMat({ color: tint[id], rim: 0.6 });
+        o = meshWithOutline(new THREE.SphereGeometry(PLUSHIE_SIZE.w * 0.45, 12, 8), mat, mats().solid.ol, { cast: false });
+        o.position.y = PLUSHIE_SIZE.w * 0.4;
+        o = new THREE.Group().add(o);
+      }
+      o.position.set(x, SHOP_COUNTER.top, z);
+      o.rotation.y = ry;
+      o.visible = false;
+      g.add(o);
+      this.plushies.set(id, o);
+    }
+    this.root.add(g);
+  }
+  /** one group per landmark keepsake (W.secrets), shown from the start; game.syncSecrets hides the found ones (an opened
+   *  bottle keeps its body). Procedural only (props.js secretModel), so it needs no asset */
+  buildSecrets() {
+    const list = this.W.secrets || [];
+    if (!list.length) return;
+    const mat = toonMat({ glow: true, glowBase: 0.15, rim: 0.6 }), ol = mats().solid.ol;
+    for (const it of list) {
+      const m = secretModel(it.id);
+      if (!m) continue;
+      const g = new THREE.Group();
+      g.name = 'secret_' + it.id;
+      g.add(meshWithOutline(m.main, mat, ol, { cast: false }));
+      const lid = m.lid ? meshWithOutline(m.lid, mat, ol, { cast: false }) : null;
+      if (lid) g.add(lid);
+      g.position.set(it.x, it.y - 0.02, it.z);
+      g.rotation.y = it.rot;
+      g.scale.setScalar(1.4);
+      this.root.add(g);
+      this.secrets.set(it.id, { group: g, lid, data: it, found: false, shown: true });
+    }
+  }
+  /** a keepsake found (data.js SECRETS): it goes, or for a `keep` one (the bottle) only its lid goes (opened). `shown`
+   *  is the game's wish; group.visible also reads false while the distance culler (perf.js, C10) hides it */
+  setSecret(id, found, keep = false) {
+    const s = this.secrets.get(id);
+    if (!s) return;
+    s.found = !!found;
+    s.shown = !found || !!keep;
+    s.group.visible = s.shown;
+    if (s.lid) s.lid.visible = !found;
+  }
+  /** show / hide a bought guardian plushie on Miso's counter (guardian id, data.js PLUSHIES `boss`) */
+  setPlushie(id, on) {
+    const o = this.plushies.get(id);
+    if (o) o.visible = !!on;
+  }
+  /** a lantern's look at glow g (0 unlit cream paper, 1 lit warm and glowing) */
+  tintLantern(L) {
+    const g = L.glow;
+    // pale paper → warm amber, in sRGB (the glow adds the paper's own colour on top of the light: a deep amber keeps it
+    // from washing out to white)
+    L.mat.color.setRGB(0.93 + 0.07 * g, 0.91 - 0.37 * g, 0.86 - 0.7 * g, THREE.SRGBColorSpace);
+    L.mat.userData.glowK.value.x = 0.6 * g;
+  }
+  /** show / hide a parade lantern and light it: a newly lit one warms up over ≈ 0.8 s (update), `instant` at once */
+  setLantern(id, shown, lit, instant = false) {
+    const L = this.lanterns.get(id);
+    if (!L) return;
+    L.shown = !!shown; L.group.visible = L.shown; L.lit = !!lit;
+    if (instant || !L.lit) { L.glow = L.lit ? 1 : 0; this.tintLantern(L); }
+  }
+  /** an errand item's scenery (data.js ERRANDS `item`): shown or hidden, found (a lit lantern) or not */
+  setErrandItem(kind, id, shown, found = false, instant = false) {
+    if (kind === 'shell') this.setShellShown(id, shown);
+    else if (kind === 'lantern') this.setLantern(id, shown, found, instant);
+  }
   setChestOpen(id, open, instant) {
     const ch = this.chests.get(id);
     if (!ch) return;
@@ -460,6 +599,17 @@ export class Scenery {
     if (instant) { ch.open = ch.target; ch.lid.rotation.x = -ch.open * 1.9; }
   }
   update(dt) {
+    const t = (this._t = (this._t || 0) + dt);
+    for (const s of this.shells.values()) {
+      if (!s.group.visible) continue;
+      s.spin.rotation.y = t * 0.9 + s.ph;
+      s.spin.position.y = 0.05 + Math.sin(t * 2.2 + s.ph) * 0.05;
+    }
+    for (const L of this.lanterns.values()) {
+      if (!L.shown) continue;
+      if (L.lit && L.glow < 1) { L.glow = Math.min(1, L.glow + dt * 1.25); this.tintLantern(L); }   // a soft warm-up
+      L.paper.rotation.z = this.calm ? 0 : Math.sin(t * 1.3 + L.ph) * 0.03;   // a gentle sway in the breeze (not with Motion comfort)
+    }
     for (const ch of this.chests.values()) {
       if (ch.open !== ch.target) {
         const sp = 3.2;

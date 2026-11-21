@@ -2,7 +2,8 @@
 // Headless-browser smoke test: serve the repo, boot the game in Chromium (software WebGL via SwiftShader),
 // start a New Game (checking the completion tracker on the pause menu and the map), then continue a valid, a corrupt
 // and a newer-version save from localStorage. The same loads carry stored settings (valid, wrong-typed, not JSON at
-// all) and check that they are applied, repaired and saved. Running from the repo registers no service worker and never
+// all) and check that they are applied, repaired and saved. Rebound keys and controller buttons (a stubbed standard
+// pad) are checked in play, in the menus and across a reload. Running from the repo registers no service worker and never
 // requests sw.js (only the Pages build has one; tests/pwa.mjs). Fails on any page error, console error or failed request.
 // Usage: node tests/smoke.mjs   (or `bun run test:smoke`). On failure a screenshot lands in test-results/.
 import { mkdir } from 'node:fs/promises';
@@ -30,8 +31,16 @@ async function main() {
     const fail = (msg) => { throw new Error(msg); };
     // Open the game in a fresh context (its own localStorage). `save` and `settings`, if given, are written to
     // localStorage before any page script runs, so the game boots with exactly those (`settings` may be raw text).
-    const openGame = async (save, settings) => {
+    // `pad`: navigator.getGamepads returns one standard-mapping pad, window.__pad, with no button down.
+    const openGame = async (save, settings, pad) => {
       const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+      if (pad) {
+        await ctx.addInitScript(() => {
+          window.__pad = { connected: true, mapping: 'standard', id: 'smoke test pad', index: 0, timestamp: 0, axes: [0, 0, 0, 0],
+            buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })) };
+          navigator.getGamepads = () => [window.__pad];
+        });
+      }
       if (save !== undefined) {
         await ctx.addInitScript(([k, v]) => localStorage.setItem(k, v), [SAVE_KEY, JSON.stringify(save)]);
       }
@@ -107,7 +116,7 @@ async function main() {
     if (await openPause() !== 'pause') fail('the pause menu did not open');
     let t = await tally('#pause .ptrack');
     const r0 = await regionsSeen();
-    const want0 = { chests: `0/${nChests}`, hearts: '0/5', guardians: '0/3', regions: `${r0}/5`, seeds: '0/3' };
+    const want0 = { chests: `0/${nChests}`, hearts: '0/5', guardians: '0/3', regions: `${r0}/5`, seeds: '0/3', errands: '0/2', plushies: '0/3', rematches: '0/3', secrets: '0/4' };
     for (const [k, v] of Object.entries(want0)) if (!t[k] || t[k].text !== v || t[k].full) fail(`pause tracker ${k} on a new game: ${JSON.stringify(t[k])}, expected ${v}`);
     await closeMenus();
     const had3 = await page.evaluate(() => {
@@ -134,13 +143,46 @@ async function main() {
       for (let i = 0; i < 5; i++) S.visited[i] = true;
       S.shopHeart = true;
     });
+    // everything but the errands: their chip and the total are not complete yet; with Clover's done, still not
     await openPause();
     t = await tally('#pause .ptrack');
+    if (!t.errands || t.errands.text !== '0/2' || t.errands.full || t.errands.tick || !t.pct || t.pct.full) fail(`pause tracker without the errands: ${JSON.stringify({ errands: t.errands, pct: t.pct })}`);
+    await closeMenus();
+    await page.evaluate(() => { window.G.game.S.errands.clover = 2; });
+    await openPause();
+    t = await tally('#pause .ptrack');
+    if (!t.errands || t.errands.text !== '1/2' || t.errands.full || t.errands.tick || !t.pct || t.pct.full) fail(`pause tracker with one errand done: ${JSON.stringify({ errands: t.errands, pct: t.pct })}`);
+    await closeMenus();
+    await page.evaluate(() => { window.G.game.S.errands.ribbit = 2; });
+    // both errands done but no plushie bought yet: the Plushies chip and the total are still not complete
+    await openPause();
+    t = await tally('#pause .ptrack');
+    if (!t.plushies || t.plushies.text !== '0/3' || t.plushies.full || t.plushies.tick || !t.pct || t.pct.full) fail(`pause tracker without the plushies: ${JSON.stringify({ plushies: t.plushies, pct: t.pct })}`);
+    await closeMenus();
+    await page.evaluate(() => { window.G.game.S.plushies = { woods: true, shores: true, peaks: true }; });
+    // every plushie bought but no rematch won yet: the Rematches chip and the total are still not complete
+    await openPause();
+    t = await tally('#pause .ptrack');
+    if (!t.rematches || t.rematches.text !== '0/3' || t.rematches.full || t.rematches.tick || !t.pct || t.pct.full) fail(`pause tracker without the rematches: ${JSON.stringify({ rematches: t.rematches, pct: t.pct })}`);
+    await closeMenus();
+    await page.evaluate(() => { window.G.game.S.rematches = { woods: true, shores: true, peaks: true }; });
+    // every rematch won but no landmark keepsake found yet: the Secrets chip and the total are still not complete
+    await openPause();
+    t = await tally('#pause .ptrack');
+    if (!t.secrets || t.secrets.text !== '0/4' || t.secrets.full || t.secrets.tick || !t.pct || t.pct.full) fail(`pause tracker without the secrets: ${JSON.stringify({ secrets: t.secrets, pct: t.pct })}`);
+    await closeMenus();
+    await page.evaluate(() => { window.G.game.S.secrets = { acorn: true, stone: true, bottle: true, pouch: true }; });
+    await openPause();
+    t = await tally('#pause .ptrack');
+    if (!t.secrets || t.secrets.text !== '4/4') fail(`pause tracker secrets on a finished save: ${JSON.stringify(t.secrets)}`);
+    if (!t.errands || t.errands.text !== '2/2') fail(`pause tracker errands on a finished save: ${JSON.stringify(t.errands)}`);
+    if (!t.plushies || t.plushies.text !== '3/3') fail(`pause tracker plushies on a finished save: ${JSON.stringify(t.plushies)}`);
+    if (!t.rematches || t.rematches.text !== '3/3') fail(`pause tracker rematches on a finished save: ${JSON.stringify(t.rematches)}`);
     for (const [k, v] of Object.entries(t)) if (!v.full || (k !== 'pct' && !v.tick)) fail(`pause tracker ${k} not marked complete: ${JSON.stringify(v)}`);
     if (!t.pct || t.pct.text !== '★ 100%') fail(`pause tracker total on a finished save: ${JSON.stringify(t.pct)}`);
     await closeMenus();
     if (problems.length) fail('errors with the completion tracker');
-    step(`completion tracker on the pause menu and the map: 0/${nChests} → 1/${nChests} chests, 1/3 guardians, ${r1}/5 regions, ✓ and ★ 100% when finished`);
+    step(`completion tracker on the pause menu and the map: 0/${nChests} → 1/${nChests} chests, 1/3 guardians, ${r1}/5 regions, errands 0/2 → 1/2 → 2/2, plushies 0/3 → 3/3, rematches 0/3 → 3/3, secrets 0/4 → 4/4, ✓ and ★ 100% when finished`);
 
     // 2. Continue a valid v2 save (one chest open, one boss beaten and its seed placed, a saved position).
     // controlsV is the controls-card version the player has seen (CONTROLS_V in js/game.js); a save without it
@@ -174,8 +216,13 @@ async function main() {
     }
     if (Math.hypot(resumed.pos.x - save.px, resumed.pos.z - save.pz) > 0.5) fail(`resumed at ${JSON.stringify(resumed.pos)}, saved at ${save.px}, ${save.pz}`);
     if (resumed.liveBosses.includes('woods') || resumed.liveBosses.length !== 2) fail(`unexpected live bosses after continue: ${resumed.liveBosses}`);
+    // migrated to v6 on load (MIGRATIONS[2]–[5] in js/save.js): no errand started, no rainbow shell out, no plushie, no
+    // rematch won, no keepsake found (all four still in the world)
+    if (resumed.S.v !== 6 || JSON.stringify(resumed.S.errands) !== '{}' || JSON.stringify(resumed.S.shells) !== '{}' || JSON.stringify(resumed.S.plushies) !== '{}' || JSON.stringify(resumed.S.rematches) !== '{}' || JSON.stringify(resumed.S.secrets) !== '{}') fail(`the v2 save was not migrated to v6: ${JSON.stringify({ v: resumed.S.v, errands: resumed.S.errands, shells: resumed.S.shells, plushies: resumed.S.plushies, rematches: resumed.S.rematches, secrets: resumed.S.secrets })}`);
+    if (await page.evaluate(() => [...window.G.game.scenery.secrets.values()].filter((o) => o.shown).length) !== 4) fail('the four landmark keepsakes are not in the world after continuing a save without any found');
+    if (await page.evaluate(() => [...window.G.game.scenery.plushies.values()].some((o) => o.visible))) fail('plushies on Miso\'s counter after continuing a save without any');
     if (problems.length) fail('errors after continuing a valid save');
-    step('valid v2 save continued with the same chests, bosses, seeds and position');
+    step('valid v2 save continued (migrated to v6) with the same chests, bosses, seeds and position');
 
     // 2b. The stored settings are in effect (Low: the small shadow map; motion comfort: the calm HUD), and a change
     // made now is written back next to the ones that were there, the unknown key included.
@@ -283,17 +330,17 @@ async function main() {
       await waitFor('the settings focus to move down', (w) => { const r = document.querySelector('#ui .srow.foc'); return (r ? r.dataset.a || r.dataset.k : null) !== w; }, STEP_TIMEOUT, f);
     }
     const keyRow = () => page.evaluate(() => {
-      const r = document.querySelector('#ui .srow[data-a="map"]');
+      const r = document.querySelector('#ui .srow[data-k="keys"][data-a="map"]');
       return { key: r.querySelector('kbd').textContent, waiting: r.classList.contains('waiting'), note: r.querySelector('.snote').textContent, keys: window.G.settings.get('keys'), menu: window.G.ui.menu };
     });
     const waitRow = (what, fn) => waitFor(what, fn, STEP_TIMEOUT);
     await page.keyboard.press('Enter');
-    await waitRow('the Map row to wait for a key', () => document.querySelector('#ui .srow[data-a="map"]').classList.contains('waiting'));
+    await waitRow('the Map row to wait for a key', () => document.querySelector('#ui .srow[data-k="keys"][data-a="map"]').classList.contains('waiting'));
     await page.keyboard.press('Escape');
     let row = await keyRow();
     if (row.waiting || row.key !== 'M' || row.menu !== 'settings' || JSON.stringify(row.keys) !== '{"jump":"KeyT"}') fail(`Esc did not just cancel the rebind: ${JSON.stringify(row)}`);
     await page.keyboard.press('Enter');
-    await waitRow('the Map row to wait for a key again', () => document.querySelector('#ui .srow[data-a="map"]').classList.contains('waiting'));
+    await waitRow('the Map row to wait for a key again', () => document.querySelector('#ui .srow[data-k="keys"][data-a="map"]').classList.contains('waiting'));
     await page.keyboard.press('KeyP');
     row = await keyRow();
     if (!row.waiting || !/stay as they are/.test(row.note) || JSON.stringify(row.keys) !== '{"jump":"KeyT"}') fail(`P (pause) was not refused: ${JSON.stringify(row)}`);
@@ -323,13 +370,166 @@ async function main() {
     const reset = await page.evaluate(() => {
       const ui = window.G.ui;
       ui.openPause(); ui.onPauseChoice(1); ui.settingsCard.setTab('controls'); ui.settingsCard.resetTab();
-      const keys = window.G.settings.get('keys'), map = document.querySelector('#ui .srow[data-a="map"] kbd').textContent;
+      const keys = window.G.settings.get('keys'), map = document.querySelector('#ui .srow[data-k="keys"][data-a="map"] kbd').textContent;
       ui.closeSettings(true);
       return { keys, map };
     });
     if (JSON.stringify(reset.keys) !== '{}' || reset.map !== 'M') fail(`Reset on the Controls tab did not restore the default keys: ${JSON.stringify(reset)}`);
     if (problems.length) fail('errors after rebinding');
     step('rebound keys came back after a reload, worked in play, and Reset restored the defaults');
+
+    // 6. Rebound controller buttons with a stubbed standard pad. Continue with Hop on Y and Use on A: the controls card
+    // and the key tokens show Y for Hop, Y hops in play and A only uses. A still confirms (dialogue, pause menu), B still
+    // goes back, LB / RB still switch tabs and the D-pad still moves the selection. Then rebind with real pad presses in
+    // Settings → Controls → Buttons (B and Start cancel the wait, X swaps Hop and Swing), reload, and Reset.
+    const remapped = { jump: 3, interact: 0 };
+    await openGame(save, { v: 1, pad: remapped }, true);
+    await page.keyboard.press('Enter');
+    await waitFor("G.game.state === 'play' after Continue with rebound buttons", () => window.G.game.state === 'play', STEP_TIMEOUT);
+    await waitFor('the view to take look input (play is live)', () => window.G.game.view.lookAllowed === true, STEP_TIMEOUT);
+    await page.evaluate(() => {
+      const G = window.G, I = G.input, up = I.update.bind(I);
+      window.__jumps = 0; window.__frames = 0; window.__edges = []; window.__medges = [];
+      G.events.on('jump', () => { window.__jumps++; });
+      I.update = (dt) => { up(dt); window.__frames++; window.__edges.push(...I.actPressed); window.__medges.push(...I.mPressed); };
+    });
+    const padPress = async (i) => {
+      const f0 = await page.evaluate((b) => { window.__pad.buttons[b] = { pressed: true, value: 1 }; return window.__frames; }, i);
+      await waitFor(`pad button ${i} held for two frames`, (f) => window.__frames >= f + 2, STEP_TIMEOUT, f0);
+      const f1 = await page.evaluate((b) => { window.__pad.buttons[b] = { pressed: false, value: 0 }; return window.__frames; }, i);
+      await waitFor(`pad button ${i} released for two frames`, (f) => window.__frames >= f + 2, STEP_TIMEOUT, f1);
+    };
+    const edgesOf = async (i) => {
+      await page.evaluate(() => { window.__edges = []; window.__medges = []; });
+      await padPress(i);
+      return page.evaluate(() => ({ game: [...new Set(window.__edges)], menu: [...new Set(window.__medges)] }));
+    };
+    const padCard = await page.evaluate(() => {
+      const G = window.G, ui = G.ui;
+      ui.openControls(true); ui.controlsCard.setDev('pad');
+      const rows = Object.fromEntries([...ui.controlsCard.grid.querySelectorAll('.crow')].map((r) => [r.querySelector('.k').textContent, r.querySelector('.v').textContent]));
+      ui.closeMenu(true);
+      return rows;
+    });
+    if (padCard.Hop !== 'Y' || !/^A/.test(padCard['Talk, read, open (look at it first)'])) fail(`the controls card does not show Hop on Y and Use on A: ${JSON.stringify(padCard)}`);
+    const advance = async () => {                           // A confirms in dialogue: page through whatever is open
+      for (let n = 0; await page.evaluate(() => !!window.G.ui.dlg); n++) {
+        if (n > 12) fail('A did not get through the dialogue');
+        await padPress(0);
+      }
+    };
+    await waitFor('free play (no menu, no dialogue, Pip on the ground)', free, STEP_TIMEOUT);
+    await page.waitForTimeout(500);
+    const j0 = await page.evaluate(() => window.__jumps);
+    let e = await edgesOf(3);
+    if (!e.game.includes('jump') || e.game.includes('interact')) fail(`Y (Hop rebound to Y) did not give a jump edge: ${JSON.stringify(e)}`);
+    if (!e.menu.includes('interact')) fail(`Y is not Use for the menus any more: ${JSON.stringify(e)}`);
+    await waitFor('Y to hop', (n) => window.__jumps > n, STEP_TIMEOUT, j0);
+    // hints, prompts and toasts format {tokens} with the bound buttons (the module the game uses: same URL, same instance)
+    const tokens = await page.evaluate(async () => (await import('/js/hud/keys.js')).fmtKeys('{hop} {use} {swing} {roll}', { device: 'pad' }));
+    if (tokens !== 'Y A X B') fail(`pad key tokens do not show the bound buttons: ${tokens}`);
+    await page.evaluate(() => window.G.ui.say(['Smoke test line one.', 'Smoke test line two.'], { name: 'Smoke' }));
+    await advance();
+    await waitFor('free play before A', free, STEP_TIMEOUT);
+    await page.waitForTimeout(500);
+    const j1 = await page.evaluate(() => window.__jumps);
+    e = await edgesOf(0);
+    if (e.game.includes('jump') || !e.game.includes('interact') || !e.menu.includes('jump')) fail(`A (Use) still hops, or is not Use: ${JSON.stringify(e)}`);
+    await advance();                                        // A used something next to Pip: page through it
+    await page.waitForTimeout(300);
+    if ((await page.evaluate(() => window.__jumps)) !== j1) fail('A still hops after Hop moved to Y');
+    if (problems.length) fail('errors with rebound buttons in play');
+    step('stored buttons in effect: the controls card shows Y for Hop, Y hops, A uses and still pages through dialogue');
+
+    // View remapped onto A (live, no reload): paging through dialogue with A does not flip the view; A in play does
+    await page.evaluate(() => window.G.settings.set('pad', { jump: 3, interact: 7, view: 0 }));
+    if (JSON.stringify(await page.evaluate(() => window.G.settings.get('pad'))) !== '{"jump":3,"interact":7,"view":0}') fail('the live View-on-A binding did not take');
+    const mode = () => page.evaluate(() => window.G.game.view.mode);
+    const m0 = await mode();
+    await page.evaluate(() => window.G.ui.say(['Smoke test line three.', 'Smoke test line four.'], { name: 'Smoke' }));
+    await advance();
+    if ((await mode()) !== m0) fail('paging through dialogue with A also toggled the view (View remapped onto A)');
+    await waitFor('free play before A as View', free, STEP_TIMEOUT);
+    await page.waitForTimeout(500);
+    await padPress(0);
+    await waitFor('A (View remapped onto A) to switch the view in play', (m) => window.G.game.view.mode !== m, STEP_TIMEOUT, m0);
+    await page.evaluate((p) => window.G.settings.set('pad', p), remapped);
+    await page.evaluate((m) => { const v = window.G.game.view; if (v.mode !== m) v.toggleMode(); }, m0);
+    await advance();
+    if (problems.length) fail('errors with View remapped onto A');
+    step('View remapped onto A live: A pages through dialogue without switching the view, and switches it in play');
+
+    // the menus keep the standard layout: Start pauses, D-pad ↓ + A opens Settings, RB / LB switch tabs
+    await padPress(9);
+    await waitFor('Start to pause', () => window.G.ui.menu === 'pause', STEP_TIMEOUT);
+    await padPress(13); await padPress(0);
+    await waitFor('D-pad ↓, A to open Settings', () => window.G.ui.menu === 'settings', STEP_TIMEOUT);
+    const tab = () => page.evaluate(() => window.G.ui.settingsCard.tab);
+    const tab0 = await tab();
+    await padPress(5);
+    const tab1 = await tab();
+    await padPress(4);
+    if (tab1 === tab0 || (await tab()) !== tab0) fail(`RB / LB did not switch the Settings tabs: ${tab0} → ${tab1} → ${await tab()}`);
+    await page.evaluate(() => { const c = window.G.ui.settingsCard; c.setTab('controls'); c.f = -1; c.mark(); });
+    const padRow = () => page.evaluate(() => {
+      const r = document.querySelector('#ui .srow[data-k="pad"][data-a="jump"]'), k = r.querySelector('kbd');
+      return { key: k.textContent, cls: k.className, waiting: r.classList.contains('waiting'), note: r.querySelector('.snote').textContent, pad: window.G.settings.get('pad'), menu: window.G.ui.menu };
+    });
+    const padFocus = () => page.evaluate(() => { const r = document.querySelector('#ui .srow.foc'); return r ? r.dataset.k + ':' + r.dataset.a : null; });
+    for (let guard = 0; (await padFocus()) !== 'pad:jump'; guard++) {
+      if (guard > 14) fail(`the D-pad did not reach the Hop button row: ${await padFocus()}`);
+      await padPress(13);
+    }
+    let pr = await padRow();
+    if (pr.key !== 'Y' || pr.cls !== 'kp y') fail(`the Hop button row does not show a yellow Y: ${JSON.stringify(pr)}`);
+    await padPress(0);
+    if (!(await padRow()).waiting) fail('A on the Hop button row did not wait for a button');
+    await padPress(1);
+    pr = await padRow();
+    if (pr.waiting || pr.menu !== 'settings' || JSON.stringify(pr.pad) !== JSON.stringify(remapped)) fail(`B did not just cancel the wait: ${JSON.stringify(pr)}`);
+    await padPress(0); await padPress(9);
+    pr = await padRow();
+    if (pr.waiting || pr.menu !== 'settings' || JSON.stringify(pr.pad) !== JSON.stringify(remapped)) fail(`Start did not just cancel the wait: ${JSON.stringify(pr)}`);
+    await padPress(0); await padPress(2);
+    pr = await padRow();
+    const padSwapped = { jump: 2, attack: 3, interact: 0 };
+    if (pr.waiting || pr.key !== 'X' || pr.cls !== 'kp x' || !/Swapped with Swing, now on Y/.test(pr.note) || JSON.stringify(pr.pad) !== JSON.stringify(padSwapped)) fail(`X did not swap Hop and Swing: ${JSON.stringify(pr)}`);
+    // Roll moved off B onto RT (B is nobody's now): waiting on the Hop row, B binds instead of cancelling
+    await page.evaluate((p) => window.G.settings.set('pad', p), { ...padSwapped, dash: 7 });
+    await padPress(0);
+    pr = await padRow();
+    if (!pr.waiting || !/Start cancels/.test(pr.note) || /B or Start/.test(pr.note)) fail(`the wait does not say B is free to bind: ${JSON.stringify(pr)}`);
+    await padPress(1);
+    pr = await padRow();
+    if (pr.waiting || pr.key !== 'B' || pr.pad.jump !== 1 || pr.pad.dash !== 7 || pr.menu !== 'settings') fail(`a free B did not bind to Hop: ${JSON.stringify(pr)}`);
+    await page.evaluate((p) => window.G.settings.set('pad', p), padSwapped);
+    await padPress(1);
+    await waitFor('B to go back to the pause menu', () => window.G.ui.menu === 'pause', STEP_TIMEOUT);
+    await closeMenus();
+    await waitFor('the new buttons to reach localStorage', (k) => {
+      try { const v = JSON.parse(localStorage.getItem(k)).pad; return !!v && v.jump === 2; } catch (err) { return false; }
+    }, STEP_TIMEOUT, SETTINGS_KEY);
+    const writtenPad = (await settingsNow()).stored;
+    if (JSON.stringify(writtenPad.pad) !== JSON.stringify(padSwapped)) fail(`rebound buttons not saved: ${JSON.stringify(writtenPad)}`);
+    if (problems.length) fail('errors while rebinding buttons');
+    step('menus kept A / B / LB / RB / D-pad; rebound Hop to X with real pad presses (B and Start cancel, Swing swapped onto Y; a free B binds) and saved');
+
+    await openGame(save, writtenPad, true);
+    // (menu hints name the menus' own buttons, which stay A / B / LB / RB)
+    const back = await page.evaluate(async () => ({ pad: window.G.settings.get('pad'), tokens: (await import('/js/hud/keys.js')).fmtKeys('{hop} {swing} {use} · {ok} {back} {tabPrev} {tabNext}', { device: 'pad' }) }));
+    if (JSON.stringify(back.pad) !== JSON.stringify(padSwapped) || back.tokens !== 'X Y A · A B LB RB') fail(`rebound buttons did not survive a reload: ${JSON.stringify(back)}`);
+    await page.keyboard.press('Enter');
+    await waitFor("G.game.state === 'play' after the reload with rebound buttons", () => window.G.game.state === 'play', STEP_TIMEOUT);
+    const padReset = await page.evaluate(() => {
+      const ui = window.G.ui;
+      ui.openPause(); ui.onPauseChoice(1); ui.settingsCard.setTab('controls'); ui.settingsCard.resetTab();
+      const pad = window.G.settings.get('pad'), jump = document.querySelector('#ui .srow[data-k="pad"][data-a="jump"] kbd').textContent;
+      ui.closeSettings(true);
+      return { pad, jump };
+    });
+    if (JSON.stringify(padReset.pad) !== '{}' || padReset.jump !== 'A') fail(`Reset on the Controls tab did not restore the default buttons: ${JSON.stringify(padReset)}`);
+    if (problems.length) fail('errors after rebinding buttons');
+    step('rebound buttons came back after a reload, and Reset restored the defaults');
 
     // no service worker from the repo: the Pages build would have registered one by 10 s after the title (js/pwa.js)
     await page.waitForTimeout(Math.max(0, 11_000 - (Date.now() - titleAt)));

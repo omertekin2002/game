@@ -2,9 +2,12 @@
 // BOSS_FIGHT, BOSS_DEFEATED, FIGHT_END (BOSS_HIT: combat.js). Shockwave rings (WP5) advance in the fixed step and are
 // drawn on the same radius (fx-ground.js stepRings): the light wall spans exactly the damage band r ± width, and a
 // jump clears it (no damage while (player.alt ?? 0) > TUNE.actors.ringJump, C2).
+// Guardian rematches (after the bloom, data.js REMATCH): each beaten guardian naps in its arena again as a rematch Boss.
+// Walking in never starts one; Use on it does (interact.js wakeRematch → startFight). A win drops no Starseed: the first
+// win per guardian gives REMATCH.gems once (S.rematches), then it naps again; getting dizzy resets it like a first fight.
 import * as THREE from 'three';
 import { sfx, music } from './core.js';
-import { SEEDS, BOSSES } from './data.js';
+import { SEEDS, BOSSES, SEED_ORDER, rematch } from './data.js';
 import { Pickup, telegraph, hint } from './entities.js';
 import { Boss, RING_HINT } from './bosses.js';
 import { GB, toonMat, sharedOutline, meshWithOutline } from './toon.js';
@@ -53,13 +56,14 @@ export const FightMixin = {
   },
   updateFight(dt) {
     const pl = this.player;
-    // trigger
+    // trigger (a first fight only: a napping rematch guardian is woken with Use, never by walking in)
     if (!this.fight && pl.state !== 'dizzy') {
       for (const id in this.bosses) {
         const b = this.bosses[id], a = this.world.arenas[id];
-        if (len2(pl.pos.x - a.x, pl.pos.z - a.z) < a.r - 2.5 && b.state === 'sleep') { this.startFight(id); break; }
+        if (!b.rematch && len2(pl.pos.x - a.x, pl.pos.z - a.z) < a.r - 2.5 && b.state === 'sleep') { this.startFight(id); break; }
       }
     }
+    if (!this.fight) this.spawnRematches();
     // idle bosses (asleep)
     for (const id in this.bosses) { const b = this.bosses[id]; if (!this.fight || this.fight.boss !== b) b.update(dt); }
     for (const id in this.vines) {
@@ -74,11 +78,14 @@ export const FightMixin = {
     const b = f.boss;
     if (f.phase === 'intro') {
       b.update(dt);
-      // walk Pip a few steps into the arena so the vine wall is behind the camera framing (player.js faces the walk)
-      const a = f.arena, dx = a.x - pl.pos.x, dz = a.z - pl.pos.z, d = Math.hypot(dx, dz);
-      if (d > a.r - 6 && f.t < 2.0) pl.autoMove = { x: (dx / d) * 3.4, z: (dz / d) * 3.4 }; else pl.autoMove = null;
+      // walk Pip a few steps into the arena so the vine wall is behind the camera framing (player.js faces the walk). A
+      // rematch is woken from right next to the guardian: Pip steps back out to TA.rematchBack m from it, still facing it
+      const a = f.arena, dx = a.x - pl.pos.x, dz = a.z - pl.pos.z, d = Math.hypot(dx, dz) || 1e-3;
+      if (d > a.r - 6 && f.t < 2.0) pl.autoMove = { x: (dx / d) * 3.4, z: (dz / d) * 3.4 };
+      else if (b.rematch && d < TA.rematchBack && f.t < 2.0) pl.autoMove = { x: (-dx / d) * 2.4, z: (-dz / d) * 2.4, face: Math.atan2(dx, dz) };
+      else pl.autoMove = null;
       if (!f.shot) { const face = this.bossFace(b); this.view.retarget(face.x, face.y, face.z); } // FP: keep the eye on it
-      if (!f.card && f.t >= TH.bossCardDelay) { f.card = 1; this.ui.showBossCard(BOSSES[f.id].name, BOSSES[f.id].title, true, 0); }
+      if (!f.card && f.t >= TH.bossCardDelay) { f.card = 1; this.ui.showBossCard(BOSSES[f.id].name + (b.rematch ? ' · Rematch' : ''), BOSSES[f.id].title, true, 0); }
       if (f.t > 2.4) {
         f.phase = 'fight';
         pl.autoMove = null;
@@ -109,6 +116,26 @@ export const FightMixin = {
       if (f.wonT > 2.5 && this.vines[f.id].target) { this.vines[f.id].target = 0; sfx('door'); }
       if (f.wonT > 3.2) { this.fight = null; this.updateMusic(true); this.events.emit(EV.FIGHT_END, { id: f.id, reset: false }); }
     }
+  },
+  /** after the bloom, every beaten guardian naps in its arena for a rematch (data.js rematch.available). A missing one
+   *  comes back (a soft poof) once Pip is clear of the arena's middle, so it never appears on top of him; `force`: at
+   *  once and quietly (a session start, a reset under the fade) */
+  spawnRematches(force = false) {
+    const S = this.S, pl = this.player;
+    if (!S || !S.ending) return;
+    for (const id of SEED_ORDER) {
+      if (this.bosses[id] || !rematch.available(S, id)) continue;
+      const a = this.world.arenas[id];
+      if (!force && len2(pl.pos.x - a.x, pl.pos.z - a.z) < 4) continue;
+      this.bosses[id] = new Boss(id, a, { rematch: true });
+      if (!force && this.fx) this.fx.poof(a.x, a.h + 0.6, a.z, 0xffffff, 14, 1.6);
+    }
+  },
+  /** Use on a napping rematch guardian (interact.js): the normal fight flow, vines and intro included */
+  wakeRematch(b) {
+    if (this.fight || !b || !b.rematch || b.state !== 'sleep' || this.bosses[b.id] !== b) return false;
+    this.startFight(b.id);
+    return true;
   },
   /** where the hand-back look aims: the boss body at ~0.45 of its height (pitch is clamped by the view) */
   bossFace(b) { return { x: b.pos.x, y: b.arena.h + b.height * 0.45, z: b.pos.z }; },
@@ -154,9 +181,9 @@ export const FightMixin = {
   onBossDefeated(b) {
     const f = this.fight;
     const S = this.S;
-    S.bosses[b.id] = true;
+    if (!b.rematch) S.bosses[b.id] = true;
     delete this.bosses[b.id];
-    this.events.emit(EV.BOSS_DEFEATED, { id: b.id });
+    this.events.emit(EV.BOSS_DEFEATED, { id: b.id, rematch: b.rematch });
     if (f) { f.phase = 'won'; f.wonT = 0; }
     this.ui.bossBar(null);
     this.whiteFlash = 0.8;
@@ -164,8 +191,15 @@ export const FightMixin = {
     this.enemies = this.enemies.filter((e) => !e.removed);
     for (const p of this.projectiles) p.pop(true);
     this.projectiles = [];
-    const a = this.world.arenas[b.id];
-    this.pickups.push(new Pickup('seed', b.pos.x, b.pos.z, { seedId: b.id, color: SEEDS[b.id].color, vy: 7, spread: 0, y0: 1.2 }));
+    if (b.rematch) {
+      // a rematch: no Starseed; the first win per guardian gives its gems once (data.js rematch.win), then it naps again
+      // (spawnRematches, once the fight has wound down)
+      const gems = rematch.win(S, b.id);
+      sfx('fanfare');
+      if (gems) this.events.emit(EV.COLLECT, { kind: 'gem', value: gems });   // the feed's "+40 gems" line and the gem sound
+      this.ui.toast('✿ Rematch won: ' + b.name + '!');
+      this.ui.updateHud(S);
+    } else this.pickups.push(new Pickup('seed', b.pos.x, b.pos.z, { seedId: b.id, color: SEEDS[b.id].color, vy: 7, spread: 0, y0: 1.2 }));
     this.save(true);
   },
   endFight(reset) {
@@ -177,9 +211,10 @@ export const FightMixin = {
       this.events.emit(EV.CUTSCENE_END, { type: 'bossIntro' });
     }
     for (const r of f.rings) this.fx.ground.remove(r);
-    if (reset && f.boss && !this.S.bosses[f.id]) {
+    if (reset && f.boss && (f.boss.rematch || !this.S.bosses[f.id])) {
+      // the guardian is back asleep in its arena (a rematch one naps for another go)
       f.boss.remove();
-      this.bosses[f.id] = new Boss(f.id, f.arena);
+      this.bosses[f.id] = new Boss(f.id, f.arena, { rematch: f.boss.rematch });
     }
     for (const e of this.enemies) if (e.minion) { e.remove(); e.removed = true; }
     this.enemies = this.enemies.filter((e) => !e.removed);

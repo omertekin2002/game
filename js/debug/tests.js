@@ -23,6 +23,7 @@ import * as THREE from 'three';
 import { G, store } from '../core.js';
 import { EV } from '../events.js';
 import { SAVE_KEY } from '../data.js';
+import { SAVE_VERSION } from '../save.js';
 import { settings, SCHEMA, SETTINGS_KEY } from '../settings.js';
 import { STEP } from '../clock.js';
 import { LAYER, wrapAngle, yawOf, dir3 } from '../util.js';
@@ -47,7 +48,7 @@ export function suite(name, tests, o = {}) {
   SUITES.set(name, { name, tests: Array.isArray(tests) ? tests : Object.entries(tests), o });
   return name;
 }
-export function list() { return [...SUITES.values()].map((s) => ({ name: s.name, desc: s.o.desc || '', tests: s.tests.length, heavy: !!s.o.heavy })); }
+export function list() { return [...SUITES.values()].map((s) => ({ name: s.name, desc: s.o.desc || '', tests: s.tests.length, heavy: !!s.o.heavy, names: s.tests.map(([tn]) => tn) })); }
 
 // ------------------------------------------------------------------ runner
 function ctx(res, opts = {}) {
@@ -153,6 +154,7 @@ async function prepare(t, o = {}) {
     n.pos.set(n.home.x, game.world.ground(n.home.x, n.home.z), n.home.z); n.prev.copy(n.pos);
     n.facing = n.prevFacing = sp && sp.rot != null ? sp.rot : 0;
     n.state = 'idle'; n.st = 2; n.talking = false; n.hop = n.hopV = 0; n.ph = i * 1.3;
+    n.follow = false; n.homing = false; n.stuckT = 0;   // out of Ribbit's parade follow mode
   });
   for (const P of [game.fx.norm, game.fx.add]) { P.free.push(...P.list); P.list.length = 0; }
   for (const r of game.regrow) { r.o.cut = false; game.scenery.show(r.o); if (r.o.collider) r.o.collider.active = true; }
@@ -187,8 +189,12 @@ export async function run(name = 'all', o = {}) {
     for (const n of names) {
       const s = SUITES.get(n);
       if (!s) { out.fail++; out.results.push({ suite: n, name: '(suite)', pass: false, msg: 'no such suite', checks: 0, data: {} }); continue; }
-      for (const [tn, fn] of s.tests) {
+      for (const [i, [tn, fn]] of s.tests.entries()) {
         if (o.only && !String(tn).includes(o.only)) continue;
+        // tests/inpage.mjs (headless CI): o.shard = [k, n] runs every n-th test from the k-th (1-based); o.skip: exact
+        // test names not to run (ones software WebGL cannot pass), reported as skipped; o.onResult(res) after each test
+        if (o.shard && i % o.shard[1] !== o.shard[0] - 1) continue;
+        if (o.skip && o.skip.includes(tn)) { const res = { suite: n, name: tn, pass: false, skipped: true, msg: 'skipped', checks: 0, ms: 0, data: {} }; out.results.push(res); if (o.onResult) o.onResult(res); continue; }
         const res = { suite: n, name: tn, pass: true, msg: null, checks: 0, ms: 0, data: {} };
         const t = ctx(res, o), t0 = performance.now();
         try { await prepare(t, { ...(s.o.prepare || {}), ...(fn.prepare || {}) }); await fn(t); }
@@ -197,6 +203,7 @@ export async function run(name = 'all', o = {}) {
         res.ms = +(performance.now() - t0).toFixed(1);
         if (res.pass) out.pass++; else out.fail++;
         out.results.push(res);
+        if (o.onResult) o.onResult(res);
       }
     }
   } finally {
@@ -254,7 +261,7 @@ suite('smoke', [
     t.ok(G.game === game && G.player === game.player, 'G.game / G.player');
     t.ok(typeof game.newGame === 'function', 'G.game.newGame');
     t.eq(game.state, 'play', 'state'); t.eq(game.playing, true, 'playing');
-    t.ok(game.S && game.S.v === 2, 'S.v 2'); t.ok(typeof game.fps === 'number', 'fps');
+    t.ok(game.S && game.S.v === SAVE_VERSION, 'S.v ' + SAVE_VERSION); t.ok(typeof game.fps === 'number', 'fps');
     t.ok(D.game() === game && D.world() === game.world, 'game() / world()');
   }],
   ['debug API v2 (arch §13 + feel §15 aliases)', (t) => {

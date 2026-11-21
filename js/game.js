@@ -163,11 +163,16 @@ export class Game {
     const W = this.world;
     // world state from save
     for (const c of W.chests) this.scenery.setChestOpen(c.id, !!S.chests[c.id], true);
+    this.syncErrands();      // errand items (Clover's rainbow shells that are out, Ribbit's parade lanterns; interact.js)
+    this.syncPlushies();     // Miso's counter: the guardian plushies bought (interact.js)
+    this.syncSecrets();      // the landmark keepsakes: the found ones gone, an opened bottle (interact.js)
+    this.resetErrandNpcs();  // a parade villager is back home, not following, until Pip talks to him again
     this.scenery.setBloom(!!S.ending);
     this.treeSeeds.forEach((g) => (g.visible = !!S.ending && this.treeSeedsWanted()));
     this.pedSeeds.forEach((g, i) => (g.visible = S.seeds[SEED_ORDER[i]] === 2));
     this.resetEntities();
     for (const id of SEED_ORDER) if (!S.bosses[id]) this.bosses[id] = new Boss(id, W.arenas[id]);
+    this.spawnRematches(true);   // after the bloom, the beaten guardians nap in their arenas for a rematch (fight.js)
     this.spawnMissingSeeds();
     // player + look (facing = look yaw, facing convention; pitch is an optional save field). A corrupted optional field
     // (non-numeric facing / pitch) falls back to the default instead of turning the view NaN
@@ -271,7 +276,9 @@ export class Game {
   dynamicColliders(pl) {
     const out = this._dyn || (this._dyn = []);
     out.length = 0;
-    for (const n of this.npcs) out.push({ x: n.pos.x, z: n.pos.z, r: n.r });
+    // a villager following Pip (Ribbit's parade) is not solid for him: he trails right behind, so Pip turning back in a
+    // narrow spot would find the way out blocked (he also steps aside, npcs.js followUpdate)
+    for (const n of this.npcs) if (!n.follow) out.push({ x: n.pos.x, z: n.pos.z, r: n.r });
     // r2 actors: the boss body stays solid while it dies (until it is gone), sized to keep the FP eye out of its mesh
     const fb = this.fight && this.fight.boss;
     if (fb && !fb.dead && fb.lift < 1) out.push({ x: fb.pos.x, z: fb.pos.z, r: fb.colliderR ?? fb.r * 0.85 });
@@ -301,7 +308,9 @@ export class Game {
     view.applyLook(input, dt);
     if (this.state !== 'play') { input.takeWheel(); this.updateTrans(rawDt); this.trackModal(); return 0; }
     this.updateTrans(rawDt);
-    // modal UI
+    // modal UI (input.modal: this frame began with one open, so the pad's edges for the per-frame toggles below come from
+    // its menu layout, even when the press closes it)
+    input.modal = !!(ui.dlg || ui.shop || ui.menu);
     if (ui.dlg) ui.updateDialogue(dt, input);
     else if (ui.shop) ui.updateShop(input);
     // r4: the press that closes a card is the card's (V or RB on the ending's "any button" also switched the view)
@@ -309,8 +318,8 @@ export class Game {
     else if (!this.cutscene && !this.trans && this.player.state !== 'dizzy') this.gameplayInput(input);
     // view toggle (also during dialogue), TP shoulder swap and boom zoom
     const free = !ui.shop && !ui.menu;
-    if (free && input.pressed('view')) view.toggleMode();
-    if (free && input.pressed('shoulder') && view.mode === 'tp') view.swapShoulder();
+    if (free && input.framePressed('view')) view.toggleMode();
+    if (free && input.framePressed('shoulder') && view.mode === 'tp') view.swapShoulder();
     const wh = input.takeWheel();
     if (wh && free) view.zoom(wh);
     this._call('frameInput', input, dt);
@@ -372,6 +381,7 @@ export class Game {
       for (const id in this.bosses) settle(this.bosses[id]);
     }
     for (const n of this.npcs) n.update(dt);
+    this.tickErrands();   // parade lanterns Pip walks past with Ribbit close behind (interact.js)
     if (this.cutscene) this.updateCutscene(dt);
     this.updateSpawning(dt);
     this.updateRegrowth(dt);
@@ -426,6 +436,7 @@ export class Game {
     for (const p of this.pickups) p.render(alpha, t);
     this.scenery.update(dt);
     this.animateSeeds(t);
+    if (!this.clock.hold && !this.ui.dlg) { this.tickErrandFx(dt); this.tickSecretFx(dt); }
     // blob shadows: each actor's blob(out) says where and how big (or null); Pip's own only while the camera is out of
     // his head, never under the FP eye
     const B = this.blobs, o = _blob;

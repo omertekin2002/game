@@ -6,7 +6,7 @@
 // Layout: one scale unit --u (desktop) or the phone layouts (#ui.lay-land / .lay-port), set by layout().
 import * as THREE from 'three';
 import { G, sfx, spriteUrl, isMuted, toggleMute } from './core.js';
-import { SEED_ORDER, SEEDS, SHOP, REGIONS, CFG } from './data.js';
+import { SEED_ORDER, SEEDS, REGIONS, CFG, shop } from './data.js';
 import { HALF, N } from './world-const.js';
 import { clamp } from './util.js';
 import { project, refreshViewport } from './hud/projector.js';
@@ -364,7 +364,7 @@ export class UI {
     if (this.menu === 'settings') { this.settingsCard.input(input, frameDt()); return; }
     const nav = input.menuNav();
     if (nav) { this.titleList.move(nav); this.titleConfirm = false; $('.confirm', this.titleEl).textContent = ''; }
-    if (input.pressed('attack') || input.pressed('interact') || input.pressed('jump')) this.titleActivate();
+    if (input.menuPressed('attack') || input.menuPressed('interact') || input.menuPressed('jump')) this.titleActivate();
   }
   hideTitle() {
     this.titleOn = false; this.titleEl.classList.add('gone'); this.titleEl.inert = true; clearInterval(this.sparkTimer);
@@ -430,7 +430,8 @@ export class UI {
     const fight = !!(g.fight && g.fight.phase !== 'won');
     if (this.fightOn !== fight) { this.fightOn = fight; this.objEl.classList.toggle('infight', fight); }
     const o = this.obj, pl = g.player.pos;
-    const txt = !o ? (g.S.ending ? 'The isle is blooming ✿' : '') : o.text + ' · ' + Math.round(Math.hypot(o.x - pl.x, o.z - pl.z)) + ' m';
+    // no-break spaces: the distance stays whole ("117 m"), on the line of its "·" (the portrait line wraps: a lone "m" did)
+    const txt = !o ? (g.S.ending ? 'The isle is blooming ✿' : '') : o.text + '\u00a0· ' + Math.round(Math.hypot(o.x - pl.x, o.z - pl.z)) + '\u00a0m';
     if (txt !== this.objShown) { this.objShown = txt; this.objText.textContent = txt; }
   }
   showHud(on) { this.hud.classList.toggle('off', !on); if (on) this.markersDirty = true; }
@@ -518,7 +519,7 @@ export class UI {
     $('.legend', this.mapEl).innerHTML = L.map(([k, f, n]) => `<span>${iconHtml(k, f, 'lico')}${esc(n)}</span>`).join('');
     $('.mtrack', this.mapEl).innerHTML = trackerHtml(this.W, S);
     const dev = deviceKind();
-    $('.mhint', this.mapEl).innerHTML = fmtKeys(dev === 'touch' ? 'Tap the map to drop a marker · tap it again to remove it' : dev === 'pad' ? '{move} move · {jump} drop a marker · {dash} close' : 'Click to drop a marker (click it again to remove) · {map} close', { html: true });
+    $('.mhint', this.mapEl).innerHTML = fmtKeys(dev === 'touch' ? 'Tap the map to drop a marker · tap it again to remove it' : dev === 'pad' ? '{move} move · {ok} drop a marker · {back} close' : 'Click to drop a marker (click it again to remove) · {map} close', { html: true });
     uiSfx('uiOpen');
   }
 
@@ -704,20 +705,15 @@ export class UI {
     this.showOverlay(this.shopWrap, true);
     uiSfx('uiOpen');
   }
-  shopState(item, S) {
-    if (item.id === 'potion') return S.potions >= CFG.potionMax ? 'full' : 'ok';
-    if (item.id === 'heart') return S.shopHeart ? 'sold' : 'ok';
-    if (item.id === 'sword') return S.swordLevel >= 2 ? 'sold' : 'ok';
-    return 'ok';
-  }
   renderShop() {
     const sh = this.shop;
     if (!sh) return;
-    const S = sh.S, dev = deviceKind();
-    const hint = dev === 'touch' ? 'Tap an item to buy it' : dev === 'pad' ? '↑↓ choose · {jump} buy · {dash} leave' : '↑↓ choose · {interact} or click to buy · {pause} leave';
+    const S = sh.S, dev = deviceKind(), items = shop.items(S);   // data.js: the plushies join once the shop is bought out
+    sh.sel = Math.min(Math.max(0, sh.sel), items.length - 1);
+    const hint = dev === 'touch' ? 'Tap an item to buy it' : dev === 'pad' ? '↑↓ choose · {ok} buy · {back} leave' : '↑↓ choose · {interact} or click to buy · {pause} leave';
     this.shopEl.innerHTML = `<div class="shead"><h2>${img('npc_cat')}<span>Miso's Shop</span></h2><div class="counter wallet">${cimg('coin', gemFb)}<b>${S.coins}</b></div></div>
-      <div class="items">${SHOP.map((it, i) => {
-        const st = this.shopState(it, S);
+      <div class="items${items.length > 3 ? ' many' : ''}">${items.map((it, i) => {
+        const st = shop.state(it, S);
         const pr = st === 'sold' ? 'SOLD OUT' : st === 'full' ? 'FULL' : `${cimg('coin', gemFb)}${it.price}`;
         return `<div class="shop-item ${i === sh.sel ? 'sel' : ''} ${st !== 'ok' ? 'out' : ''} ${st === 'ok' && S.coins < it.price ? 'poor' : ''}" data-i="${i}">${img(it.icon)}<div class="info"><div class="nm">${esc(it.name)}</div><div class="ds">${esc(it.desc)}</div></div><div class="pr">${pr}</div></div>`;
       }).join('')}</div><div class="sfoot"><div class="msg">${esc(fmtKeys(sh.msg))}</div><div class="hint">${fmtKeys(hint, { html: true })}</div>
@@ -737,11 +733,12 @@ export class UI {
   buySelected() {
     const sh = this.shop;
     if (!sh) return;
-    const it = SHOP[sh.sel];
-    const st = this.shopState(it, sh.S);
+    const it = shop.items(sh.S)[sh.sel];
+    if (!it) return;
+    const st = shop.check(it, sh.S);
     if (st === 'sold') { sh.msg = 'Sold out! Only one of those, sorry~'; sfx('error'); }
     else if (st === 'full') { sh.msg = 'Your pockets are full of potions already!'; sfx('error'); }
-    else if (sh.S.coins < it.price) { sh.msg = 'Not enough gems, little sprout. Mrrow...'; sfx('error'); }
+    else if (st === 'poor') { sh.msg = 'Not enough gems, little sprout. Mrrow...'; sfx('error'); }
     else { sh.msg = sh.onBuy(it); sfx('buy'); }
     this.renderShop();
   }
@@ -749,8 +746,8 @@ export class UI {
     const sh = this.shop;
     if (!sh) return;
     const nav = input.menuNav();
-    if (nav) { sh.sel = (sh.sel + nav + SHOP.length) % SHOP.length; uiSfx('uiMove'); this.renderShop(); }
-    if (input.pressed('attack') || input.pressed('interact') || input.pressed('jump')) this.buySelected(); // keys/pad; canvas clicks never reach here
+    if (nav) { const n = shop.items(sh.S).length; sh.sel = (((sh.sel + nav) % n) + n) % n; uiSfx('uiMove'); this.renderShop(); const r = this.shopEl.querySelector('.shop-item.sel'); if (r && r.scrollIntoView) r.scrollIntoView({ block: 'nearest' }); }   // wraps over the rows on show; a tall list scrolls to the row
+    if (input.menuPressed('attack') || input.menuPressed('interact') || input.menuPressed('jump')) this.buySelected(); // keys/pad; canvas clicks never reach here
     else if (input.cancel()) this.closeShop();
   }
   closeShop() {
@@ -813,7 +810,7 @@ export class UI {
   }
   footKeys() {
     const d = deviceKind();
-    return fmtKeys(d === 'touch' ? '' : d === 'pad' ? '↑↓ choose · ◂▸ change · {potion} {view} tabs · {dash} back' : '↑↓ choose · ←→ change · {pause} back', { html: true });
+    return fmtKeys(d === 'touch' ? '' : d === 'pad' ? '↑↓ choose · ◂▸ change · {tabPrev} {tabNext} tabs · {back} back' : '↑↓ choose · ←→ change · {pause} back', { html: true });
   }
   /** fromPause: the controls reference card. The first-run call (fromPause false) starts the in-play coach marks instead
    *  of a modal card (the pointer stays locked); onControlsClosed fires when the three steps are done */
@@ -846,7 +843,7 @@ export class UI {
     body.innerHTML = L.length ? L.map((l) => `<div class="lline">${l.name ? `<b class="lname"${l.col ? ` style="background:${l.col}"` : ''}>${esc(fmtKeys(l.name))}</b>` : ''}<span>${fmtKeys(l.text, { html: true })}</span></div>`).join('')
       : '<div class="lempty small">Nobody has said anything yet. Go say hi!</div>';
     const d = deviceKind();
-    $('.fkeys', this.logEl).innerHTML = fmtKeys(d === 'touch' ? '' : d === 'pad' ? '↑↓ scroll · {dash} back' : '↑↓ scroll · {pause} back', { html: true });
+    $('.fkeys', this.logEl).innerHTML = fmtKeys(d === 'touch' ? '' : d === 'pad' ? '↑↓ scroll · {back} back' : '↑↓ scroll · {pause} back', { html: true });
     this.showOverlay(this.logEl, true);
     requestAnimationFrame(() => { body.scrollTop = body.scrollHeight; });
     uiSfx('uiOpen');
@@ -879,19 +876,19 @@ export class UI {
     if (m === 'pause') {
       const nav = input.menuNav();
       if (nav) this.pauseList.move(nav);
-      if (input.pressed('attack') || input.pressed('interact') || input.pressed('jump')) this.pauseList.pick();
-      else if ((input.pressed('pause') || input.pressed('dash')) && performance.now() >= (this.pauseGuardUntil || 0)) this.closeMenu();
+      if (input.menuPressed('attack') || input.menuPressed('interact') || input.menuPressed('jump')) this.pauseList.pick();
+      else if ((input.menuPressed('pause') || input.menuPressed('dash')) && performance.now() >= (this.pauseGuardUntil || 0)) this.closeMenu();
     } else if (m === 'settings') {
       this.settingsCard.input(input, dt);
     } else if (m === 'controls') {
       if (performance.now() - this.controlsT > 200) this.controlsCard.input(input, dt);
     } else if (m === 'map') {
-      if (input.pressed('map') || input.pressed('pause') || input.pressed('dash')) { this.closeMenu(); return; }
+      if (input.menuPressed('map') || input.menuPressed('pause') || input.menuPressed('dash')) { this.closeMenu(); return; }
       const a = input.axis();
       if (a.l > 0.05) this.mapCard.nudge(a.x, a.y, dt);
-      if (input.pressed('interact') || input.pressed('jump') || (input.pressed('attack') && input.lastDevice !== 'mouse')) this.mapCard.confirm();
+      if (input.menuPressed('interact') || input.menuPressed('jump') || (input.menuPressed('attack') && input.lastDevice !== 'mouse')) this.mapCard.confirm();
     } else if (m === 'log') {
-      if (input.cancel() || input.pressed('interact') || input.pressed('jump') || input.pressed('pause')) { this.closeMenu(); return; }
+      if (input.cancel() || input.menuPressed('interact') || input.menuPressed('jump') || input.menuPressed('pause')) { this.closeMenu(); return; }
       const nav = input.menuNav(); if (nav) $('.lbody', this.logEl).scrollTop += nav * 70;
     } else if (m === 'ending') {
       if (input.anyPressed) this.closeEnding();

@@ -226,6 +226,86 @@ function shell() {
   }
   return b.build();
 }
+/** Clover's errand: the decorative shell's spiral and body (no starfish), striped in rainbow hues along its length and
+ *  softly glowing, so it reads apart from the plain pink shells scattered on the sand. Model units, ≈ 0.2 m long */
+function rainbowShell() {
+  const b = new GB(), col = new THREE.Color();
+  const hue = (x, y, z) => col.setHSL((((z + 0.2) * 3.2) % 1 + 1) % 1, 0.9, 0.6).getHex();
+  b.cone(0.09, 0.2, 0, { y: 0.07, rx: Math.PI / 2 - 0.2, seg: 10, colorFn: hue, glow: 0.45 });
+  b.sphere(0.08, 0, { z: -0.08, y: 0.06, ws: 10, hs: 8, colorFn: hue, glow: 0.45 });
+  return b.build();
+}
+export function rainbowShellModel() { return cache.rainbowShell || (cache.rainbowShell = rainbowShell()); }
+/** Ribbit's parade: a paper lantern hung from a short shepherd's-crook post. Two models so the paper can light on its
+ *  own material: the post and the lantern's wooden cap and base (model units ≈ m, 1.5 m tall), and the round paper
+ *  body (white vertex colour: the scenery tints it, unlit cream to lit warm, and ramps its glow) */
+function paradePost() {
+  const b = new GB();
+  b.cyl(0.05, 0.065, 1.42, 0x8a5a30, { y: 0.71, seg: 7 });
+  b.box(0.46, 0.05, 0.05, 0x8a5a30, { x: 0.2, y: 1.42 });
+  b.sphere(0.05, 0x9a6438, { x: 0.42, y: 1.42, ws: 7, hs: 5 });
+  b.cyl(0.012, 0.012, 0.12, 0x5a3a24, { x: 0.38, y: 1.36, seg: 4, outline: false });
+  b.cyl(0.085, 0.11, 0.05, 0xd0503a, { x: 0.38, y: 1.29, seg: 8 });
+  b.cyl(0.11, 0.085, 0.05, 0xd0503a, { x: 0.38, y: 0.95, seg: 8 });
+  for (let i = 0; i < 2; i++) b.sphere(0.1, 0x7cbf4a, { x: (i ? -1 : 1) * 0.16, y: 0.06, z: 0.1, sy: 0.6, ws: 8, hs: 6 });
+  return b.build();
+}
+export const PARADE_PAPER = { x: 0.38, y: 1.12 };   // the paper's centre in model space (the post at the origin)
+function paradePaper() {
+  const b = new GB();
+  b.sphere(0.2, 0xffffff, { x: PARADE_PAPER.x, y: PARADE_PAPER.y, sy: 0.85, ws: 12, hs: 9, glow: 1 });
+  return b.build();
+}
+export function paradeLanternModels() { return cache.paradeLantern || (cache.paradeLantern = { post: paradePost(), paper: paradePaper() }); }
+/** the landmark keepsakes (data.js SECRETS): small procedural models, model units ≈ m, resting on the ground at the
+ *  origin and facing +Z (out from the landmark). `main` stays; `lid` is the part that goes once a `keep` keepsake is
+ *  found (the bottle's cork and rolled message), so an opened bottle stays on the sand. Glowing just enough to catch the
+ *  eye up close in shade; the scenery adds no light */
+function secretAcorn() {
+  const b = new GB();
+  b.sphere(0.13, 0xd89a48, { y: 0.15, sy: 1.25, ws: 14, hs: 10, glow: 0.5 });
+  b.sphere(0.14, 0x7a5030, { y: 0.24, sy: 0.6, t1: Math.PI * 0.5, ws: 14, hs: 6, colorFn: (x, y, z) => (Math.floor((x + 1) * 40) + Math.floor((z + 1) * 40)) % 2 ? 0x7a5030 : 0x6a4428 });
+  b.cyl(0.018, 0.024, 0.08, 0x5a3a24, { y: 0.33, rz: 0.3, seg: 6 });
+  b.sphere(0.03, 0xfff0a8, { x: 0.05, y: 0.18, z: 0.11, ws: 6, hs: 4, outline: false, glow: 1 });   // a glint
+  for (let i = 0; i < 3; i++) { const a = 0.6 + i * 2.1; b.sphere(0.08, 0x6aae3a, { x: Math.sin(a) * 0.16, y: 0.02, z: Math.cos(a) * 0.16, sy: 0.35, sx: 1.5, ry: a, ws: 7, hs: 4 }); }
+  return { main: b.build() };
+}
+function secretStone() {
+  const b = new GB();
+  b.ico(0.17, 0x9fb2c2, { y: 0.1, sy: 0.65, detail: 1, jitter: 0.25, seed: 3, colorFn: (x, y, z, nx, ny) => (ny > 0.55 ? 0xf6faff : 0xa8b4c0) });
+  b.add(new THREE.OctahedronGeometry(0.09, 0), 0x8fd8ff, { x: 0.03, y: 0.22, sy: 2.0, rz: -0.25, flat: true, glow: 0.8 });
+  b.add(new THREE.OctahedronGeometry(0.06, 0), 0xc8f0ff, { x: -0.08, y: 0.18, z: 0.04, sy: 1.8, rz: 0.5, flat: true, glow: 0.8 });
+  b.add(new THREE.OctahedronGeometry(0.05, 0), 0xb8ecff, { x: 0.06, y: 0.16, z: 0.08, sy: 1.6, rx: 0.5, flat: true, glow: 0.8 });
+  return { main: b.build() };
+}
+function secretBottle() {
+  const b = new GB(), l = new GB();
+  // lying on its side along X, half sunk in the sand
+  b.cyl(0.08, 0.08, 0.28, 0x9fe0d8, { y: 0.07, rz: Math.PI / 2, seg: 12, glow: 0.25 });
+  b.sphere(0.08, 0x9fe0d8, { x: -0.14, y: 0.07, sx: 0.5, ws: 12, hs: 8, glow: 0.25 });
+  b.cyl(0.035, 0.07, 0.08, 0x9fe0d8, { x: 0.18, y: 0.07, rz: Math.PI / 2, seg: 10, glow: 0.25 });
+  b.cyl(0.034, 0.034, 0.06, 0x9fe0d8, { x: 0.25, y: 0.07, rz: Math.PI / 2, seg: 10, glow: 0.25 });
+  b.sphere(0.07, 0xf6e4b8, { x: 0.04, y: 0.005, sx: 2.6, sy: 0.35, ws: 10, hs: 5, outline: false });   // a little sand drift
+  l.cyl(0.03, 0.026, 0.05, 0xb07a48, { x: 0.3, y: 0.07, rz: Math.PI / 2, seg: 8 });                  // the cork
+  l.cyl(0.04, 0.04, 0.16, 0xfff4d8, { x: -0.01, y: 0.07, rz: Math.PI / 2, seg: 10, outline: false, glow: 0.3 });   // the rolled message
+  l.cyl(0.042, 0.042, 0.02, 0xd0503a, { x: -0.01, y: 0.07, rz: Math.PI / 2, seg: 10, outline: false });           // its ribbon
+  return { main: b.build(), lid: l.build() };
+}
+function secretPouch() {
+  const b = new GB();
+  b.sphere(0.13, 0xc8a070, { y: 0.11, sy: 0.85, ws: 14, hs: 10, colorFn: (x, y) => (Math.floor(y * 60) % 2 ? 0xc8a070 : 0xbc9466) });
+  b.cyl(0.05, 0.08, 0.08, 0xc8a070, { y: 0.24, seg: 10 });
+  b.torus(0.055, 0.012, 0xd0503a, { y: 0.23, rx: Math.PI / 2, ts: 14, rs: 4 });
+  for (let i = 0; i < 5; i++) b.cone(0.03, 0.07, 0xc8a070, { x: Math.sin(i * 1.26) * 0.045, y: 0.3, z: Math.cos(i * 1.26) * 0.045, rx: Math.cos(i * 1.26) * 0.4, rz: -Math.sin(i * 1.26) * 0.4, seg: 4, outline: false });
+  for (const [x, z] of [[0.16, 0.08], [0.12, 0.15], [0.2, 0.02]]) b.sphere(0.022, 0xf5c040, { x, y: 0.015, z, sy: 0.7, ws: 6, hs: 4, outline: false, glow: 0.8 });   // spilled golden seeds
+  return { main: b.build() };
+}
+const SECRET_MODELS = { acorn: secretAcorn, stone: secretStone, bottle: secretBottle, pouch: secretPouch };
+/** a keepsake's model parts ({ main, lid? }), cached; null for an unknown id */
+export function secretModel(id) {
+  const k = 'secret_' + id;
+  return cache[k] || (SECRET_MODELS[id] ? (cache[k] = SECRET_MODELS[id]()) : null);
+}
 function crystal() {
   const b = new GB();
   b.add(new THREE.OctahedronGeometry(0.16, 0), 0xa8e4ff, { y: 0.22, sy: 1.8, glow: 0.35, flat: true, outline: false });
@@ -441,6 +521,10 @@ export const HOUSE_DRESSING = {
   shop: [[1.45, -2.05, 0.6, 1.0], [-1.4, -2.05, 0.3, 0.6], [-0.9, -2.15, 0.26, 0.5]],
 };
 export const SHOP_COUNTER = { top: 0.57, gap: [0.04, 1.05] };   // counter top (m) and the clear stretch in front of Miso (model x)
+// Miso's guardian plushies (data.js PLUSHIES) on the counter's front edge, by guardian id: model x / z, yaw, outside the
+// clear stretch (gap) so Miso's face stays in view: two in front of the bread and the honey jar, one in front of the potions
+export const PLUSHIE_SPOTS = { woods: [-0.46, 2.72, 0.25], shores: [-0.14, 2.74, -0.15], peaks: [1.28, 2.73, -0.2] };
+export const PLUSHIE_SIZE = { h: 0.2, w: 0.22 };   // fits inside h tall and w wide / deep (m)
 export const HOUSE_WINDOWS = {
   house_a: [onWallA(0.65, 1.12, 0.34), onWallA(-0.7, 1.12, 0.3), onWallA(Math.PI + 0.45, 1.15, 0.3), onWallA(-1.62, 1.15, 0.28)],
   house_b: [{ x: 1.15, y: 1.12, z: 1.625, ry: 0, w: 0.6, h: 0.6 }, { x: -1.15, y: 1.12, z: 1.625, ry: 0, w: 0.6, h: 0.6 },

@@ -2,14 +2,18 @@
 // chests, NPC spots, colliders and a reachability check (BFS + corridor carving). Ground/walkable/bridge queries,
 // the walk grid and the collider hash live in world-collide.js.
 import { RNG, makeNoise, clamp, lerp, smoothstep, sampleSpline, distToSeg, len2, angDiff, TAU, hash2 } from './util.js';
-import { REGION, SIGNS, DOOR_LINES } from './data.js';
+import { REGION, SIGNS, DOOR_LINES, SECRETS } from './data.js';
 import { world as TW } from './tune.js';
-import { WorldCollide } from './world-collide.js';
+import { WorldCollide, shapeDist } from './world-collide.js';
 import { SIZE, HALF, N, CHUNK, NCH } from './world-const.js';
-import { HOUSE_DRESSING, LANDMARK_R } from './props.js';
+import { HOUSE_DRESSING, LANDMARK_R, PARADE_PAPER } from './props.js';
 
 export { SIZE, HALF, N, CHUNK, NCH };
 
+// placeSecrets: how far out from a landmark's collider ring a keepsake may sit (m). The near rings (≤ 3 m) are the rule;
+// the far ones are for the Summit Crystal Cairn, whose needle summit is too steep to walk up to on most seeds, so its
+// keepsake sits where the climb ends, as close below the cairn as Pip can stand
+const SECRET_RING = [0.6, 0.8, 1.0, 1.3, 1.6, 2.0, 2.5, 3.0, 3.5, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 25, 28, 32, 36, 40];
 const SOLID = {
   tree_round: 0.72, tree_pine: 0.6, tree_snow: 0.6, tree_palm: 0.42, bush: 0.62, rock: 0.55, boulder: 1.25,
   stump: 0.45, pot: 0.3, lamp: 0.22, sign: 0.28, well: 1.15, chest: 0.6, pedestal: 0.95,
@@ -50,6 +54,9 @@ export class World {
     this.npcSpots = {};
     this.houses = [];
     this.unreachable = [];
+    this.shells = [];     // rainbow shells for Clover's errand (placeShells, a post-pass)
+    this.lanterns = [];   // paper lanterns for Mayor Ribbit's parade (placeLanterns, a post-pass)
+    this.secrets = [];    // the landmark keepsakes (placeSecrets, a post-pass)
     this.carved = 0;
     // WP9 foundation shadow (scatter()): what the foundation had and WP9 does not (ghost solids and colliders, reservations
     // tagged t = 2) and its terrain before WP9's own edits, so the main stream draws exactly what the foundation drew
@@ -88,7 +95,9 @@ export class World {
   }
 
   // ------------------------------------------------------------------ generation
-  generate() {
+  /** o.shells = false skips the rainbow-shell post-pass, o.lanterns = false the parade-lantern one and o.secrets = false
+   *  the landmark-keepsake one (tests compare the island with and without them) */
+  generate(o = {}) {
     const t0 = performance.now();
     const T = (this.genT = {});
     let tl = t0;
@@ -118,6 +127,9 @@ export class World {
     this.computeSplat();
     this.buildColliderHash();
     this.publishAnchors(); lap('splat');
+    if (o.shells !== false) { this.placeShells(); lap('shells'); }
+    if (o.lanterns !== false) { this.placeLanterns(); lap('lanterns'); }
+    if (o.secrets !== false) { this.placeSecrets(); lap('secrets'); }
     this.genMs = performance.now() - t0;
   }
 
@@ -1559,6 +1571,180 @@ export class World {
     this.fnd = null; this._gh = null; this._cg = null; this._rg = null;   // the shadow is done
   }
 
+  // ------------------------------------------------------------------ errands
+  /** Clover's errand (data.js ERRANDS): W.shells = five rainbow shells [{ id: 'shell1'…'shell5', kind: 'shell', x, y, z, at }], one
+   *  per Shores spot Clover names: by the lighthouse, on each islet, outside Captain Pinch's cove and beside the beach
+   *  path. A post-pass after everything else: it draws only from its own RNG stream, adds nothing to the world's lists
+   *  (props, deco, colliders, reservations, interactables) and puts W.walk / W.reach back, so every existing placement
+   *  is the same as without it for every seed. A spot is dry Shores sand (not a bridge), flat, clear of solids,
+   *  colliders, reservations, chests and NPC spots, outside the arena and its ring, and reachable from the spawn. */
+  placeShells() {
+    const R = new RNG(this.seed * 41 + 29), keep = [this.walk, this.reach];
+    const reach = this.bfs(this.buildWalk());
+    this.walk = keep[0]; this.reach = keep[1];
+    const shells = [], a = this.arenas.shores, lm = this.landmarks.find((l) => l.id === 'shores');
+    // reservations: the path band, every reserved circle except the islets' own blankets (they keep scatter off the
+    // islets; the islets are where Clover sends Pip) and a margin round every bridge deck
+    const blanket = (c) => this.islets.some((i) => c.x === i.x && c.z === i.z && c.r === i.r);
+    const reserved = (x, z) => this.pathDAt(x, z) < 3.0 || (this.reserved || []).some((c) => !blanket(c) && len2(x - c.x, z - c.z) < c.r + 0.5)
+      || this.bridges.some((b) => distToSeg(x, z, b.ax, b.az, b.bx, b.bz) < b.w / 2 + 1.5);
+    // the Shores: its region, or an islet (islet 2, off the western beach, reads as Meadow on the region map)
+    const shores = (x, z) => this.regionAt(x, z) === REGION.SHORES || this.islets.some((i) => len2(x - i.x, z - i.z) < i.r - 1);
+    const ok = (x, z) => shores(x, z) && this.surfaceAt(x, z) === 'sand' && this.hAt(x, z) > 0.3 && this.slopeAt(x, z) < 0.5
+      && !this.inArena(x, z, 5) && !reserved(x, z) && !this.solidNear(x, z, 1.0) && !this.colliders.some((c) => len2(c.x - x, c.z - z) < c.r + 1.0)
+      && !this.chests.some((c) => len2(c.x - x, c.z - z) < 2.5) && !this.interact.some((it) => len2(it.x - x, it.z - z) < 2.5)
+      && !Object.values(this.npcSpots).some((q) => len2(q.x - x, q.z - z) < 3)
+      && !shells.some((q) => len2(q.x - x, q.z - z) < 8) && this.isReached(reach, x, z, false);
+    // the beach path: the middle of its stretch over Shores sand
+    const sandy = (this.paths.shores || []).filter((p) => this.regionAt(p.x, p.z) === REGION.SHORES && this.hAt(p.x, p.z) < 1.6);
+    const mid = sandy[Math.floor(sandy.length / 2)] || { x: a.x, z: a.z - a.r - 20 };
+    const spots = [
+      ['lighthouse', lm ? lm.x : a.x - 24, lm ? lm.z : a.z, 4, 12],
+      ['islet1', this.islets[0].x, this.islets[0].z, 0, this.islets[0].r - 1.5],
+      ['islet2', this.islets[1].x, this.islets[1].z, 0, this.islets[1].r - 1.5],
+      ['cove', a.x, a.z, a.r + 6, a.r + 16],
+      ['path', mid.x, mid.z, 3.5, 6.5],
+    ];
+    // every 0.5 m of the ring, nearest the spot's centre first (a small islet can have only a sliver of dry sand clear
+    // of its palm, chest and bridge: seed 23's second islet, which random tries missed). Draws nothing
+    const scan = (cx, cz, r0, r1) => {
+      let best = null, bd = Infinity;
+      for (let dz = -r1; dz <= r1; dz += 0.5) for (let dx = -r1; dx <= r1; dx += 0.5) {
+        const d = Math.hypot(dx, dz);
+        if (d < r0 || d > r1 || d >= bd || !ok(cx + dx, cz + dz)) continue;
+        best = { x: cx + dx, z: cz + dz }; bd = d;
+      }
+      return best;
+    };
+    for (const [at, cx, cz, r0, r1] of spots) {
+      let got = null;
+      // 160 tries in the spot's ring, then a scan of the whole ring, so the shell is where Clover says; only then twice as
+      // far out, then anywhere on the Shores (neither seen on seeds 1–150)
+      for (const tier of [{ lo: r0, hi: r1 }, { scan: true }, { lo: r0, hi: r1 * 2 + 6 }, { lo: 0, hi: 150, x: a.x, z: a.z }]) {
+        if (tier.scan) { const q = scan(cx, cz, r0, r1); if (q) got = { x: +q.x.toFixed(3), z: +q.z.toFixed(3) }; }
+        else for (let t = 0; t < 160 && !got; t++) {
+          const ang = R.range(0, TAU), d = Math.sqrt(R.range(tier.lo * tier.lo, tier.hi * tier.hi));
+          const x = (tier.x ?? cx) + Math.sin(ang) * d, z = (tier.z ?? cz) + Math.cos(ang) * d;
+          if (ok(x, z)) got = { x: +x.toFixed(3), z: +z.toFixed(3) };
+        }
+        if (got) break;
+      }
+      if (got) shells.push({ id: 'shell' + (shells.length + 1), kind: 'shell', x: got.x, y: this.hAt(got.x, got.z), z: got.z, at });
+    }
+    this.shells = shells;
+  }
+
+  /** Mayor Ribbit's parade (data.js ERRANDS 'ribbit'): W.lanterns = four paper lanterns [{ id: 'lantern1'…'lantern4',
+   *  kind: 'lantern', x, y, z, rot, paper: { x, y, z }, at }], one per village spot Ribbit names: beside the walk up to the Great Tree's altar, by
+   *  the plaza signpost, in front of Miso's shop and at the village edge on the Meadow path. A post-pass like
+   *  placeShells: its own RNG stream, nothing added to the world's lists (a lantern has no collider: Pip lights it by
+   *  walking past) and W.walk / W.reach put back. A spot is flat dry ground inside TW.paradeR of the plaza centre, off
+   *  the path band and the z = 9 test line, clear of solids, colliders, chests, interactables and NPC spots, and
+   *  reachable from the spawn. */
+  placeLanterns() {
+    const R = new RNG(this.seed * 53 + 7), keep = [this.walk, this.reach];
+    const reach = this.bfs(this.buildWalk());
+    this.walk = keep[0]; this.reach = keep[1];
+    const out = [], P = this.pedestal, sp = this.signpost, sh = this.shop;
+    const ok = (x, z) => len2(x, z) < TW.paradeR - 6 && !(Math.abs(z - 9) < 1.2 && Math.abs(x) < 14) && this.hAt(x, z) > 0.6 && this.slopeAt(x, z) < 0.45 && this.bridgeAt(x, z) === null
+      && this.pathDAt(x, z) >= 2.2 && !this.solidNear(x, z, 1.2) && !this.colliders.some((c) => len2(c.x - x, c.z - z) < c.r + 0.9)
+      && !this.chests.some((c) => len2(c.x - x, c.z - z) < 2.5) && !this.interact.some((it) => len2(it.x - x, it.z - z) < Math.max(2.5, (it.r || 0) + 0.8))
+      && !Object.values(this.npcSpots).some((q) => len2(q.x - x, q.z - z) < 3) && len2(x - this.spawn.x, z - this.spawn.z) > 2.5
+      && !out.some((q) => len2(q.x - x, q.z - z) < 8) && this.isReached(reach, x, z, false);
+    // each spot: its centres in order (the Meadow one walks out along the path when a stretch is too cramped), a ring
+    const mp = [26, 22, 29, 18].map((d) => { const p = this.pathAtDist('meadow', d); return [p.x, p.z]; });
+    const spots = [
+      ['altar', [[P.x, (P.z + this.spawn.z) / 2]], 3, 6.5],
+      ['signpost', [[sp ? sp.x : 0, sp ? sp.z : 18]], 2.6, 6],
+      ['shop', [[sh.x + Math.sin(sh.rot) * 7, sh.z + Math.cos(sh.rot) * 7]], 0, 4],
+      ['meadow', mp, 2.4, 6],
+    ];
+    // nearest the spot's centre on a 0.5 m grid of its ring (draws nothing), as placeShells' fallback
+    const scan = (cx, cz, r0, r1) => {
+      let best = null, bd = Infinity;
+      for (let dz = -r1; dz <= r1; dz += 0.5) for (let dx = -r1; dx <= r1; dx += 0.5) {
+        const d = Math.hypot(dx, dz);
+        if (d < r0 || d > r1 || d >= bd || !ok(cx + dx, cz + dz)) continue;
+        best = { x: cx + dx, z: cz + dz }; bd = d;
+      }
+      return best;
+    };
+    for (const [at, centres, r0, r1] of spots) {
+      let got = null;
+      for (const [cx, cz] of centres) {
+        for (let t = 0; t < 160 && !got; t++) {
+          const ang = R.range(0, TAU), d = Math.sqrt(R.range(r0 * r0, r1 * r1));
+          const x = cx + Math.sin(ang) * d, z = cz + Math.cos(ang) * d;
+          if (ok(x, z)) got = { x, z };
+        }
+        if (!got) got = scan(cx, cz, r0, r1);
+        if (got) break;
+      }
+      if (!got) got = scan(centres[0][0], centres[0][1], r0, r1 * 2 + 4);   // not seen on seeds 1–40
+      if (got) {
+        // rot: the post's turn (a hash, no draw); paper: the hanging paper's centre, where the light-up motes go
+        const x = +got.x.toFixed(3), z = +got.z.toFixed(3), y = this.hAt(x, z), rot = hash2(Math.round(x * 10), Math.round(z * 10), 13) * TAU;
+        const paper = { x: x + Math.cos(rot) * PARADE_PAPER.x, y: y + PARADE_PAPER.y, z: z - Math.sin(rot) * PARADE_PAPER.x };
+        out.push({ id: 'lantern' + (out.length + 1), kind: 'lantern', x, y, z, rot, paper, at });
+      }
+    }
+    this.lanterns = out;
+  }
+
+  /** the landmark keepsakes (data.js SECRETS): W.secrets = [{ id, landmark, kind: 'secret', x, y, z, rot, at }], one per
+   *  region landmark (not the Great Tree), in SECRETS order. A post-pass like placeShells, but a pure scan with no RNG
+   *  draws: nothing added to the world's lists (a keepsake has no collider) and W.walk / W.reach put back, so every
+   *  existing placement is the same as without it for every seed. A spot is just outside the landmark's collider ring
+   *  (r + 0.6 … r + 3 m, every 5°), dry, walkable and not steep, off bridges and arenas, clear of every other solid and
+   *  collider, chests, interactables, NPC spots, rainbow shells and parade lanterns, and reachable from the spawn. The
+   *  best one is nearest the side facing away from the region's path (the lighthouse: toward the nearest sea), then
+   *  nearest the ring; with nothing valid on that half the same rule takes the nearest valid spot round the ring. Only
+   *  when nothing within 3 m is valid (the cairn's needle summit) does it look further out (SECRET_RING), as close as
+   *  Pip can stand. `at`: the angle (rad) between the spot and that side. rot: the keepsake faces out from its landmark */
+  placeSecrets() {
+    const keep = [this.walk, this.reach];
+    const reach = this.bfs(this.buildWalk());
+    this.walk = keep[0]; this.reach = keep[1];
+    const out = [], extra = (this.shells || []).concat(this.lanterns || []);
+    for (const s of SECRETS) {
+      const lm = this.landmarks.find((l) => l.id === s.landmark);
+      if (!lm || !lm.prop) continue;
+      const r = lm.prop.r, pts = this.paths[lm.region] || [];
+      // the side away from the region's path: from the nearest path sample through the landmark
+      let q = null, qd = Infinity;
+      for (const p of pts) { const d = len2(p.x - lm.x, p.z - lm.z); if (d < qd) { qd = d; q = p; } }
+      let pref = q ? Math.atan2(lm.x - q.x, lm.z - q.z) : 0;
+      if (s.landmark === 'shores') {   // the lighthouse: toward the nearest open water instead (every 5°, out to 40 m)
+        let best = Infinity;
+        for (let k = 0; k < 72; k++) {
+          const a = (k / 72) * TAU - Math.PI;
+          for (let d = r + 1; d < Math.min(best, 40); d += 0.5) if (this.hAt(lm.x + Math.sin(a) * d, lm.z + Math.cos(a) * d) < 0) { best = d; pref = a; break; }
+        }
+      }
+      // solids and colliders within the farthest ring (and a margin), its own excepted
+      const far = r + SECRET_RING[SECRET_RING.length - 1] + 2;
+      const solids = this.props.filter((p) => p.solid && !p.removed && p !== lm.prop && len2(p.x - lm.x, p.z - lm.z) < far + p.r);
+      const cols = this.colliders.filter((c) => c.prop !== lm.prop && len2(c.x - lm.x, c.z - lm.z) < far + (c.r || 0) + Math.hypot(c.hx || 0, c.hz || 0) + 4);
+      const ok = (x, z) => this.hAt(x, z) > 0.25 && this.walkable(x, z) && this.slopeAt(x, z) < 0.7 && this.bridgeAt(x, z) === null && !this.inArena(x, z, 2)
+        && !solids.some((p) => len2(p.x - x, p.z - z) < p.r + 0.5) && !cols.some((c) => shapeDist(c, x, z) < 0.5)
+        && !this.chests.some((c) => len2(c.x - x, c.z - z) < 2.5) && !this.interact.some((it) => len2(it.x - x, it.z - z) < Math.max(2, (it.r || 0) + 0.5))
+        && !Object.values(this.npcSpots).some((p) => len2(p.x - x, p.z - z) < 3) && !extra.some((p) => len2(p.x - x, p.z - z) < 2)
+        && this.isReached(reach, x, z, false);
+      // the near rings (≤ 3 m) first, then the far ones; within a tier the lowest cost (off the preferred side, then out)
+      let got = null;
+      for (const dd of SECRET_RING) for (let k = 0; k < 72; k++) {
+        if (got && dd > 3 && got.dd <= 3) break;
+        const a = (k / 72) * TAU - Math.PI, off = Math.abs(angDiff(a, pref)), cost = off + 0.35 * (dd - 0.6);
+        if (got && cost >= got.cost) continue;
+        const x = +(lm.x + Math.sin(a) * (r + dd)).toFixed(3), z = +(lm.z + Math.cos(a) * (r + dd)).toFixed(3);   // checked as stored
+        if (ok(x, z)) got = { x, z, a, off, cost, dd };
+      }
+      if (!got) continue;   // never seen on seeds 1–150 (tests/world.test.js)
+      out.push({ id: s.id, landmark: s.landmark, kind: 'secret', x: got.x, y: this.hAt(got.x, got.z), z: got.z, rot: +got.a.toFixed(4), at: +got.off.toFixed(3) });
+    }
+    this.secrets = out;
+  }
+
   // ------------------------------------------------------------------ reachability
   bfs(W) {
     const R = new Uint8Array(SIZE * SIZE);
@@ -1671,8 +1857,8 @@ export class World {
 
 Object.assign(World.prototype, WorldCollide);
 
-export function generateWorld(seed) {
+export function generateWorld(seed, o = {}) {
   const W = new World(seed);
-  W.generate();
+  W.generate(o);
   return W;
 }
