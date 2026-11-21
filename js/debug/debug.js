@@ -351,7 +351,7 @@ export const DebugMixin = {
         };
       },
       /** in-page test suites (js/debug/tests.js, loaded on first use, only with ?debug=1): run(name | 'all') → Promise of
-       *  { suite, pass, fail, ms, results: [{ name, pass, msg, data }] }; list() → suite names */
+       *  { suite, pass, fail, ms, results: [{ name, pass, msg, data }] }; list() → [{ name, desc, tests, heavy, names }] */
       test: {
         async run(name = 'all', o = {}) {
           if (!G.debugAllowed) return { suite: name, pass: 0, fail: 1, results: [{ name: 'load', pass: false, msg: 'in-page tests need ?debug=1' }] };
