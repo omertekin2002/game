@@ -385,6 +385,7 @@ streams, so the main stream (and with it the scatter) of a seed stays stable.
 | `W.paths`, `W.pathF / pathFAt`, `W.woodsGaps`, `W.signpost`, `W.waymarkers`, `W.lamps`, `W.chests`, `W.houses`, `W.shop`, `W.npcSpots`, `W.interact` | paths and dressing, interactables |
 | `W.shells [{ id: 'shell1'…'shell5', kind: 'shell', x, y, z, at }]` | Clover's rainbow shells (`at`: `lighthouse`, `islet1`, `islet2`, `cove`, `path`). `placeShells()` runs after everything else in `generate()` on its own RNG (`seed × 41 + 29`), adds nothing to any other list and restores `W.walk` / `W.reach`, so no existing placement moves on any seed (`tests/world.test.js` compares with `tests/fixtures/world-prints.json`). Each spot is dry Shores sand (an islet counts as Shores), flat, ≥ 3 m off the path, clear of solids, colliders, reservations (bar the islets' own), bridges, chests and NPC spots, outside the arena ring and reachable. A spot is tried 160 times at random in its ring, then the whole ring is scanned every 0.5 m, so the shell is where Clover says (seeds 1–300 checked; `tests/world.test.js` checks 1–40); only then does it widen. `generateWorld(seed, { shells: false })` skips the pass. Not in `W.interact`: `interactables()` (`js/targeting.js`) offers the ones that are out |
 | `W.lanterns [{ id: 'lantern1'…'lantern4', kind: 'lantern', x, y, z, rot, paper: { x, y, z }, at }]` | Mayor Ribbit's parade lanterns (`at`: `altar`, `signpost`, `shop`, `meadow`). `placeLanterns()` runs last in `generate()`, after `placeShells()`, on its own RNG (`seed × 53 + 7`) with the same guarantees: nothing added to any other list (a lantern has no collider), `W.walk` / `W.reach` restored. Each spot is inside `TUNE.world.paradeR − 6` of the plaza centre, flat (slope < 0.45), ≥ 2.2 m off the paths and off the z = 9 test line, clear of solids, colliders, bridges, chests, interactables, NPC spots and the spawn, ≥ 8 m from the others and reachable; 160 random tries per centre, then a 0.5 m scan (the Meadow spot tries four points along its path). `generateWorld(seed, { lanterns: false })` skips the pass. Not interactables: `tickErrands` lights them |
+| `W.secrets [{ id, landmark, kind: 'secret', x, y, z, rot, at }]` | The landmark keepsakes (`SECRETS` in `js/data.js`: `acorn` woods, `stone` peaks, `bottle` shores, `pouch` meadow; none at the Great Tree). `placeSecrets()` runs last in `generate()`, after `placeLanterns()`, as a pure scan with no RNG draws and the same guarantees: nothing added to any other list (a keepsake has no collider), `W.walk` / `W.reach` restored. Each spot is on rings 0.6–3 m outside its landmark's collider (`prop.r`), every 5°: dry, walkable (slope < 0.7), off bridges and arenas, clear of every solid and collider but its own landmark's (by 0.5 m), of chests, interactables, NPC spots, rainbow shells and parade lanterns, and reachable. The lowest cost wins: the angle (`at`, rad) off the side away from the region's path (the lighthouse: toward the nearest sea), then 0.35 per metre out. Only with nothing valid within 3 m (the cairn's needle summit, unreachable on most seeds) does it widen out to 40 m (`SECRET_RING`), so the stone lies as close below the cairn as Pip can stand. `rot`: facing out from the landmark. `generateWorld(seed, { secrets: false })` skips the pass. Not in `W.interact`: `interactables()` offers the ones not found |
 
 **9.3 Colliders.** `W.colliders`, hashed in 4 m cells: `{ x, z, r (bounding), kind, shape: 'circle'|'obb'|'star', hx, hz,
 rot, y0, y1, camTop, rEye, stand, over, canopy, body, … }`. Heights are baked from `COLLIDER_H` (per kind) unless a prop
@@ -570,12 +571,13 @@ from `META` (`js/hud/menus.js`); a key without `META` still gets a row.
 | `hudScale`, `minimap` | 1 (0.8–1.2), `heading` (`heading`, `north`, `off`) | HUD |
 | `quality`, `dynRes` | `auto` (`auto`, `low`, `high`), true | perf (DPR, grass, shadow map, dynamic resolution), assets (HD / lo, anisotropy), atmosphere (terrain layers) |
 
-Save (`game.S`, key `starseed-isle-save-v2`, `v: 5`): seed, position, facing, hp, maxHp, coins, potions, swordLevel,
+Save (`game.S`, key `starseed-isle-save-v2`, `v: 6`): seed, position, facing, hp, maxHp, coins, potions, swordLevel,
 seeds (0 none, 1 carried, 2 placed), chests, bosses, shopHeart, ending, time of day, visited regions, playTime, intro and
 controls flags, `errands` (errand id → 1 started, 2 done; `ERRANDS` and the `errands` helpers in `js/data.js`), `shells`
 (the errand item flags: item id → true, a rainbow shell picked up `shell1`… or a parade lantern lit `lantern1`…; no two
 errands share an id), `plushies` (v4: Miso's guardian plushies bought, guardian id → true), `rematches` (v5: guardian
-rematches won after the bloom, guardian id → true; `REMATCH` and the `rematch` helpers in `js/data.js`), plus the optional `pitch` (restored clamped ±0.6 rad), `controlsV` (< 2 → the first-run coach marks once)
+rematches won after the bloom, guardian id → true; `REMATCH` and the `rematch` helpers in `js/data.js`), `secrets` (v6:
+landmark keepsakes found, keepsake id → true; `SECRETS` and the `secrets` helpers in `js/data.js`), plus the optional `pitch` (restored clamped ±0.6 rad), `controlsV` (< 2 → the first-run coach marks once)
 and `waypoint { x, z }` (the map marker). Non-numeric optional fields fall back to defaults. Autosave every 30 s outside
 fights and at key events. `wp9-world.onSession` moves a Continue whose saved spot is now inside a collider to the
 nearest free spot.
@@ -586,7 +588,7 @@ and fills, clamps or coerces the known fields; unknown fields such as `pitch`, `
 `js/save.js` imports only `js/data.js`, so `bun test` can load it. To change the layout, bump `SAVE_VERSION` and add a
 `MIGRATIONS[old]` step with a test (`docs/DESIGN.md` §15). `MIGRATIONS[2]` (v2 → v3) adds `errands: {}` and
 `shells: {}` and keeps every v2 field; `MIGRATIONS[3]` (v3 → v4) adds `plushies: {}`; `MIGRATIONS[4]` (v4 → v5) adds
-`rematches: {}`.
+`rematches: {}`; `MIGRATIONS[5]` (v5 → v6) adds `secrets: {}`.
 
 Errands (`js/interact.js`), driven by their `ERRANDS` entry (`js/data.js`): `item` (the id prefix and the scenery kind),
 `list` (the world list of its spots), `how` (`'use'`: picked up with Use; `'walk'`: lit by walking past), `keep` (a found
@@ -619,6 +621,18 @@ and saves; the last one sends a following villager home (`npc.goHome()`). `syncE
 
 `tickErrandFx` twinkles each item still out within 40 m (each render frame, skipped while the clock holds or a dialogue is up; Motion comfort thins the lantern twinkles and stops their sway). The tracker's `errands` row
 counts errands done (`errands.done(S)`) over `ERRANDS.length`.
+
+Landmark keepsakes (`js/interact.js`, `SECRETS` and `secrets` in `js/data.js`): an interactable of kind `secret` from
+`interactables()` in `js/targeting.js` while not found (`<verb> · <label>` from its entry, so the prompt does not name
+it: `Look · Something glowing`; aim point `TUNE.combat.aimPts.secret`, range `secretRange`), before and after the bloom.
+Use calls `findSecret(it)`: its lines through `ui.say` with its name as the speaker, then, the first time only,
+`secrets.find(S, id)` (the flag and 25 gems in `S.coins`), `scenery.setSecret(id, true, keep)` (gone; the `keep` bottle
+loses only its cork and message), a few motes, an `EV.COLLECT` gem line, a "Secret found n/4" feed note and a save.
+`syncSecrets` sets the scenery from the save at every session start. `tickSecretFx` (with `tickErrandFx`) twinkles each
+keepsake not found within `TUNE.combat.secretFx` (6) m, fewer with Motion comfort. The scenery builds each as a group
+(`secretModel(id)` in `js/props.js`: `main` and an optional `lid`, procedural) scaled 1.4. The tracker's `secrets` row
+counts `secrets.count(S)` over `SECRETS.length`. Digby has a hint line once a Starseed is home and a thank-you once all
+four are found.
 
 ## 13. Viewmodel (`js/view/viewmodel.js`, module `wp2-viewmodel`) — detail: [WP2](wp/WP2.md)
 
@@ -845,7 +859,7 @@ comparison only).
 
 | Helper | |
 |---|---|
-| `teleport(x, z, yaw = null, pitch = 0) → [x, y, z]`, `pose(name)`, `standAt(kind \| npcId, n, { dist })` (`kind` `'shell'`: rainbow shell n of `W.shells`) | `pose`: `spawn`, `plaza-N`, `plaza-S`, `tree`, `village`, `woods`, `peaks`, `shores`, `meadow`, `hilltop`, `arena-woods / peaks / shores` (an unknown name lists them) |
+| `teleport(x, z, yaw = null, pitch = 0) → [x, y, z]`, `pose(name)`, `standAt(kind \| npcId, n, { dist })` (`kind` `'shell'`: rainbow shell n of `W.shells`; `'secret'`: landmark keepsake n of `W.secrets`, from outside its landmark) | `pose`: `spawn`, `plaza-N`, `plaza-S`, `tree`, `village`, `woods`, `peaks`, `shores`, `meadow`, `hilltop`, `arena-woods / peaks / shores` (an unknown name lists them) |
 | `spawn(type, dist = 4, relDeg = null, { alt, face, state, st })`, `last`, `enemies()`, `freezeAI(on)`, `freezeTime(on)`, `god(on)`, `hurt(dmg, relDeg)`, `down()` | `relDeg` from the view yaw (+ = left); the new enemy is `G.debug.last` |
 | `setTime(h)`, `giveSeeds()`, `toBoss(id)`, `killBoss()`, `cutscene(name, id)` | `cutscene`: `'place'`, `'ending'`, `'bossIntro'`, `'itemGet'` |
 | `aim()`, `target()`, `aimAt(x, y, z)` | what a full swing would hit now; the interaction target; aim the crosshair at a point (TP: from the camera the rig settles at for that look, which it runs the live rig to; where a slide flips shoulders with the aim it keeps the best look) |
@@ -887,7 +901,8 @@ Ribbit's parade after the ending (a talk; for each lantern Pip walks in from abo
 close behind, having walked or catch-up hopped there himself; a mid-parade Save & Quit → Continue; Pip out of the village
 while Ribbit waits at its edge; a talk for the reward once), Miso's plushies through her shop, a guardian rematch
 (walking into the arena starts nothing; the `Wake` prompt and Use start it; a win gives 40 gems once and no Starseed; a
-dizzy reset; a repeat win gives nothing), the pause tracker at 3/3 and errands 2/2, Save & Quit, a reload and Continue
+dizzy reset; a repeat win gives nothing), the four landmark keepsakes (the acorn before the bloom: Use reads it, 25 gems
+once, saved; the twinkle near-only and calmer with Motion comfort), the pause tracker at 3/3, errands 2/2 and secrets 4/4, Save & Quit, a reload and Continue
 with the bloom, both finished errands and the rematch flag restored and the guardians napping again; it steps the real frame loop
 (`game.runFrame`, drawing one frame in 60) on the manual clock without its redraws instead of waiting in real time), and
 `tests/opening.mjs` (the opening with real input events only, never `G.debug` input: New Game, Shellby's intro page by page,
