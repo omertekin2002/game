@@ -2,14 +2,18 @@
 // chests, NPC spots, colliders and a reachability check (BFS + corridor carving). Ground/walkable/bridge queries,
 // the walk grid and the collider hash live in world-collide.js.
 import { RNG, makeNoise, clamp, lerp, smoothstep, sampleSpline, distToSeg, len2, angDiff, TAU, hash2 } from './util.js';
-import { REGION, SIGNS, DOOR_LINES } from './data.js';
+import { REGION, SIGNS, DOOR_LINES, SECRETS } from './data.js';
 import { world as TW } from './tune.js';
-import { WorldCollide } from './world-collide.js';
+import { WorldCollide, shapeDist } from './world-collide.js';
 import { SIZE, HALF, N, CHUNK, NCH } from './world-const.js';
 import { HOUSE_DRESSING, LANDMARK_R, PARADE_PAPER } from './props.js';
 
 export { SIZE, HALF, N, CHUNK, NCH };
 
+// placeSecrets: how far out from a landmark's collider ring a keepsake may sit (m). The near rings (≤ 3 m) are the rule;
+// the far ones are for the Summit Crystal Cairn, whose needle summit is too steep to walk up to on most seeds, so its
+// keepsake sits where the climb ends, as close below the cairn as Pip can stand
+const SECRET_RING = [0.6, 0.8, 1.0, 1.3, 1.6, 2.0, 2.5, 3.0, 3.5, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 25, 28, 32, 36, 40];
 const SOLID = {
   tree_round: 0.72, tree_pine: 0.6, tree_snow: 0.6, tree_palm: 0.42, bush: 0.62, rock: 0.55, boulder: 1.25,
   stump: 0.45, pot: 0.3, lamp: 0.22, sign: 0.28, well: 1.15, chest: 0.6, pedestal: 0.95,
@@ -52,6 +56,7 @@ export class World {
     this.unreachable = [];
     this.shells = [];     // rainbow shells for Clover's errand (placeShells, a post-pass)
     this.lanterns = [];   // paper lanterns for Mayor Ribbit's parade (placeLanterns, a post-pass)
+    this.secrets = [];    // the landmark keepsakes (placeSecrets, a post-pass)
     this.carved = 0;
     // WP9 foundation shadow (scatter()): what the foundation had and WP9 does not (ghost solids and colliders, reservations
     // tagged t = 2) and its terrain before WP9's own edits, so the main stream draws exactly what the foundation drew
@@ -90,8 +95,8 @@ export class World {
   }
 
   // ------------------------------------------------------------------ generation
-  /** o.shells = false skips the rainbow-shell post-pass and o.lanterns = false the parade-lantern one (tests compare the
-   *  island with and without them) */
+  /** o.shells = false skips the rainbow-shell post-pass, o.lanterns = false the parade-lantern one and o.secrets = false
+   *  the landmark-keepsake one (tests compare the island with and without them) */
   generate(o = {}) {
     const t0 = performance.now();
     const T = (this.genT = {});
@@ -124,6 +129,7 @@ export class World {
     this.publishAnchors(); lap('splat');
     if (o.shells !== false) { this.placeShells(); lap('shells'); }
     if (o.lanterns !== false) { this.placeLanterns(); lap('lanterns'); }
+    if (o.secrets !== false) { this.placeSecrets(); lap('secrets'); }
     this.genMs = performance.now() - t0;
   }
 
@@ -1683,6 +1689,60 @@ export class World {
       }
     }
     this.lanterns = out;
+  }
+
+  /** the landmark keepsakes (data.js SECRETS): W.secrets = [{ id, landmark, kind: 'secret', x, y, z, rot, at }], one per
+   *  region landmark (not the Great Tree), in SECRETS order. A post-pass like placeShells, but a pure scan with no RNG
+   *  draws: nothing added to the world's lists (a keepsake has no collider) and W.walk / W.reach put back, so every
+   *  existing placement is the same as without it for every seed. A spot is just outside the landmark's collider ring
+   *  (r + 0.6 … r + 3 m, every 5°), dry, walkable and not steep, off bridges and arenas, clear of every other solid and
+   *  collider, chests, interactables, NPC spots, rainbow shells and parade lanterns, and reachable from the spawn. The
+   *  best one is nearest the side facing away from the region's path (the lighthouse: toward the nearest sea), then
+   *  nearest the ring; with nothing valid on that half the same rule takes the nearest valid spot round the ring. Only
+   *  when nothing within 3 m is valid (the cairn's needle summit) does it look further out (SECRET_RING), as close as
+   *  Pip can stand. `at`: the angle (rad) between the spot and that side. rot: the keepsake faces out from its landmark */
+  placeSecrets() {
+    const keep = [this.walk, this.reach];
+    const reach = this.bfs(this.buildWalk());
+    this.walk = keep[0]; this.reach = keep[1];
+    const out = [], extra = (this.shells || []).concat(this.lanterns || []);
+    for (const s of SECRETS) {
+      const lm = this.landmarks.find((l) => l.id === s.landmark);
+      if (!lm || !lm.prop) continue;
+      const r = lm.prop.r, pts = this.paths[lm.region] || [];
+      // the side away from the region's path: from the nearest path sample through the landmark
+      let q = null, qd = Infinity;
+      for (const p of pts) { const d = len2(p.x - lm.x, p.z - lm.z); if (d < qd) { qd = d; q = p; } }
+      let pref = q ? Math.atan2(lm.x - q.x, lm.z - q.z) : 0;
+      if (s.landmark === 'shores') {   // the lighthouse: toward the nearest open water instead (every 5°, out to 40 m)
+        let best = Infinity;
+        for (let k = 0; k < 72; k++) {
+          const a = (k / 72) * TAU - Math.PI;
+          for (let d = r + 1; d < Math.min(best, 40); d += 0.5) if (this.hAt(lm.x + Math.sin(a) * d, lm.z + Math.cos(a) * d) < 0) { best = d; pref = a; break; }
+        }
+      }
+      // solids and colliders within the farthest ring (and a margin), its own excepted
+      const far = r + SECRET_RING[SECRET_RING.length - 1] + 2;
+      const solids = this.props.filter((p) => p.solid && !p.removed && p !== lm.prop && len2(p.x - lm.x, p.z - lm.z) < far + p.r);
+      const cols = this.colliders.filter((c) => c.prop !== lm.prop && len2(c.x - lm.x, c.z - lm.z) < far + (c.r || 0) + Math.hypot(c.hx || 0, c.hz || 0) + 4);
+      const ok = (x, z) => this.hAt(x, z) > 0.25 && this.walkable(x, z) && this.slopeAt(x, z) < 0.7 && this.bridgeAt(x, z) === null && !this.inArena(x, z, 2)
+        && !solids.some((p) => len2(p.x - x, p.z - z) < p.r + 0.5) && !cols.some((c) => shapeDist(c, x, z) < 0.5)
+        && !this.chests.some((c) => len2(c.x - x, c.z - z) < 2.5) && !this.interact.some((it) => len2(it.x - x, it.z - z) < Math.max(2, (it.r || 0) + 0.5))
+        && !Object.values(this.npcSpots).some((p) => len2(p.x - x, p.z - z) < 3) && !extra.some((p) => len2(p.x - x, p.z - z) < 2)
+        && this.isReached(reach, x, z, false);
+      // the near rings (≤ 3 m) first, then the far ones; within a tier the lowest cost (off the preferred side, then out)
+      let got = null;
+      for (const dd of SECRET_RING) for (let k = 0; k < 72; k++) {
+        if (got && dd > 3 && got.dd <= 3) break;
+        const a = (k / 72) * TAU - Math.PI, off = Math.abs(angDiff(a, pref)), cost = off + 0.35 * (dd - 0.6);
+        if (got && cost >= got.cost) continue;
+        const x = +(lm.x + Math.sin(a) * (r + dd)).toFixed(3), z = +(lm.z + Math.cos(a) * (r + dd)).toFixed(3);   // checked as stored
+        if (ok(x, z)) got = { x, z, a, off, cost, dd };
+      }
+      if (!got) continue;   // never seen on seeds 1–150 (tests/world.test.js)
+      out.push({ id: s.id, landmark: s.landmark, kind: 'secret', x: got.x, y: this.hAt(got.x, got.z), z: got.z, rot: +got.a.toFixed(4), at: +got.off.toFixed(3) });
+    }
+    this.secrets = out;
   }
 
   // ------------------------------------------------------------------ reachability
