@@ -165,6 +165,7 @@ export class Game {
     for (const c of W.chests) this.scenery.setChestOpen(c.id, !!S.chests[c.id], true);
     this.syncErrands();      // errand items (Clover's rainbow shells that are out, Ribbit's parade lanterns; interact.js)
     this.syncPlushies();     // Miso's counter: the guardian plushies bought (interact.js)
+    this.syncSecrets();      // the landmark keepsakes: the found ones gone, an opened bottle (interact.js)
     this.resetErrandNpcs();  // a parade villager is back home, not following, until Pip talks to him again
     this.scenery.setBloom(!!S.ending);
     this.treeSeeds.forEach((g) => (g.visible = !!S.ending && this.treeSeedsWanted()));
@@ -433,7 +434,7 @@ export class Game {
     for (const p of this.pickups) p.render(alpha, t);
     this.scenery.update(dt);
     this.animateSeeds(t);
-    if (!this.clock.hold && !this.ui.dlg) this.tickErrandFx(dt);
+    if (!this.clock.hold && !this.ui.dlg) { this.tickErrandFx(dt); this.tickSecretFx(dt); }
     // blob shadows: each actor's blob(out) says where and how big (or null); Pip's own only while the camera is out of
     // his head, never under the FP eye
     const B = this.blobs, o = _blob;

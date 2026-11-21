@@ -285,8 +285,10 @@ export const combat = {
   fxNear: 0.6,                // FP: sparks never spawn inside this distance of the eye
   // crosshair interaction (feel §9.1): aim point height (NPC: fraction of its height) and radius per kind
   // guardian: a napping rematch guardian, [fraction of its height, m] (the others: [m above the base, m])
-  aimPts: { npc: [0.62, 0.35], sign: [1.05, 0.45], door: [1.1, 0.55], chest: [0.45, 0.55], pedestal: [0.75, 1.0], well: [0.9, 1.1], shell: [0.25, 0.5], guardian: [0.4, 1.0] },
+  aimPts: { npc: [0.62, 0.35], sign: [1.05, 0.45], door: [1.1, 0.55], chest: [0.45, 0.55], pedestal: [0.75, 1.0], well: [0.9, 1.1], shell: [0.25, 0.5], guardian: [0.4, 1.0], secret: [0.25, 0.5] },
   shellRange: 1.6,            // a rainbow shell (Clover's errand) is offered within this + rangeAdd (XZ)
+  secretRange: 1.6,           // a landmark keepsake (data.js SECRETS) is offered within this + rangeAdd (XZ)
+  secretFx: 6,                // a keepsake not found yet twinkles only while Pip is within this many m (XZ): a secret from afar
   guardianRange: 1.6,         // a napping rematch guardian is offered within its radius + this + rangeAdd (XZ, from its centre)
   // accept: angle ≤ clamp(atan(R/d) + add, min, cap) (touch × touchTol), XZ distance to the aim point ≤ range + 0.6
   npcRange: 1.9, rangeAdd: 0.6, tolAdd: 6, tolMin: 8, tolCap: 25, touchTol: 1.6,

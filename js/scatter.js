@@ -16,7 +16,7 @@ import * as THREE from 'three';
 import { HALF, CHUNK, NCH } from './world.js';
 import { toonMat, sharedOutline, outlineMat, meshWithOutline, outlineGeometry, radialProfile, setHullProfile } from './toon.js';
 import { makeModel, Assets } from './assets.js';
-import { propModel, PROP_KIND, houseA, houseB, shopModel, greatTreeParts, bridgeGeo, chestParts, rainbowShellModel, paradeLanternModels, SHOP_COUNTER, PLUSHIE_SPOTS, PLUSHIE_SIZE } from './props.js';
+import { propModel, PROP_KIND, houseA, houseB, shopModel, greatTreeParts, bridgeGeo, chestParts, rainbowShellModel, paradeLanternModels, secretModel, SHOP_COUNTER, PLUSHIE_SPOTS, PLUSHIE_SIZE } from './props.js';
 import { hash2 } from './util.js';
 import { perf as TP } from './tune.js';
 import { proxyGeometry } from './perf/lod.js';
@@ -116,6 +116,7 @@ export class Scenery {
     this.shells = new Map();         // Clover's rainbow shells (W.shells): hidden until her errand puts them out
     this.lanterns = new Map();       // Ribbit's parade lanterns (W.lanterns): hidden until the parade starts, then unlit / lit
     this.plushies = new Map();       // Miso's guardian plushies on her counter (guardian id → mesh): hidden until bought
+    this.secrets = new Map();        // the landmark keepsakes (W.secrets): shown until found (an opened bottle stays)
     this.cullOff = false;            // G.debug.perf.cull(false): everything packed, full models only (base for A/B)
     this.packs = 0; this.packMs = 0; // stats
     this._v = null; this.dirty = true;
@@ -131,6 +132,7 @@ export class Scenery {
     this.buildShells();
     this.buildLanterns();
     this.buildPlushies();
+    this.buildSecrets();
   }
   buildInstanced(list) {
     const byType = new Map();
@@ -533,6 +535,37 @@ export class Scenery {
       this.plushies.set(id, o);
     }
     this.root.add(g);
+  }
+  /** one group per landmark keepsake (W.secrets), shown from the start; game.syncSecrets hides the found ones (an opened
+   *  bottle keeps its body). Procedural only (props.js secretModel), so it needs no asset */
+  buildSecrets() {
+    const list = this.W.secrets || [];
+    if (!list.length) return;
+    const mat = toonMat({ glow: true, glowBase: 0.15, rim: 0.6 }), ol = mats().solid.ol;
+    for (const it of list) {
+      const m = secretModel(it.id);
+      if (!m) continue;
+      const g = new THREE.Group();
+      g.name = 'secret_' + it.id;
+      g.add(meshWithOutline(m.main, mat, ol, { cast: false }));
+      const lid = m.lid ? meshWithOutline(m.lid, mat, ol, { cast: false }) : null;
+      if (lid) g.add(lid);
+      g.position.set(it.x, it.y - 0.02, it.z);
+      g.rotation.y = it.rot;
+      g.scale.setScalar(1.4);
+      this.root.add(g);
+      this.secrets.set(it.id, { group: g, lid, data: it, found: false, shown: true });
+    }
+  }
+  /** a keepsake found (data.js SECRETS): it goes, or for a `keep` one (the bottle) only its lid goes (opened). `shown`
+   *  is the game's wish; group.visible also reads false while the distance culler (perf.js, C10) hides it */
+  setSecret(id, found, keep = false) {
+    const s = this.secrets.get(id);
+    if (!s) return;
+    s.found = !!found;
+    s.shown = !found || !!keep;
+    s.group.visible = s.shown;
+    if (s.lid) s.lid.visible = !found;
   }
   /** show / hide a bought guardian plushie on Miso's counter (guardian id, data.js PLUSHIES `boss`) */
   setPlushie(id, on) {

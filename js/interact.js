@@ -3,7 +3,7 @@
 // freeze) run on sim time (later / tickLater), so they hold while a menu or the shop pauses the world.
 import * as THREE from 'three';
 import { sfx } from './core.js';
-import { BOSSES, CFG, SEED_ORDER, SEEDS, ERRANDS, progress, errands } from './data.js';
+import { BOSSES, CFG, SEED_ORDER, SEEDS, ERRANDS, SECRETS, progress, errands, secrets } from './data.js';
 import { NPC } from './npcs.js';
 import { Boss } from './bosses.js';
 import { Pickup } from './entities.js';
@@ -138,6 +138,7 @@ export const InteractMixin = {
       case 'well': sfx('splash'); this.ui.say(o.lines, {}); break;
       case 'chest': this.openChest(o.chest); break;
       case 'pedestal': this.usePedestal(); break;
+      case 'secret': this.findSecret(o); break;   // a landmark keepsake
       default: { const e = errands.forItem(o.kind); if (e && e.how === 'use') this.findErrandItem(e, o); }   // a rainbow shell
     }
   },
@@ -265,6 +266,44 @@ export const InteractMixin = {
         if (lantern) { const c = it.paper || it; if (Math.random() < (calm ? 0.2 : 0.5)) this.fx.sparkle(c.x + rand(-0.12, 0.12), c.y + rand(-0.12, 0.18), c.z + rand(-0.12, 0.12), pick([0xfff4a0, 0xffe2a8]), 1, 0.25); }
         else this.fx.sparkle(it.x + rand(-0.15, 0.15), it.y + rand(0.35, 0.7), it.z + rand(-0.15, 0.15), pick([0xff9fb6, 0xfff4a0, 0xa8e4ff, 0xb8ffb0, 0xd8b0ff]), 1, 0.3);
       }
+    }
+  },
+  /** the landmark keepsakes from the save: the found ones gone (an opened bottle stays, without its cork) */
+  syncSecrets() {
+    if (!this.scenery.setSecret) return;
+    for (const it of this.world.secrets || []) { const s = secrets.get(it.id); this.scenery.setSecret(it.id, !!this.S && secrets.got(this.S, it.id), !!(s && s.keep)); }
+  },
+  /** Pip reads a landmark keepsake with Use: its lines like a sign, and the first time its gems (the usual gem feedback)
+   *  and a save. A found one is no longer offered, so a repeat never happens in play; secrets.find gives 0 then anyway */
+  findSecret(it) {
+    const S = this.S, s = secrets.get(it.id);
+    if (!s) return false;
+    const gems = secrets.find(S, s.id);
+    sfx('talk');
+    this.ui.say(s.lines, { name: s.name });
+    if (!gems) return false;
+    this.scenery.setSecret(s.id, true, !!s.keep);
+    sfx('sparkle', { x: it.x, y: it.y + 0.3, z: it.z });
+    const k = this.calmFx() ? 3 : 8;
+    for (let i = 0; i < k; i++) this.fx.sparkle(it.x + rand(-0.15, 0.15), it.y + rand(0.15, 0.45), it.z + rand(-0.15, 0.15), pick([0xfff4a0, 0xb8fff0, 0xffc8f0]), 1, 0.5);
+    this.events.emit(EV.COLLECT, { kind: 'gem', value: gems });   // the feed's "+25 gems" line and the gem sound
+    this.ui.selfFloater('Secret found ' + secrets.count(S) + '/' + SECRETS.length, '#c8fbff');   // the gems are the feed's (EV.COLLECT)
+    this.ui.updateHud(S);
+    this.save(true);
+    return true;
+  },
+  /** a faint twinkle over each keepsake not found yet, only within TUNE.combat.secretFx m (a secret from afar), fewer
+   *  with Motion comfort. Called with tickErrandFx (each render frame, skipped while the clock holds or a dialogue is up) */
+  tickSecretFx(dt) {
+    const W = this.world, S = this.S, pl = this.player, R = TC.secretFx || 6;
+    if (!S || !(W.secrets && W.secrets.length)) return;
+    this._secretT = (this._secretT || 0) - dt;
+    if (this._secretT > 0) return;
+    this._secretT = 0.4;
+    const calm = this.calmFx();
+    for (const it of W.secrets) {
+      if (secrets.got(S, it.id) || len2(it.x - pl.pos.x, it.z - pl.pos.z) > R) continue;
+      if (Math.random() < (calm ? 0.25 : 0.7)) this.fx.sparkle(it.x + rand(-0.15, 0.15), it.y + rand(0.3, 0.6), it.z + rand(-0.15, 0.15), pick([0xfff4a0, 0xb8fff0]), 1, 0.25);
     }
   },
   buy(it) {

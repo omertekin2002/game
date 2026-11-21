@@ -40,7 +40,7 @@ export function perfLocations(W) {
   return (W._perfLocs = L);
 }
 // natural standing distance from each kind of interactable's aim point (debug standAt)
-const STAND = { npc: 1.3, sign: 1.4, door: 1.1, chest: 1.3, pedestal: 2.1, well: 2.2, shell: 1.1 };
+const STAND = { npc: 1.3, sign: 1.4, door: 1.1, chest: 1.3, pedestal: 2.1, well: 2.2, shell: 1.1, secret: 1.1 };
 
 /** expose a namespace of debug helpers as G.debug[ns] (modules call this from attach). An existing namespace is never
  *  lost: an object merges its members into it (registerDebug('cam', {…}) keeps G.debug.cam() callable and adds cam.*);
@@ -154,7 +154,8 @@ export const DebugMixin = {
       },
       /** stand at a natural spot in front of an interactable and aim at it: kind 'npc' (id), 'sign' | 'door' | 'chest' |
        *  'well' | 'pedestal' (index n among that kind, nearest first from the spawn), 'shell' (Clover's rainbow shell n in
-       *  W.shells order, picked up or not); returns { x, z, kind, point } */
+       *  W.shells order, picked up or not), 'secret' (landmark keepsake n in W.secrets order, found or not; from the side
+       *  away from its landmark); returns { x, z, kind, point } */
       standAt(kind, n = 0, o = {}) {
         const W = game.world;
         let pt = null, front = null;
@@ -166,6 +167,11 @@ export const DebugMixin = {
           if (!it) return null;
           pt = { x: it.x, y: it.y + (TC.aimPts.shell || [0.25])[0], z: it.z };
           front = yawOf(W.spawn.x - it.x, W.spawn.z - it.z);
+        } else if (kind === 'secret') {
+          const it = (W.secrets || [])[n | 0];
+          if (!it) return null;
+          pt = { x: it.x, y: it.y + (TC.aimPts.secret || [0.25])[0], z: it.z };
+          front = it.rot;   // out from the landmark
         } else {
           const its = W.interact.filter((it) => it.kind === kind && !(it.kind === 'chest' && game.S.chests[it.chest.id])).sort((a, b) => len2(a.x - W.spawn.x, a.z - W.spawn.z) - len2(b.x - W.spawn.x, b.z - W.spawn.z));
           const it = its[n | 0];
