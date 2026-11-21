@@ -191,6 +191,8 @@ export async function run(name = 'all', o = {}) {
       if (!s) { out.fail++; out.results.push({ suite: n, name: '(suite)', pass: false, msg: 'no such suite', checks: 0, data: {} }); continue; }
       for (const [tn, fn] of s.tests) {
         if (o.only && !String(tn).includes(o.only)) continue;
+        // o.skip: exact test names not to run (tests/inpage.mjs: ones software WebGL cannot pass); reported as skipped
+        if (o.skip && o.skip.includes(tn)) { out.results.push({ suite: n, name: tn, pass: false, skipped: true, msg: 'skipped', checks: 0, ms: 0, data: {} }); continue; }
         const res = { suite: n, name: tn, pass: true, msg: null, checks: 0, ms: 0, data: {} };
         const t = ctx(res, o), t0 = performance.now();
         try { await prepare(t, { ...(s.o.prepare || {}), ...(fn.prepare || {}) }); await fn(t); }

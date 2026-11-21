@@ -105,3 +105,36 @@ jobs:
           name: playthrough-failure
           path: test-results/
           if-no-files-found: ignore
+
+  inpage:
+    # the in-page suites (js/debug/tests.js, js/debug/tests/wpN.js), one job per suite so each stays short and a failure
+    # names its suite; `core` is the regular suites in js/debug/tests.js itself. Heavy suites (GPU timing, perf sweeps)
+    # stay out of CI.
+    name: In-page suite (${{ matrix.suite }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [wp1, wp2, wp3, wp4, wp5, wp6, wp7, wp8, wp9, core]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+      - name: Run the suite
+        run: |
+          if [ "${{ matrix.suite }}" = core ]; then
+            node tests/inpage.mjs smoke look feel-basic combat-basic interact-basic save-migrate
+          else
+            node tests/inpage.mjs ${{ matrix.suite }}
+          fi
+      - name: Upload failure screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inpage-${{ matrix.suite }}-failure
+          path: test-results/
+          if-no-files-found: ignore
