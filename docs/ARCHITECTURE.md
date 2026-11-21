@@ -475,13 +475,18 @@ and an aimed snowball shows a landing reticle. Helpers: `telegraph(source, kind,
 
 **10.5 Bosses and fights** (`bosses.js`, `fight.js`, `fx-ground.js`). `Boss` has `name, maxHp, hp, opening` (a free-hit
 window: stunned or recovering), `enraged` (hp ≤ half), `busy`, `room` (personal space, 2.55–2.75 m), `keepOut`,
-`colliderR`, `touchR`, `shrug(wind)`, `snapLen / slideLen`, `forceAtk` (debug). Telegraphs are exact ground shapes from
+`colliderR`, `touchR`, `shrug(wind)`, `snapLen / slideLen`, `forceAtk` (debug), `rematch` (`new Boss(id, arena,
+{ rematch: true })`: `REMATCH.hpK` × HP, `enraged` from `REMATCH.enrage` of it). Telegraphs are exact ground shapes from
 `G.fx.ground`: `shockwave` rings (advanced in the fixed step with `stepRings`; a jump with `player.alt > 0.30` clears
 them), `band`, `stripe` (charge, snap, slide paths), `zone` (Frostbun's landing disc, rim wall and pillar), `crack`,
 `alert`, `aura`, `glint`. Every telegraph mesh carries `userData.cull = { dist: Infinity }`. Fight flow: entering the
 arena (within r − 2.5) starts a 2.4 s intro (`EV.BOSS_INTRO`, `CUTSCENE_START`, vine gate rises, Pip walks in, look
 locked), then `EV.BOSS_FIGHT`; defeat → `EV.BOSS_DEFEATED`, the Starseed drops, `EV.FIGHT_END` after 3.2 s; a respawn
-resets an unbeaten boss (`endFight(true)`).
+resets an unbeaten boss (`endFight(true)`). Rematches (after the ending): `spawnRematches` keeps a napping rematch `Boss`
+in each beaten guardian's arena (at session start, after the ending, and once Pip is clear of the arena's middle after a
+win). The walk-in trigger skips them; targeting offers a napping one as a Use target (`kind: 'guardian'`, verb `Wake`)
+and `interact` → `wakeRematch` → `startFight`. A rematch win drops no Starseed and calls `rematch.win(S, id)` (40 gems
+once, `S.rematches`); a respawn puts it back to sleep.
 
 **10.6 NPCs and encounters.** `NPC` (`npcs.js`): head (or body) turns to Pip within 4 m, waves within 2.6 m, faces him
 while talking, hops back when a talk starts closer than 1.1 m (never Miso, who stays at her counter). Spawning
@@ -565,11 +570,12 @@ from `META` (`js/hud/menus.js`); a key without `META` still gets a row.
 | `hudScale`, `minimap` | 1 (0.8–1.2), `heading` (`heading`, `north`, `off`) | HUD |
 | `quality`, `dynRes` | `auto` (`auto`, `low`, `high`), true | perf (DPR, grass, shadow map, dynamic resolution), assets (HD / lo, anisotropy), atmosphere (terrain layers) |
 
-Save (`game.S`, key `starseed-isle-save-v2`, `v: 3`): seed, position, facing, hp, maxHp, coins, potions, swordLevel,
+Save (`game.S`, key `starseed-isle-save-v2`, `v: 5`): seed, position, facing, hp, maxHp, coins, potions, swordLevel,
 seeds (0 none, 1 carried, 2 placed), chests, bosses, shopHeart, ending, time of day, visited regions, playTime, intro and
 controls flags, `errands` (errand id → 1 started, 2 done; `ERRANDS` and the `errands` helpers in `js/data.js`), `shells`
 (the errand item flags: item id → true, a rainbow shell picked up `shell1`… or a parade lantern lit `lantern1`…; no two
-errands share an id), plus the optional `pitch` (restored clamped ±0.6 rad), `controlsV` (< 2 → the first-run coach marks once)
+errands share an id), `plushies` (v4: Miso's guardian plushies bought, guardian id → true), `rematches` (v5: guardian
+rematches won after the bloom, guardian id → true; `REMATCH` and the `rematch` helpers in `js/data.js`), plus the optional `pitch` (restored clamped ±0.6 rad), `controlsV` (< 2 → the first-run coach marks once)
 and `waypoint { x, z }` (the map marker). Non-numeric optional fields fall back to defaults. Autosave every 30 s outside
 fights and at key events. `wp9-world.onSession` moves a Continue whose saved spot is now inside a collider to the
 nearest free spot.
@@ -579,7 +585,8 @@ seed lookup at boot in `main.js`. It migrates older versions (`MIGRATIONS`), rej
 and fills, clamps or coerces the known fields; unknown fields such as `pitch`, `controlsV` and `waypoint` pass through.
 `js/save.js` imports only `js/data.js`, so `bun test` can load it. To change the layout, bump `SAVE_VERSION` and add a
 `MIGRATIONS[old]` step with a test (`docs/DESIGN.md` §15). `MIGRATIONS[2]` (v2 → v3) adds `errands: {}` and
-`shells: {}` and keeps every v2 field.
+`shells: {}` and keeps every v2 field; `MIGRATIONS[3]` (v3 → v4) adds `plushies: {}`; `MIGRATIONS[4]` (v4 → v5) adds
+`rematches: {}`.
 
 Errands (`js/interact.js`), driven by their `ERRANDS` entry (`js/data.js`): `item` (the id prefix and the scenery kind),
 `list` (the world list of its spots), `how` (`'use'`: picked up with Use; `'walk'`: lit by walking past), `keep` (a found
@@ -878,8 +885,10 @@ into, beaten with `G.debug.killBoss()` and its Starseed walked onto, Use at the 
 Clover's errand after Captain Pinch (talk, Use on the five rainbow shells, talk again for the reward once), Mayor
 Ribbit's parade after the ending (a talk; for each lantern Pip walks in from about 9 m and it lights only with Ribbit
 close behind, having walked or catch-up hopped there himself; a mid-parade Save & Quit → Continue; Pip out of the village
-while Ribbit waits at its edge; a talk for the reward once), the pause tracker at 3/3 and errands 2/2, Save & Quit, a
-reload and Continue with the bloom and both finished errands restored; it steps the real frame loop
+while Ribbit waits at its edge; a talk for the reward once), Miso's plushies through her shop, a guardian rematch
+(walking into the arena starts nothing; the `Wake` prompt and Use start it; a win gives 40 gems once and no Starseed; a
+dizzy reset; a repeat win gives nothing), the pause tracker at 3/3 and errands 2/2, Save & Quit, a reload and Continue
+with the bloom, both finished errands and the rematch flag restored and the guardians napping again; it steps the real frame loop
 (`game.runFrame`, drawing one frame in 60) on the manual clock without its redraws instead of waiting in real time), and
 `tests/opening.mjs` (the opening with real input events only, never `G.debug` input: New Game, Shellby's intro page by page,
 then look, walk and swing until the first-run coach marks mark the save; on desktop with keyboard and mouse and on a

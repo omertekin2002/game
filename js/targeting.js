@@ -35,7 +35,7 @@ import { hudFields } from './combat.js';
 import { MOUSE_K } from './view/view.js';
 
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
-const VERB = { sign: 'Read', door: 'Knock', chest: 'Open', well: 'Peek', shell: 'Pick up' };
+const VERB = { sign: 'Read', door: 'Knock', chest: 'Open', well: 'Peek', shell: 'Pick up', guardian: 'Wake' };
 const NAME = { sign: 'Sign', door: 'Door', chest: 'Chest', pedestal: 'Starseed Pedestal', well: 'Well', shell: 'Rainbow shell' };
 const _o = new THREE.Vector3(), _d = new THREE.Vector3(), _p = new THREE.Vector3(), _e = new THREE.Vector3(), _ce = new THREE.Vector3(), _se = new THREE.Vector3(), _hb = {}, _probe = {};
 /** signs are read (from the viewer's side) and chests opened (from Pip's side) from the front hemisphere only: a chest's
@@ -62,6 +62,14 @@ export const TargetingMixin = {
       if (it.kind === 'chest' && (S.chests[it.chest.id] || it.chest._opening)) continue;   // open, or in its lid beat
       const a = A[it.kind] || [0.8, 0.5];
       out.push({ o: it, kind: it.kind, px: it.x, py: it.y + a[0], pz: it.z, R: a[1], range: it.r, x: it.x, y: it.y, z: it.z, h: it.h });
+    }
+    // a guardian napping for a rematch after the bloom (fight.js): woken with Use, never by walking in. Aimed at its
+    // body (TUNE.combat.aimPts.guardian: fraction of its height, radius), offered within its own radius + guardianRange
+    if (!this.fight) for (const id in this.bosses) {
+      const b = this.bosses[id];
+      if (!b.rematch || b.state !== 'sleep' || Math.abs(b.pos.x - pl.pos.x) > 6 || Math.abs(b.pos.z - pl.pos.z) > 6) continue;
+      const a = A.guardian, y = b.arena.h;
+      out.push({ o: b, kind: 'guardian', px: b.pos.x, py: y + a[0] * b.height, pz: b.pos.z, R: a[1], range: b.r + TC.guardianRange, x: b.pos.x, y, z: b.pos.z, h: b.height + 0.3 });
     }
     // errand items picked up with Use (ERRANDS how 'use': Clover's rainbow shells, W.shells), offered like a chest while
     // the errand has them out. Items lit by walking past (Ribbit's parade lanterns) are never a Use target
@@ -156,6 +164,7 @@ export const TargetingMixin = {
   labelTarget(t) {
     const o = t.o;
     if (o instanceof NPC) { t.verb = o.def.shop ? 'Shop' : 'Talk'; t.name = o.name; }
+    else if (isBoss(o)) { t.verb = VERB.guardian; t.name = o.name; }   // a napping rematch guardian: 'Wake · Grumble Shroom'
     else {
       t.verb = t.kind === 'pedestal' ? (progress.carried(this.S) > 0 ? 'Place' : 'Look') : VERB[t.kind] || 'Use';
       t.name = NAME[t.kind] || t.kind;

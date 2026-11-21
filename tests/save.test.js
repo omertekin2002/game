@@ -19,12 +19,13 @@ function midGame() {
     px: 12.5, pz: -40.25, facing: -1.25,
     errands: { clover: 1 }, shells: { shell2: true, shell4: true },
     plushies: { woods: true },
+    rematches: {},
   };
 }
 
 // A v2 save as main wrote it (SAVE_VERSION 2: no errands, shells or plushies yet): mid-game, and after the ending
 function v2Save(ending = false) {
-  const { errands, shells, plushies, ...s } = midGame();
+  const { errands, shells, plushies, rematches, ...s } = midGame();
   return ending
     ? { ...s, v: 2, ending: true, seeds: { woods: 2, peaks: 2, shores: 2 }, bosses: { woods: true, peaks: true, shores: true }, pitch: 0.2, controlsV: 2 }
     : { ...s, v: 2 };
@@ -46,13 +47,14 @@ function expectPlayable(s) {
   expect(s.potions).toBeGreaterThanOrEqual(0);
   expect(s.potions).toBeLessThanOrEqual(CFG.potionMax);
   expect([1, 2]).toContain(s.swordLevel);
-  for (const k of ['seeds', 'chests', 'bosses', 'visited', 'errands', 'shells', 'plushies']) {
+  for (const k of ['seeds', 'chests', 'bosses', 'visited', 'errands', 'shells', 'plushies', 'rematches']) {
     expect(s[k] !== null && typeof s[k] === 'object' && !Array.isArray(s[k])).toBe(true);
   }
   for (const id of SEED_ORDER) expect([0, 1, 2]).toContain(s.seeds[id]);
   for (const k of Object.keys(s.errands)) expect([1, 2]).toContain(s.errands[k]);
   for (const k of Object.keys(s.shells)) expect(s.shells[k]).toBe(true);
   for (const k of Object.keys(s.plushies)) { expect(['woods', 'shores', 'peaks']).toContain(k); expect(s.plushies[k]).toBe(true); }
+  for (const k of Object.keys(s.rematches)) { expect(['woods', 'shores', 'peaks']).toContain(k); expect(s.rematches[k]).toBe(true); }
   for (const k of ['shopHeart', 'ending', 'introDone', 'controlsSeen']) expect(typeof s[k]).toBe('boolean');
   expect(s.tod).toBeGreaterThanOrEqual(0);
   expect(s.tod).toBeLessThan(1);
@@ -103,46 +105,72 @@ describe('round trip', () => {
 
 describe('migrate', () => {
   test('the current version needs no steps', () => {
-    expect(SAVE_VERSION).toBe(4);
-    expect(Object.keys(MIGRATIONS)).toEqual(['2', '3']);
+    expect(SAVE_VERSION).toBe(5);
+    expect(Object.keys(MIGRATIONS)).toEqual(['2', '3', '4']);
     expect(migrate(roundTrip(midGame()))).toEqual(midGame());
   });
 
-  test.each([['mid-game', false], ['after the ending', true]])('a v2 save (%s) migrates to v4 with every field kept', (_name, ending) => {
+  test.each([['mid-game', false], ['after the ending', true]])('a v2 save (%s) migrates to v5 with every field kept', (_name, ending) => {
     const v2 = roundTrip(v2Save(ending));
     const m = migrate(v2);
-    expect(m).toEqual({ ...v2, v: 4, errands: {}, shells: {}, plushies: {} });
+    expect(m).toEqual({ ...v2, v: 5, errands: {}, shells: {}, plushies: {}, rematches: {} });
     expect(v2.v).toBe(2); // input untouched
     const s = loadSave(roundTrip(v2Save(ending)), SEED);
     expectPlayable(s);
-    expect(s).toEqual({ ...v2, v: 4, errands: {}, shells: {}, plushies: {} });   // normalize keeps every v2 field as it was
+    expect(s).toEqual({ ...v2, v: 5, errands: {}, shells: {}, plushies: {}, rematches: {} });   // normalize keeps every v2 field as it was
   });
 
-  test.each([['mid-game', false], ['after the ending with both errands done', true]])('a v3 save (%s) migrates to v4 with every field kept and no plushies', (_name, ending) => {
-    const { plushies, ...base } = midGame();
+  test.each([['mid-game', false], ['after the ending with both errands done', true]])('a v3 save (%s) migrates to v5 with every field kept and no plushies', (_name, ending) => {
+    const { plushies, rematches, ...base } = midGame();
     const v3 = roundTrip(ending
       ? { ...base, v: 3, ending: true, seeds: { woods: 2, peaks: 2, shores: 2 }, bosses: { woods: true, peaks: true, shores: true }, shopHeart: true, swordLevel: 2, coins: 912, pitch: 0.2, controlsV: 2,
         errands: { clover: 2, ribbit: 2 }, shells: { shell1: true, shell2: true, shell3: true, shell4: true, shell5: true, lantern1: true, lantern2: true, lantern3: true, lantern4: true } }
       : { ...base, v: 3 });
     const m = migrate(v3);
-    expect(m).toEqual({ ...v3, v: 4, plushies: {} });
+    expect(m).toEqual({ ...v3, v: 5, plushies: {}, rematches: {} });
     expect(v3.v).toBe(3); // input untouched
     const s = loadSave(roundTrip(v3), SEED);
     expectPlayable(s);
-    expect(s).toEqual({ ...v3, v: 4, plushies: {} });   // normalize keeps every v3 field (errands and shells included)
+    expect(s).toEqual({ ...v3, v: 5, plushies: {}, rematches: {} });   // normalize keeps every v3 field (errands and shells included)
   });
 
   test('a v3 save that already carries a plushies field still starts it empty', () => {
-    expect(migrate({ ...roundTrip(midGame()), v: 3, plushies: { woods: true } })).toMatchObject({ v: 4, plushies: {} });
+    expect(migrate({ ...roundTrip(midGame()), v: 3, plushies: { woods: true } })).toMatchObject({ v: 5, plushies: {}, rematches: {} });
   });
 
-  test('a migrated v2 save round-trips as v4', () => {
+  test.each([['mid-game', false], ['after the ending, everything bought and done', true]])('a v4 save (%s) migrates to v5 with every field kept and no rematches', (_name, ending) => {
+    const { rematches, ...base } = midGame();
+    const v4 = roundTrip(ending
+      ? { ...base, v: 4, ending: true, seeds: { woods: 2, peaks: 2, shores: 2 }, bosses: { woods: true, peaks: true, shores: true }, shopHeart: true, swordLevel: 2, coins: 17, pitch: 0.2, controlsV: 2,
+        errands: { clover: 2, ribbit: 2 }, shells: { shell1: true, shell2: true, shell3: true, shell4: true, shell5: true, lantern1: true, lantern2: true, lantern3: true, lantern4: true },
+        plushies: { woods: true, shores: true, peaks: true } }
+      : { ...base, v: 4 });
+    const m = migrate(v4);
+    expect(m).toEqual({ ...v4, v: 5, rematches: {} });
+    expect(v4.v).toBe(4); // input untouched
+    const s = loadSave(roundTrip(v4), SEED);
+    expectPlayable(s);
+    expect(s).toEqual({ ...v4, v: 5, rematches: {} });   // normalize keeps every v4 field (plushies, errands and shells included)
+  });
+
+  test('a v4 save that already carries a rematches field still starts it empty', () => {
+    expect(migrate({ ...roundTrip(midGame()), v: 4, rematches: { woods: true } })).toMatchObject({ v: 5, rematches: {} });
+  });
+
+  test('a v5 save with rematches won round-trips losslessly', () => {
+    const s = { ...midGame(), ending: true, bosses: { woods: true, peaks: true, shores: true }, seeds: { woods: 2, peaks: 2, shores: 2 }, rematches: { woods: true, peaks: true } };
+    const back = loadSave(roundTrip(s), SEED);
+    expect(back).toEqual(s);
+    expect(loadSave(roundTrip(back), SEED)).toEqual(s);
+  });
+
+  test('a migrated v2 save round-trips as v5', () => {
     const s = loadSave(roundTrip(v2Save(true)), SEED);
     expect(loadSave(roundTrip(s), SEED)).toEqual(s);
   });
 
   test('a v2 save that already carries errand fields still starts them empty', () => {
-    expect(migrate({ ...roundTrip(v2Save()), errands: { clover: 2 }, shells: { shell1: true } })).toMatchObject({ v: 4, errands: {}, shells: {}, plushies: {} });
+    expect(migrate({ ...roundTrip(v2Save()), errands: { clover: 2 }, shells: { shell1: true } })).toMatchObject({ v: 5, errands: {}, shells: {}, plushies: {}, rematches: {} });
   });
 
   test('runs an older-version step and stamps the current version', () => {
@@ -160,8 +188,9 @@ describe('migrate', () => {
     const m = migrate(v1, steps);
     expect(calls).toEqual([1]);
     expect(m.v).toBe(SAVE_VERSION);
-    expect(m.errands).toEqual({}); // then the real v2 → v3 and v3 → v4 steps
+    expect(m.errands).toEqual({}); // then the real v2 → v3, v3 → v4 and v4 → v5 steps
     expect(m.plushies).toEqual({});
+    expect(m.rematches).toEqual({});
     expect(m.coins).toBe(30);
     expect(m.chests).toEqual({ c1: true, c2: true });
     expect('gems' in m).toBe(false);
@@ -196,7 +225,7 @@ describe('migrate', () => {
     ['a string v', { v: '2', seed: SEED }],
     ['v of 0', { v: 0, seed: SEED }],
     ['a newer v', { ...freshState(SEED), v: SAVE_VERSION + 1 }],
-    ['a v5 save', { ...freshState(SEED), v: 5 }],
+    ['a v6 save', { ...freshState(SEED), v: 6 }],
     ['no seed', { ...freshState(SEED), seed: undefined }],
     ['a null seed', { ...freshState(SEED), seed: null }],
   ])('returns null for %s', (_name, raw) => {
@@ -213,7 +242,7 @@ describe('normalize', () => {
     return s;
   };
 
-  test.each(['chests', 'bosses', 'visited', 'shells', 'errands', 'plushies'])('null, array or string %s becomes an empty object', (k) => {
+  test.each(['chests', 'bosses', 'visited', 'shells', 'errands', 'plushies', 'rematches'])('null, array or string %s becomes an empty object', (k) => {
     for (const bad of [null, [true, true], 'x', 3]) expect(load({ [k]: bad })[k]).toEqual({});
   });
 
@@ -224,6 +253,12 @@ describe('normalize', () => {
   test('errand states are clamped to 1 / 2 (0 and junk dropped); shells become flags', () => {
     expect(load({ errands: { clover: 7, ribbit: -1, hoot: 'x', digby: 1.4, miso: 1.6, a: 2, b: 0, c: null } }).errands).toEqual({ clover: 2, digby: 1, miso: 2, a: 2 });
     expect(load({ shells: { shell1: 1, shell2: 'yes', shell3: false, shell4: 0 } }).shells).toEqual({ shell1: true, shell2: true });
+  });
+
+  test('rematches keep only guardian ids, as flags (truthy → true; unknown ids and falsy values dropped)', () => {
+    expect(load({ rematches: { woods: 1, shores: 'yes', peaks: false, kraken: true, constructor: true } }).rematches).toEqual({ woods: true, shores: true });
+    expect(load({ rematches: { woods: 0, shores: null, peaks: true } }).rematches).toEqual({ peaks: true });
+    expect(load({ rematches: undefined }).rematches).toEqual({});
   });
 
   test('plushies keep only guardian ids set to true (unknown ids and non-true values dropped)', () => {

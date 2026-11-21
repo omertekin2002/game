@@ -3,7 +3,7 @@
 import { BOSSES, CFG, SEED_ORDER } from './data.js';
 
 // Bump when the save layout changes, and add a MIGRATIONS step from the previous version.
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 
 export function freshState(seed) {
   return {
@@ -12,6 +12,7 @@ export function freshState(seed) {
     tod: CFG.startTimeOfDay, visited: {}, introDone: false, controlsSeen: false, playTime: 0, px: null, pz: null, facing: Math.PI,
     errands: {}, shells: {},   // v3: errand id → 1 started / 2 done (data.js ERRANDS); errand item flags: id → true (a rainbow shell picked up, a parade lantern lit)
     plushies: {},              // v4: Miso's guardian plushies bought: guardian id (BOSSES key) → true (data.js PLUSHIES)
+    rematches: {},             // v5: guardian rematches won after the bloom: guardian id (BOSSES key) → true (data.js REMATCH)
   };
 }
 
@@ -22,6 +23,8 @@ export const MIGRATIONS = {
   2: (s) => ({ ...s, errands: {}, shells: {} }),
   // v3 → v4: Miso's guardian plushies. Every v3 field (errands and their item flags included) is kept; none bought yet
   3: (s) => ({ ...s, plushies: {} }),
+  // v4 → v5: guardian rematches after the bloom. Every v4 field (plushies included) is kept; none won yet
+  4: (s) => ({ ...s, rematches: {} }),
 };
 
 const isObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
@@ -70,6 +73,8 @@ export function normalize(s, seed) {
   out.shells = flags(s.shells);
   out.plushies = {};
   if (isObj(s.plushies)) for (const id of Object.keys(BOSSES)) if (s.plushies[id] === true) out.plushies[id] = true;   // guardian ids, true only
+  out.rematches = {};
+  if (isObj(s.rematches)) for (const id of Object.keys(BOSSES)) if (s.rematches[id]) out.rematches[id] = true;   // guardian ids, as flags
   out.errands = {};
   if (isObj(s.errands)) for (const k of Object.keys(s.errands)) { const n = Math.round(clampNum(s.errands[k], 0, 2, 0)); if (n > 0) out.errands[k] = n; }
   for (const k of ['shopHeart', 'ending', 'introDone', 'controlsSeen']) out[k] = !!s[k];

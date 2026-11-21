@@ -95,7 +95,8 @@ export class Notices {
     if (!on) { this.bossUp = false; C.classList.remove('show'); this.ui.root.classList.remove('bosscard'); return; }
     this.bossUp = true;
     this.hideBanner();
-    const id = Object.keys(BOSSES).find((k) => BOSSES[k].name === name), u = id ? iconUrl(BOSSES[id].key) : null;
+    // the badge: the guardian whose name the card starts with (a rematch card reads 'Grumble Shroom · Rematch')
+    const id = Object.keys(BOSSES).find((k) => name === BOSSES[k].name || name.startsWith(BOSSES[k].name + ' ·')), u = id ? iconUrl(BOSSES[id].key) : null;
     C.querySelector('.bt').textContent = name;
     C.querySelector('.bs').textContent = title || '';
     C.querySelector('.badge').innerHTML = u ? `<img src="${u}" alt="" draggable="false" onerror="this.remove()">` : '<span>!</span>';

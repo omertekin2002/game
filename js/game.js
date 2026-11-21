@@ -171,6 +171,7 @@ export class Game {
     this.pedSeeds.forEach((g, i) => (g.visible = S.seeds[SEED_ORDER[i]] === 2));
     this.resetEntities();
     for (const id of SEED_ORDER) if (!S.bosses[id]) this.bosses[id] = new Boss(id, W.arenas[id]);
+    this.spawnRematches(true);   // after the bloom, the beaten guardians nap in their arenas for a rematch (fight.js)
     this.spawnMissingSeeds();
     // player + look (facing = look yaw, facing convention; pitch is an optional save field). A corrupted optional field
     // (non-numeric facing / pitch) falls back to the default instead of turning the view NaN
