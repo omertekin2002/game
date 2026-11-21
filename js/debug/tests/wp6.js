@@ -596,7 +596,11 @@ export default function register(suite) {
       ui.openPause(); ui.onPauseChoice(1); t.frames(1);
       try {
         b.style.maxHeight = '160px'; card.setTab('view'); b.scrollTop = 0; card.cue();
-        await t.wait(400);                                   // the card's opening animation has settled
+        // the overlay gets .show on the next animation frame (ui.showOverlay), which a slow software-WebGL frame can hold
+        // back past a fixed wait (headless CI, tests/inpage.mjs): wait for it, then for the opening animation to settle
+        let w = 0; for (; w < 100 && !ui.settingsEl.classList.contains('show'); w++) await t.wait(50);
+        t.note('showWait', w * 50);
+        await t.wait(400);
         const c = R(chip), at = (x, y) => document.elementFromPoint(x, y), hit = (x, y) => { const e = at(x, y); return !!(e && (e === chip || chip.contains(e))); };
         const r = { on: hit(c.left + c.width / 2, c.top + c.height / 2), above: hit(c.left + c.width / 2, c.top - 3), left: hit(c.left - 4, c.top + c.height / 2), right: hit(c.right + 4, c.top + c.height / 2), under: hit(c.left + c.width / 2, c.bottom + 6) };
         const e0 = at(c.left + c.width / 2, c.top + c.height / 2);
