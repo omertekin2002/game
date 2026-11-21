@@ -1,11 +1,12 @@
 // Player preferences: per device, survive New Game, separate from the save (key 'starseed-isle-settings-v1').
 // Only values the player changed are stored; defaults are computed once at load (portrait phone → third person,
 // prefers-reduced-motion → motion comfort). Stored keys this build doesn't know are kept for forward compatibility.
-// Mute keeps its own key ('starseed-isle-muted', owned by audio.js). One key holds an object instead of a scalar:
-// `keys` (keyboard bindings, js/keybinds.js), sanitized by its `obj` rule.
+// Mute keeps its own key ('starseed-isle-muted', owned by audio.js). Two keys hold an object instead of a scalar:
+// `keys` (keyboard bindings, js/keybinds.js) and `pad` (controller buttons, js/padbinds.js), sanitized by their `obj` rule.
 import { G, store } from './core.js';
 import { EV } from './events.js';
 import { sanitizeKeys } from './keybinds.js';
+import { sanitizePad } from './padbinds.js';
 
 export const SETTINGS_KEY = 'starseed-isle-settings-v1';
 
@@ -26,6 +27,7 @@ export const SCHEMA = {
   touchSens: { def: 1.0, min: 0.5, max: 2.0, step: 0.05 },
   arrowLook: { def: false },                                      // arrow keys look (accessibility)
   keys: { def: Object.freeze({}), obj: sanitizeKeys },            // { action: KeyboardEvent.code }, changed actions only
+  pad: { def: Object.freeze({}), obj: sanitizePad },              // { action: Gamepad button index }, changed actions only
   headBob: { def: 1.0, min: 0, max: 1, step: 0.05 },
   shake: { def: 1.0, min: 0, max: 1, step: 0.05 },
   speedFx: { def: 1.0, min: 0, max: 1, step: 0.05 },             // dash/sprint FOV, hit punches

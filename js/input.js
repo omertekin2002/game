@@ -7,20 +7,21 @@ import { G } from './core.js';
 import { EV } from './events.js';
 import { settings } from './settings.js';
 import { buildKeymap, effectiveKeys, activeSecondary, keyLabel } from './keybinds.js';
+import { buildPadmap, effectivePad, activePadSecondary, padLabel, MENU_PADMAP, DEFAULT_PAD, PAD_BUTTONS } from './padbinds.js';
 
 // Keyboard: the map is built from the bindings (setting `keys`, js/keybinds.js) and rebuilt when they change:
 // W/A/S/D move, J attack, Space jump, Shift (+ K, Right Shift) roll, held = sprint, E (+ F) interact, R potion, V view,
 // X shoulder, Q lock, M (+ Tab) map; fixed: the arrows move, Enter / NumpadEnter interact, Esc / P pause.
-// Standard-mapping pad (feel §14.2): A jump, B roll/sprint, X/RT attack, Y interact, LB/D↓ potion, RB/D↑ view,
-// R3 lock toggle, LT lock hold, L3 sprint toggle, D←/→ shoulder, Back map, Start pause. D-pad/stick also navigate menus.
-const PADMAP = [[0, 'jump'], [1, 'dash'], [2, 'attack'], [7, 'attack'], [3, 'interact'], [4, 'potion'], [13, 'potion'], [5, 'view'],
-  [12, 'view'], [11, 'lockOn'], [10, 'sprintToggle'], [14, 'shoulder'], [15, 'shoulder'], [8, 'map'], [9, 'pause']];
-const PAD_HELD = [[1, 'sprint'], [6, 'lockHold']];
+// Standard-mapping pad (feel §14.2), built from the bindings (setting `pad`, js/padbinds.js) and rebuilt when they change:
+// A jump, B roll / held sprint, X (+ RT) attack, Y interact, LB (+ D↓) potion, RB (+ D↑) view, D← (+ D→) shoulder,
+// R3 lock toggle, LT lock hold, L3 sprint toggle, Back map; fixed: Start pause. Menus, dialogue, the shop and the map
+// read the pad in that default layout whatever the bindings are (MENU_PADMAP → menuPressed); D-pad / stick navigate them.
 let KEYMAP = {}, KEY_HELD = {};    // code → action / code → 'sprint' (buildKeys)
+let PADMAP = [], PAD_HELD = [];    // button → action / button → [held-only actions] (buildPad)
 /** single source for prompts, the controls card and hints (WP6 renders it) */
 export const BINDINGS = {
   kbm: kbmBindings(buildKeys()),
-  pad: { move: 'L stick', look: 'R stick', attack: 'X / RT', jump: 'A', dash: 'B', interact: 'Y', lockOn: 'LT / R3', potion: 'LB', view: 'RB', shoulder: 'D-pad ← →', map: 'Back', pause: 'Start' },
+  pad: padBindings(buildPad()),
   touch: { move: 'left stick', look: 'drag right side', attack: 'A', jump: 'Jump', dash: 'B', interact: 'Use', potion: '🧪', view: '👁', map: '🗺', pause: 'II' },
 };
 /** (re)build the keyboard maps and BINDINGS.kbm from the stored bindings (at load, and on every change of `keys`) */
@@ -40,6 +41,22 @@ function kbmBindings(k) {
   };
 }
 settings.on('keys', () => { BINDINGS.kbm = kbmBindings(buildKeys()); });
+/** (re)build the pad maps from the stored buttons (at load, and on every change of `pad`) */
+function buildPad() {
+  const p = settings.get('pad');
+  ({ map: PADMAP, held: PAD_HELD } = buildPadmap(p));
+  return p;
+}
+/** BINDINGS.pad labels for the buttons in effect */
+function padBindings(p) {
+  const e = effectivePad(p), s = activePadSecondary(p), L = padLabel, w = (a) => [L(e[a]), ...s[a].map(L)].join(' / ');
+  const shoulder = e.shoulder === DEFAULT_PAD.shoulder && s.shoulder.length ? 'D-pad ← →' : L(e.shoulder);
+  return {
+    move: 'L stick', look: 'R stick', attack: w('attack'), jump: L(e.jump), dash: L(e.dash), interact: L(e.interact),
+    lockOn: L(e.lockHold) + ' / ' + L(e.lockOn), potion: L(e.potion), view: L(e.view), shoulder, map: L(e.map), pause: 'Start',
+  };
+}
+settings.on('pad', () => { BINDINGS.pad = padBindings(buildPad()); });
 // Enter/Space never reach a focused DOM button natively (the game's own confirm handles them)
 const PREVENT = new Set(['Tab', 'Space', 'Enter', 'NumpadEnter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Backquote']);
 const BTN_BIT = [1, 4, 2];           // e.button 0 / 1 / 2 (LMB / MMB / RMB) → e.buttons bit
@@ -89,6 +106,8 @@ export class Input {
     this.debugAxis = null;          // G.debug.move
     this.debugStick = null;         // { rx, ry } raw right stick override (tests)
     this.padPrev = []; this.padNav = 0;
+    this.padCapture = null;         // fn(button): the Settings card waits for a pad button to bind; that press is no input
+    this.mPressed = new Set();      // this frame's edges as the menus see them: the pad in its default layout (menuPressed)
     this.lastDevice = firstDevice(); this.deviceT = 0; this.emittedDevice = null;
     this.keyLook = { x: 0, y: 0, m: 0 }; this.arrowT = 0; this.arrowDir = 0; // arrow-key look (setting arrowLook)
     this.cursorMenu = false;        // Game sets it each frame: shop/menus own the mouse (setter below)
@@ -216,22 +235,34 @@ export class Input {
     this.padAxis.x = this.padAxis.y = 0;
     let look = { x: 0, y: 0, m: 0 };
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    // pad edges: gameplay ones (the bindings, PADMAP) and the menus' (the default layout, MENU_PADMAP) apart; the other
+    // devices' edges (this.pending) go to both. navUp / navDown are the physical D-pad ↑ / ↓ (and the stick) in both
+    const padGame = new Set(), padMenu = new Set(), both = (a) => { padGame.add(a); padMenu.add(a); };
+    let capHit = -1;
     for (const p of pads) {
       if (!p || !p.connected) continue;
       const b = (i) => !!(p.buttons[i] && p.buttons[i].pressed);
-      const now = [];
-      for (const [i, a] of PADMAP) {
-        now[i] = b(i);
-        if (!now[i]) continue;
-        this.actHeld.add(a);
-        if (!this.padPrev[i]) { this.pending.add(a); this.pending.add('any'); this.setDevice('pad'); if (i === 12) this.pending.add('navUp'); if (i === 13) this.pending.add('navDown'); }
+      const now = [], n = Math.min(p.buttons.length, PAD_BUTTONS);
+      for (let i = 0; i < n; i++) {
+        if (!(now[i] = b(i))) continue;
+        const edge = !this.padPrev[i];
+        if (edge) this.setDevice('pad');
+        if (this.padCapture) { if (edge && capHit < 0) capHit = i; continue; }    // a rebind wait takes the pad
+        const a = PADMAP[i], m = MENU_PADMAP[i];
+        if (a) this.actHeld.add(a);
+        if (PAD_HELD[i]) for (const h of PAD_HELD[i]) this.actHeld.add(h);
+        if (!edge) continue;
+        if (a) padGame.add(a);
+        if (m) padMenu.add(m);
+        if (a || m) both('any');
+        if (i === 12) both('navUp');
+        if (i === 13) both('navDown');
       }
-      for (const [i, a] of PAD_HELD) { now[i] = b(i); if (now[i]) { this.actHeld.add(a); if (!this.padPrev[i]) this.setDevice('pad'); } }
       this.padPrev = now;
       const mv = radial(p.axes[0] || 0, p.axes[1] || 0, 0.18, 0.95);
       if (mv.m > 0) { this.padAxis.x = mv.x; this.padAxis.y = -mv.y; this.setDevice('pad'); }
       const ny = (p.axes[1] || 0) < -0.6 ? -1 : (p.axes[1] || 0) > 0.6 ? 1 : 0;
-      if (ny && ny !== this.padNav) this.pending.add(ny < 0 ? 'navUp' : 'navDown');
+      if (ny && ny !== this.padNav) both(ny < 0 ? 'navUp' : 'navDown');
       this.padNav = ny;
       look = radial(p.axes[2] || 0, p.axes[3] || 0, 0.15, 0.92, CURVE[settings.get('padCurve')] || 1.8);
       if (look.m > 0) this.setDevice('pad');
@@ -240,8 +271,15 @@ export class Input {
     if (this.debugStick) look = radial(this.debugStick.rx || 0, this.debugStick.ry || 0, 0.15, 0.92, CURVE[settings.get('padCurve')] || 1.8);
     else if (!(look.m > 0) && this.keyLook.m > 0) look = this.keyLook;     // a pushed pad stick wins over the arrows
     this.lookStick = look;
+    this.mPressed = new Set(this.pending);
+    for (const a of padMenu) this.mPressed.add(a);
+    for (const a of padGame) this.pending.add(a);
     this.actPressed = this.pending;
     this.pending = new Set();
+    if (capHit >= 0) {
+      const fn = this.padCapture; this.padCapture = null;
+      try { fn(capHit); } catch (err) { console.error('[Starseed] pad capture', err); }
+    }
     this.edges = this.keyEdges;
     this.keyEdges = new Set();
     this.anyPressed = this.actPressed.has('any');
@@ -263,17 +301,20 @@ export class Input {
     return o;
   }
   pressed(a) { return this.actPressed.has(a); }
+  /** a press edge as menus, dialogue, the shop and the map read it: keyboard, mouse and touch as pressed(), the pad in
+   *  its default layout whatever its bindings (A jump = confirm, B dash = back, LB / RB potion / view = tabs) */
+  menuPressed(a) { return this.mPressed.has(a); }
   held(a) { return this.actHeld.has(a); }
   keyPressed(code) { return this.edges && this.edges.has(code); }
-  consume(a) { this.actPressed.delete(a); }
+  consume(a) { this.actPressed.delete(a); this.mPressed.delete(a); }
   /** drop every press edge of this frame (a card closed by it: game.frame) */
-  consumeAll() { this.actPressed.clear(); this.anyPressed = false; }
+  consumeAll() { this.actPressed.clear(); this.mPressed.clear(); this.anyPressed = false; }
   /** menu / dialogue confirm: LMB, J, E, F, Enter, Space, pad A/X/Y, touch tap */
-  confirm() { return this.pressed('attack') || this.pressed('interact') || this.pressed('click') || this.pressed('jump'); }
-  cancel() { return this.pressed('pause') || this.pressed('dash'); }
+  confirm() { return this.menuPressed('attack') || this.menuPressed('interact') || this.menuPressed('click') || this.menuPressed('jump'); }
+  cancel() { return this.menuPressed('pause') || this.menuPressed('dash'); }
   menuNav() {
-    if (this.pressed('up') || this.pressed('navUp')) return -1;
-    if (this.pressed('down') || this.pressed('navDown')) return 1;
+    if (this.menuPressed('up') || this.menuPressed('navUp')) return -1;
+    if (this.menuPressed('down') || this.menuPressed('navDown')) return 1;
     return 0;
   }
   axis() {

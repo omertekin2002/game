@@ -38,7 +38,7 @@ names use it too.
 | Layers | `LAYER = { WORLD: 0, BODY: 1, PRESENT: 2, DEBUG: 3 }` (`PRESENT` is unused now); scatter's `LAYER_SHADOW = 4` (shadow-only casters); layer 30 only during the boot warm-up. Layers are not inherited: `setLayer(obj, layer, skip)` sets every descendant |
 | FOV | settings store horizontal degrees at 16:9; the camera uses vertical degrees, Hor+ (`vFovFor(hDeg, aspect)`); a narrow screen keeps ≥ 70° horizontal up to a 100° vertical cap |
 | Tunables | new numbers go into `js/tune.js` (`TUNE`, §16), never into `CFG` (`js/data.js` keeps the original game constants and content) |
-| Storage | only through `store.get / set / del` (`core.js`, wrapped in try/catch). Keys: save `starseed-isle-save-v2`, settings `starseed-isle-settings-v1`, HUD memory `starseed-isle-hud-v1`, mute `starseed-isle-muted` |
+| Storage | only through `store.get / set / del` (`core.js`, wrapped in try/catch). Keys: save `starseed-isle-save-v2`, settings `starseed-isle-settings-v1` (object-valued `keys` and `pad` inside it), HUD memory `starseed-isle-hud-v1`, mute `starseed-isle-muted` |
 
 Grep rules (must stay empty): `grep -rnE "\.yawTarget|cam\.bias|cam\.yaw" js` and
 `grep -rnE "player\.facing\s*=|pl\.facing\s*=" js` (the body facing is written only inside `player.js`, or through
@@ -65,7 +65,7 @@ Grep rules (must stay empty): `grep -rnE "\.yawTarget|cam\.bias|cam\.yaw" js` an
 | `js/combat.js`, `js/targeting.js`, `js/interact.js`, `js/spawn.js` | sword hit test, damage, kills, hurt, dizzy; module `wp4-targeting` (lock-on, aim friction, crosshair interaction); gameplay input, talk, shop, chests, pedestal, sim-time scheduler; spawner | §10, [WP4](wp/WP4.md) |
 | `js/entities.js`, `js/bosses.js`, `js/fight.js`, `js/npcs.js`, `js/fx-ground.js`, `js/actors-mod.js`, `js/audio-bus.js`, `js/audio.js` | enemies and projectiles, bosses, boss fights, villagers, ground telegraphs, module `wp5-actors`, event-driven audio, the sound engine | §10, §14.4, [WP5](wp/WP5.md) |
 | `js/cutscenes.js` | pedestal and ending cutscenes, world anchors | §7.5, [WP1](wp/WP1.md) |
-| `js/input.js`, `js/input-lock.js`, `js/touch.js`, `js/keybinds.js` | input, pointer lock, touch controls; keyboard bindings (pure; unit-tested in `tests/keys.test.js`) | §11, [WP6](wp/WP6.md) |
+| `js/input.js`, `js/input-lock.js`, `js/touch.js`, `js/keybinds.js`, `js/padbinds.js` | input, pointer lock, touch controls; keyboard bindings and controller buttons (pure; unit-tested in `tests/keys.test.js`, `tests/padbinds.test.js`) | §11, [WP6](wp/WP6.md) |
 | `js/ui.js`, `js/hud/*.js`, `styles.css`, `index.html` | HUD, menus, dialogue, title, module `wp6-hud` | §15, [WP6](wp/WP6.md) |
 | `js/toon.js`, `js/scatter.js`, `js/fx.js`, `js/perf/perf.js`, `js/perf/lod.js`, `js/perf/grass.js` | materials, instanced scenery, particles, module `wp7-perf` (culling, LOD, cutaway, lights, warm-up, resolution), tree proxies, near grass | §14.2, [WP7](wp/WP7.md) |
 | `js/perf/dynres.js` | the dynamic-resolution decisions: `dynDecide`, `dynPause`, `titlePace`, `clampDyn` (pure; unit-tested in `tests/dynres.test.js`) | §14.2 |
@@ -515,17 +515,36 @@ are not rebindable. `buildKeymap(keys)` gives `input.js` its code → action map
 a key from its `KeyboardEvent.code` (`KeyT` → `T`, `Digit1` → `1`, `ShiftLeft` → `Shift`, `Semicolon` → `;`).
 While the Settings card waits for a key, `input.keyCapture = fn(code)` takes the next key press instead of the game.
 
+**Controller buttons** (`js/padbinds.js`, setting `pad`: `{ action: Gamepad button index }`, standard mapping). The
+player picks the button of each action in `PAD_ACTIONS` (Settings → Controls → Buttons): `jump dash attack interact
+potion view shoulder lockOn lockHold sprintToggle map`, defaults A B X Y LB RB D-pad ← R3 LT L3 Back. The held `sprint`
+follows the roll button; `lockHold` is held-only (no press edge). The shoulder swap is one rebindable action: D-pad ←
+with D-pad → as its extra button. **Fixed**: Start pauses (`PAD_FIXED`); the sticks are not buttons. **Reserved**: Start
+(9) and Home (16). **Extra buttons** (`PAD_SECONDARY`: RT swing, D-pad ↓ potion, D-pad ↑ view, D-pad → shoulder) work only
+while their action keeps its default button, and a button bound to any action wins over them. `buildPadmap(pad)` gives
+`input.js` its button → action map (`PADMAP`) and the held-only actions (`PAD_HELD`); `input.js` (`BINDINGS.pad`) and
+`hud/keys.js` (`GLYPHS.pad`, `ALL.pad`, face buttons keep their `PADCLS` colour) rebuild on every change of the setting.
+`padLabel(i)` names a button (`0` → `A`, `6` → `LT`, `12` → `D-pad ↑`).
+**Menus keep the standard layout.** Every pad press gives two edges: a gameplay one from `PADMAP` (into `pressed(a)`) and
+a menu one from `MENU_PADMAP`, the default map, which never changes (into `menuPressed(a)`). Keyboard, mouse, touch and
+debug presses go to both. Menus, dialogue, the shop, the map, the title, the log and the Settings / Controls cards read
+only `menuPressed` (and `confirm()`, `cancel()`, `menuNav()`, which use it), so A confirms, B goes back, LB / RB switch
+tabs and the D-pad / stick move whatever the bindings are; `navUp` / `navDown` stay the physical D-pad ↑ / ↓ and the
+stick. With the default bindings both edge sets are the same. While the Settings card waits for a button,
+`input.padCapture = fn(index)` takes the next pad button press (once) instead of the game and the menus; B (1) and
+Start (9) cancel the wait, Esc and the other keyboard / mouse / touch presses stop it too.
+
 | Device | Bindings |
 |---|---|
 | Keyboard + mouse (default keys) | WASD / arrows move (with `arrowLook` the arrows look instead), mouse look, LMB / J attack, Space jump, Shift / K roll (held: sprint), E / F / Enter / NumpadEnter interact, R potion, V view, X shoulder, Q / MMB lock toggle, RMB lock hold, wheel zoom, M / Tab map, Esc / P pause |
-| Pad (standard mapping) | L stick move, R stick look, A jump, B roll (held: sprint), X / RT attack, Y interact, LB / D-pad ↓ potion, RB / D-pad ↑ view, R3 lock toggle, LT lock hold, L3 sprint toggle, D-pad ← / → shoulder, Back map, Start pause |
+| Pad (standard mapping, default buttons) | L stick move, R stick look, A jump, B roll (held: sprint), X / RT attack, Y interact, LB / D-pad ↓ potion, RB / D-pad ↑ view, R3 lock toggle, LT lock hold, L3 sprint toggle, D-pad ← / → shoulder, Back map, Start pause |
 | Touch | floating move stick (left zone; right with `touchLeftHanded`), drag elsewhere to look, Swing, Roll (held: sprint), Hop, Use (only with a target, labelled with its verb), Pause, Map, View, Potion, Lock (only near enemies or in fights); a quick tap is `click` + `tap` |
 
 | `Input` | |
 |---|---|
 | `update(dt)` | per frame: held set, pad poll (look dead zone 0.15–0.92 with the `padCurve` exponent, move 0.18–0.95), edges, arrow look, last device (`EV.DEVICE` after 300 ms) |
-| `pressed(a)`, `held(a)`, `keyPressed(code)`, `consume(a)`, `consumeAll()`, `confirm()`, `cancel()`, `menuNav()`, `axis() → { x, y, l }` | `confirm` = attack / interact / click / jump; `cancel` = pause / dash |
-| `keyCapture` | `fn(code)` or null: the next key press goes to it (once) and is no input; set by the Settings card's Keys rows |
+| `pressed(a)`, `menuPressed(a)`, `held(a)`, `keyPressed(code)`, `consume(a)`, `consumeAll()`, `confirm()`, `cancel()`, `menuNav()`, `axis() → { x, y, l }` | `menuPressed` = the menus' edges (the pad in its default layout); `confirm` = attack / interact / click / jump, `cancel` = pause / dash, both menu edges |
+| `keyCapture`, `padCapture` | `fn(code)` / `fn(buttonIndex)` or null: the next key / pad button press goes to it (once) and is no input; set by the Settings card's Keys / Buttons rows |
 | `addMouse(dx, dy, k)`, `takeMouse()`, `takeTouch()`, `takeWheel()`, `lookStick`, `keyLook`, `arrowStick(kx, ky, dt)` | look accumulators; single mouse events > 300 counts are dropped. Arrow look feeds `view.applyLook`'s pad path as a stick deflection (yaw 60 → 140 °/s over 0.25 s, pitch 90 °/s), so it counts as look input everywhere |
 | `lastDevice` (`firstDevice()`: `'touch'` on a coarse-only pointer, else `'keyboard'`), `cursorMenu` | set by Game; closing a cursor menu keeps canvas presses inert for 300 ms |
 | `setTouchMode(mode)`, `setTouchVisible(on)`, `showTouch()`, `layoutTouch()` | Game sends `'hidden'` (title), `'modal'` (menu or shop), `'dialogue'` or `'play'` every frame; a `'play'` during a cutscene, fade, boss intro or with the HUD off becomes `'cinema'`. Only `'play'` shows the controls |
@@ -543,10 +562,12 @@ modal closes.
 
 `settings.get(k)`, `set(k, v) → effective value` (coerced to the schema, persisted debounced 250 ms, only non-default
 values stored, emits `EV.SETTINGS`), `on(k | '*', fn(value, key)) → off`, `reset(k?)`, `all()`, `flush()`; `SCHEMA`,
-`SETTINGS_KEY`. Unknown stored keys are kept. One key is object-valued: `keys` (schema rule `obj`: a sanitizer). A
-stored `keys` that is no plain object is ignored; otherwise unknown actions, non-strings, odd or reserved codes and
-codes equal to the default are dropped, and actions that would share a key fall back to their defaults (`sanitizeKeys`);
-an empty result is not stored. Device defaults: a coarse pointer in portrait → `view: 'tp'`;
+`SETTINGS_KEY`. Unknown stored keys are kept. Two keys are object-valued: `keys` and `pad` (schema rule `obj`: a
+sanitizer). A stored `keys` that is no plain object is ignored; otherwise unknown actions, non-strings, odd or reserved
+codes and codes equal to the default are dropped, and actions that would share a key fall back to their defaults
+(`sanitizeKeys`); an empty result is not stored. `pad` works the same way (`sanitizePad`): non-integers, indices outside
+0–16, Start (9), Home (16) and buttons equal to the default are dropped, and actions that would share a button fall back
+to their defaults. Older builds keep it as an unknown key and ignore it. Device defaults: a coarse pointer in portrait → `view: 'tp'`;
 `prefers-reduced-motion` → `reduceMotion: true`. The Settings card is generated from `SCHEMA` with labels and groups
 from `META` (`js/hud/menus.js`); a key without `META` still gets a row.
 
@@ -559,6 +580,7 @@ from `META` (`js/hud/menus.js`); a key without `META` still gets a row.
 | `touchSens`, `touchLeftHanded` | 1 (0.5–2), false | view; touch, HUD, viewmodel |
 | `arrowLook` | false | input |
 | `keys` | `{}`: an object `{ action: KeyboardEvent.code }` with only the rebound actions (`js/keybinds.js`) | input, HUD key glyphs |
+| `pad` | `{}`: an object `{ action: Gamepad button index }` with only the rebound actions (`js/padbinds.js`) | input, HUD key glyphs |
 | `headBob`, `shake`, `speedFx` | 1 (0–1 each) | view feel, viewmodel, HUD speed lines |
 | `cameraRoll`, `reduceMotion` | true, false | view feel, viewmodel, HUD (`#ui.calm`; flashes capped at `TUNE.hud.flashCap`) |
 | `dialogueLookAt` | true | view feel (dialogue look assist) |

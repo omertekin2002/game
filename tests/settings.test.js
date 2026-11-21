@@ -295,3 +295,42 @@ describe('key bindings (the one object-valued setting)', () => {
     expect(stored()).toEqual({ v: 1 });
   });
 });
+
+describe('controller buttons (object-valued setting `pad`)', () => {
+  test('a stored binding comes back; a corrupt one falls back per action and is cleaned on the next write', () => {
+    put({ v: 1, pad: { jump: 3, interact: 0, attack: '7', map: 9, lockOn: 40, potion: 5, nope: 2 }, quality: 'low' });
+    const s = new Settings();
+    expect(s.get('pad')).toEqual({ jump: 3, interact: 0 });   // potion on RB clashed with view: back to LB
+    s.set('sens', 2);
+    s.flush();
+    expect(stored()).toEqual({ v: 1, pad: { jump: 3, interact: 0 }, quality: 'low', sens: 2 });
+  });
+
+  test('whatever is no object, or holds nothing usable, gives the default buttons and is not kept', () => {
+    for (const junk of ['3', 7, [], [3], null, true, { jump: 9 }, { jump: 0 }, { jump: 3, attack: 3 }]) {
+      put({ v: 1, pad: junk });
+      const s = new Settings();
+      expect(s.get('pad'), JSON.stringify(junk)).toEqual({});
+      s.set('sens', 2);
+      s.flush();
+      expect(stored(), JSON.stringify(junk)).toEqual({ v: 1, sens: 2 });
+    }
+  });
+
+  test('set notifies once and persists; reset brings the defaults back next to the keys', () => {
+    const s = new Settings(), heard = [];
+    s.on('pad', (v) => heard.push(v));
+    expect(s.set('pad', { jump: 7, map: 9 })).toEqual({ jump: 7 });                 // Start is reserved
+    expect(s.set('pad', { jump: 7 })).toEqual({ jump: 7 });
+    expect(heard).toEqual([{ jump: 7 }]);
+    s.set('keys', { jump: 'KeyT' });
+    s.flush();
+    expect(stored()).toEqual({ v: 1, pad: { jump: 7 }, keys: { jump: 'KeyT' } });
+    expect(new Settings().get('pad')).toEqual({ jump: 7 });
+    s.reset('pad'); s.reset('keys');
+    expect([s.get('pad'), s.get('keys')]).toEqual([{}, {}]);
+    expect(heard).toEqual([{ jump: 7 }, {}]);
+    s.flush();
+    expect(stored()).toEqual({ v: 1 });
+  });
+});
