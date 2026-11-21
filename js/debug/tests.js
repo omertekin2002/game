@@ -48,7 +48,7 @@ export function suite(name, tests, o = {}) {
   SUITES.set(name, { name, tests: Array.isArray(tests) ? tests : Object.entries(tests), o });
   return name;
 }
-export function list() { return [...SUITES.values()].map((s) => ({ name: s.name, desc: s.o.desc || '', tests: s.tests.length, heavy: !!s.o.heavy })); }
+export function list() { return [...SUITES.values()].map((s) => ({ name: s.name, desc: s.o.desc || '', tests: s.tests.length, heavy: !!s.o.heavy, names: s.tests.map(([tn]) => tn) })); }
 
 // ------------------------------------------------------------------ runner
 function ctx(res, opts = {}) {
@@ -189,8 +189,12 @@ export async function run(name = 'all', o = {}) {
     for (const n of names) {
       const s = SUITES.get(n);
       if (!s) { out.fail++; out.results.push({ suite: n, name: '(suite)', pass: false, msg: 'no such suite', checks: 0, data: {} }); continue; }
-      for (const [tn, fn] of s.tests) {
+      for (const [i, [tn, fn]] of s.tests.entries()) {
         if (o.only && !String(tn).includes(o.only)) continue;
+        // tests/inpage.mjs (headless CI): o.shard = [k, n] runs every n-th test from the k-th (1-based); o.skip: exact
+        // test names not to run (ones software WebGL cannot pass), reported as skipped; o.onResult(res) after each test
+        if (o.shard && i % o.shard[1] !== o.shard[0] - 1) continue;
+        if (o.skip && o.skip.includes(tn)) { const res = { suite: n, name: tn, pass: false, skipped: true, msg: 'skipped', checks: 0, ms: 0, data: {} }; out.results.push(res); if (o.onResult) o.onResult(res); continue; }
         const res = { suite: n, name: tn, pass: true, msg: null, checks: 0, ms: 0, data: {} };
         const t = ctx(res, o), t0 = performance.now();
         try { await prepare(t, { ...(s.o.prepare || {}), ...(fn.prepare || {}) }); await fn(t); }
@@ -199,6 +203,7 @@ export async function run(name = 'all', o = {}) {
         res.ms = +(performance.now() - t0).toFixed(1);
         if (res.pass) out.pass++; else out.fail++;
         out.results.push(res);
+        if (o.onResult) o.onResult(res);
       }
     }
   } finally {

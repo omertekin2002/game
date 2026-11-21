@@ -105,3 +105,45 @@ jobs:
           name: playthrough-failure
           path: test-results/
           if-no-files-found: ignore
+
+  inpage:
+    # the in-page suites (js/debug/tests.js, js/debug/tests/wpN.js), one job per suite so each stays short and a failure
+    # names its suite; `core` is the regular suites in js/debug/tests.js itself. The slowest suites run in three shards
+    # (wp2:k/3, wp8:k/3: every third test; about 3 min each locally, 12-13 min here). Heavy suites (GPU timing, perf
+    # sweeps) stay out of CI.
+    name: In-page suite (${{ matrix.id }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: wp1, args: wp1 }
+          - { id: wp2-1, args: 'wp2:1/3' }
+          - { id: wp2-2, args: 'wp2:2/3' }
+          - { id: wp2-3, args: 'wp2:3/3' }
+          - { id: wp3, args: wp3 }
+          - { id: wp4, args: wp4 }
+          - { id: wp5, args: wp5 }
+          - { id: wp6, args: wp6 }
+          - { id: wp7, args: wp7 }
+          - { id: wp8-1, args: 'wp8:1/3' }
+          - { id: wp8-2, args: 'wp8:2/3' }
+          - { id: wp8-3, args: 'wp8:3/3' }
+          - { id: wp9, args: wp9 }
+          - { id: core, args: smoke look feel-basic combat-basic interact-basic save-migrate }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+      - run: node tests/inpage.mjs ${{ matrix.args }}
+      - name: Upload failure screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inpage-${{ matrix.id }}-failure
+          path: test-results/
+          if-no-files-found: ignore

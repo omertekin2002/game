@@ -206,7 +206,7 @@ export const ERRANDS = [
   {
     id: 'ribbit', npc: 'ribbit', region: 'village', item: 'lantern', list: 'lanterns', how: 'walk', keep: true, follow: true,
     name: 'Bloom parade', count: 4, unlock: (S) => !!S.ending, reward: { gems: 50 },
-    hint: 'One beside the walk up to the Great Tree\'s altar, one by the plaza signpost, one in front of Miso\'s shop and one at the village edge on the Meadow path.',
+    hint: 'One beside the walk up to the Great Tree\'s pedestal, one by the plaza signpost, one in front of Miso\'s shop and one at the village edge on the Meadow path.',
     startToast: 'Lead Mayor Ribbit past the 4 parade lanterns', allToast: 'All 4 lanterns lit! Mayor Ribbit hops home',
     itemLabel: 'Parade lantern', itemColor: '#ffe2a8',
   },
