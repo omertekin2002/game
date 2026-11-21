@@ -441,6 +441,24 @@ async function main() {
     if (problems.length) fail('errors with rebound buttons in play');
     step('stored buttons in effect: the controls card shows Y for Hop, Y hops, A uses and still pages through dialogue');
 
+    // View remapped onto A (live, no reload): paging through dialogue with A does not flip the view; A in play does
+    await page.evaluate(() => window.G.settings.set('pad', { jump: 3, interact: 7, view: 0 }));
+    if (JSON.stringify(await page.evaluate(() => window.G.settings.get('pad'))) !== '{"jump":3,"interact":7,"view":0}') fail('the live View-on-A binding did not take');
+    const mode = () => page.evaluate(() => window.G.game.view.mode);
+    const m0 = await mode();
+    await page.evaluate(() => window.G.ui.say(['Smoke test line three.', 'Smoke test line four.'], { name: 'Smoke' }));
+    await advance();
+    if ((await mode()) !== m0) fail('paging through dialogue with A also toggled the view (View remapped onto A)');
+    await waitFor('free play before A as View', free, STEP_TIMEOUT);
+    await page.waitForTimeout(500);
+    await padPress(0);
+    await waitFor('A (View remapped onto A) to switch the view in play', (m) => window.G.game.view.mode !== m, STEP_TIMEOUT, m0);
+    await page.evaluate((p) => window.G.settings.set('pad', p), remapped);
+    await page.evaluate((m) => { const v = window.G.game.view; if (v.mode !== m) v.toggleMode(); }, m0);
+    await advance();
+    if (problems.length) fail('errors with View remapped onto A');
+    step('View remapped onto A live: A pages through dialogue without switching the view, and switches it in play');
+
     // the menus keep the standard layout: Start pauses, D-pad ↓ + A opens Settings, RB / LB switch tabs
     await padPress(9);
     await waitFor('Start to pause', () => window.G.ui.menu === 'pause', STEP_TIMEOUT);

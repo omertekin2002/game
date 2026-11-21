@@ -530,7 +530,10 @@ a menu one from `MENU_PADMAP`, the default map, which never changes (into `menuP
 debug presses go to both. Menus, dialogue, the shop, the map, the title, the log and the Settings / Controls cards read
 only `menuPressed` (and `confirm()`, `cancel()`, `menuNav()`, which use it), so A confirms, B goes back, LB / RB switch
 tabs and the D-pad / stick move whatever the bindings are; `navUp` / `navDown` stay the physical D-pad ↑ / ↓ and the
-stick. With the default bindings both edge sets are the same. While the Settings card waits for a button,
+stick. With the default bindings both edge sets are the same. The per-frame toggles that also run under modal UI (view
+and shoulder in dialogue, the sprint latch) read `framePressed(a)`: menu edges when the frame began with dialogue, the
+shop or a menu open (`input.modal`, set by Game), else `pressed`, so a button remapped onto A / B does not also toggle
+while it confirms or goes back. While the Settings card waits for a button,
 `input.padCapture = fn(index)` takes the next pad button press (once) instead of the game and the menus; B (1) and
 Start (9) cancel the wait, Esc and the other keyboard / mouse / touch presses stop it too.
 
@@ -543,7 +546,7 @@ Start (9) cancel the wait, Esc and the other keyboard / mouse / touch presses st
 | `Input` | |
 |---|---|
 | `update(dt)` | per frame: held set, pad poll (look dead zone 0.15–0.92 with the `padCurve` exponent, move 0.18–0.95), edges, arrow look, last device (`EV.DEVICE` after 300 ms) |
-| `pressed(a)`, `menuPressed(a)`, `held(a)`, `keyPressed(code)`, `consume(a)`, `consumeAll()`, `confirm()`, `cancel()`, `menuNav()`, `axis() → { x, y, l }` | `menuPressed` = the menus' edges (the pad in its default layout); `confirm` = attack / interact / click / jump, `cancel` = pause / dash, both menu edges |
+| `pressed(a)`, `menuPressed(a)`, `framePressed(a)`, `held(a)`, `keyPressed(code)`, `consume(a)`, `consumeAll()`, `confirm()`, `cancel()`, `menuNav()`, `axis() → { x, y, l }` | `menuPressed` = the menus' edges (the pad in its default layout); `confirm` = attack / interact / click / jump, `cancel` = pause / dash, both menu edges |
 | `keyCapture`, `padCapture` | `fn(code)` / `fn(buttonIndex)` or null: the next key / pad button press goes to it (once) and is no input; set by the Settings card's Keys / Buttons rows |
 | `addMouse(dx, dy, k)`, `takeMouse()`, `takeTouch()`, `takeWheel()`, `lookStick`, `keyLook`, `arrowStick(kx, ky, dt)` | look accumulators; single mouse events > 300 counts are dropped. Arrow look feeds `view.applyLook`'s pad path as a stick deflection (yaw 60 → 140 °/s over 0.25 s, pitch 90 °/s), so it counts as look input everywhere |
 | `lastDevice` (`firstDevice()`: `'touch'` on a coarse-only pointer, else `'keyboard'`), `cursorMenu` | set by Game; closing a cursor menu keeps canvas presses inert for 300 ms |

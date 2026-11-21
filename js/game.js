@@ -308,7 +308,9 @@ export class Game {
     view.applyLook(input, dt);
     if (this.state !== 'play') { input.takeWheel(); this.updateTrans(rawDt); this.trackModal(); return 0; }
     this.updateTrans(rawDt);
-    // modal UI
+    // modal UI (input.modal: this frame began with one open, so the pad's edges for the per-frame toggles below come from
+    // its menu layout, even when the press closes it)
+    input.modal = !!(ui.dlg || ui.shop || ui.menu);
     if (ui.dlg) ui.updateDialogue(dt, input);
     else if (ui.shop) ui.updateShop(input);
     // r4: the press that closes a card is the card's (V or RB on the ending's "any button" also switched the view)
@@ -316,8 +318,8 @@ export class Game {
     else if (!this.cutscene && !this.trans && this.player.state !== 'dizzy') this.gameplayInput(input);
     // view toggle (also during dialogue), TP shoulder swap and boom zoom
     const free = !ui.shop && !ui.menu;
-    if (free && input.pressed('view')) view.toggleMode();
-    if (free && input.pressed('shoulder') && view.mode === 'tp') view.swapShoulder();
+    if (free && input.framePressed('view')) view.toggleMode();
+    if (free && input.framePressed('shoulder') && view.mode === 'tp') view.swapShoulder();
     const wh = input.takeWheel();
     if (wh && free) view.zoom(wh);
     this._call('frameInput', input, dt);

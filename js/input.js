@@ -108,6 +108,7 @@ export class Input {
     this.padPrev = []; this.padNav = 0;
     this.padCapture = null;         // fn(button): the Settings card waits for a pad button to bind; that press is no input
     this.mPressed = new Set();      // this frame's edges as the menus see them: the pad in its default layout (menuPressed)
+    this.modal = false;             // Game sets it each frame: dialogue, the shop or a menu was open as the frame began
     this.lastDevice = firstDevice(); this.deviceT = 0; this.emittedDevice = null;
     this.keyLook = { x: 0, y: 0, m: 0 }; this.arrowT = 0; this.arrowDir = 0; // arrow-key look (setting arrowLook)
     this.cursorMenu = false;        // Game sets it each frame: shop/menus own the mouse (setter below)
@@ -304,6 +305,9 @@ export class Input {
   /** a press edge as menus, dialogue, the shop and the map read it: keyboard, mouse and touch as pressed(), the pad in
    *  its default layout whatever its bindings (A jump = confirm, B dash = back, LB / RB potion / view = tabs) */
   menuPressed(a) { return this.mPressed.has(a); }
+  /** for per-frame toggles that also run under modal UI (view, shoulder, sprint latch): menu edges while a modal UI
+   *  owns the frame (a pad button remapped onto A / B does not also toggle while it confirms or goes back), else pressed */
+  framePressed(a) { return this.modal ? this.menuPressed(a) : this.pressed(a); }
   held(a) { return this.actHeld.has(a); }
   keyPressed(code) { return this.edges && this.edges.has(code); }
   consume(a) { this.actPressed.delete(a); this.mPressed.delete(a); }
