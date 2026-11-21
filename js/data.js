@@ -135,6 +135,51 @@ export const rematch = {
   },
 };
 
+// Landmark keepsakes: one small hidden thing tucked round the back of each region landmark (W.landmarks id `landmark`;
+// the Great Tree has none). World.placeSecrets puts each just outside its landmark's collider ring, on the side away
+// from the region's path (the lighthouse's: toward the sea); the cairn's needle summit is too steep to walk up to, so
+// its stone sits as close below it as Pip can stand. Use reads its lines like a sign and gives `gems` once;
+// found ones are flags in the save (S.secrets[id] = true, save v6). Nothing on the compass or the map points at them;
+// Digby hints at them once the first Starseed is home.
+//  verb / label: the crosshair prompt ('Look · Something glowing': the name stays a surprise until it is read); keep: stays in the
+//  world once found, in its opened look (the bottle), instead of disappearing
+export const SECRETS = [
+  {
+    id: 'acorn', landmark: 'woods', name: 'Glowing acorn', label: 'Something glowing', verb: 'Look', gems: 25,
+    lines: ['A little acorn, glowing softly, tucked in a hollow of the giant mushroom\'s roots.', 'Long ago, the Great Tree dropped acorns like this one all over the isle. This one never quite fell asleep.'],
+  },
+  {
+    id: 'stone', landmark: 'peaks', name: 'Humming crystal stone', label: 'Something humming', verb: 'Look', gems: 25,
+    lines: ['A loose crystal stone that rolled down from the cairn, humming a slow, sleepy tune. It sounds a lot like the Starseeds do.', 'Scratched on its back, very small: "We carried the first Starseed up here to see the stars. It liked them."'],
+  },
+  {
+    id: 'bottle', landmark: 'shores', name: 'Message in a bottle', label: 'A bottle', verb: 'Open', gems: 25, keep: true,
+    lines: ['A message in a bottle, wedged against the lighthouse wall on the sea side! The paper inside is salty and curled.', '"To whoever finds this: the Great Tree sneezes about once every hundred years. Keep a hanky handy. P.S. The crabs are friendlier than they look."'],
+  },
+  {
+    id: 'pouch', landmark: 'meadow', name: 'Tiny seed pouch', label: 'A tiny pouch', verb: 'Look', gems: 25,
+    lines: ['A tiny seed pouch, tucked against the windmill\'s stone footing. The stitching says "For Spring".', 'The seeds inside are the same gold as the Great Tree\'s blossoms. Someone has been planting little bits of the Tree all over the meadow.'],
+  },
+];
+/** landmark keepsake rules, pure so `bun test` covers them (interact.js applies a find) */
+export const secrets = {
+  /** the SECRETS entry with this id, or null */
+  get: (id) => SECRETS.find((s) => s.id === id) || null,
+  /** has Pip found this keepsake */
+  got: (S, id) => isObj(S && S.secrets) && S.secrets[id] === true,
+  /** keepsakes found (the tracker's row): only SECRETS ids, only true flags */
+  count: (S) => SECRETS.filter((s) => secrets.got(S, s.id)).length,
+  /** Pip finds a keepsake: the first time sets S.secrets[id] and adds its gems to S.coins → the gems given (0 on a
+   *  repeat or an unknown id, which change nothing). Mutates S */
+  find(S, id) {
+    const s = secrets.get(id);
+    if (!s || secrets.got(S, id)) return 0;
+    S.secrets = { ...(isObj(S.secrets) ? S.secrets : {}), [id]: true };
+    S.coins = (S.coins || 0) + s.gems;
+    return s.gems;
+  },
+};
+
 // ---------------- dialogue ----------------
 const found = (S) => SEED_ORDER.filter((k) => S.seeds[k] > 0).length;
 const placed = (S) => SEED_ORDER.filter((k) => S.seeds[k] === 2).length;
@@ -335,6 +380,9 @@ export const NPCS = [
       if (!S.bosses.peaks) out.push('Frostbun loves to hop. When a pillar of light shoots up around you and something whistles overhead, LOOK UP! Then roll out of the glowing circle with {dash}, quick!');
       if (hc < 4) out.push('Psst... my tunnels rumble near four heart-shaped treasures: a ring of tall sunflowers here in the Meadow, the little islet off the western beach, a nook behind the Peaks boulders, and a hidden glade in the Woods.');
       else out.push('You found all four heart treasures? My tunnels feel so empty now. In a good way!');
+      // the landmark keepsakes (SECRETS): a hint once the first Starseed is home, a thank-you once all four are found
+      if (secrets.count(S) >= SECRETS.length) out.push('You found what every tall thing on this isle was keeping? Thank you, Pip. Some of those have been waiting a long, long time for somebody.');
+      else if (placed(S) > 0) out.push('Every tall thing on this isle keeps something tucked round its back. Digby\'s dug near all of them.');
       out.push('Little treasure chests like to hide where the paths cannot see them. Behind houses, behind boulders... I would look there. If I could see.');
       out.push('Bushes hide gems sometimes. And sometimes they just hide more bushes.');
       return out;
