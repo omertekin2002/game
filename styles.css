@@ -788,6 +788,15 @@ kbd.kp.a { background: #6cc35a; } kbd.kp.b { background: #ef7a6a; } kbd.kp.x { b
 #ui.lay-port .controls-grid { grid-template-columns: 1fr; }
 #ui.lay-port #mapview canvas { width: calc(100vw - 52px); height: calc(100vw - 52px); }
 #ui.lay-port .shop-item .ds { font-size: 12px; }
+/* the plushie rows (up to six): tighter rows on phones so the list and the Bye button fit a portrait screen */
+#ui.lay-port #shop .items.many { gap: 6px; margin-top: 6px; }
+#ui.lay-port #shop .items.many .shop-item { padding: 5px 10px; gap: 10px; border-radius: 12px; }
+#ui.lay-port #shop .items.many .shop-item > img { width: 34px; height: 34px; }
+#ui.lay-port #shop .items.many .shop-item .nm { font-size: 16px; line-height: 1.15; }
+#ui.lay-port #shop .items.many .shop-item .pr { font-size: 16px; }
+#ui.lay-land #shop .items.many { gap: 4px; }
+#ui.lay-land #shop .items.many .shop-item { padding: 3px 10px; }
+#ui.lay-land #shop .items.many .shop-item > img { width: 32px; height: 32px; }
 #ui.lay-port #dizzy .dt { font-size: 34px; }
 
 /* phone menus: every tap target at least 40 px tall (a thumb, art §13); toggles and sliders get a taller hit area

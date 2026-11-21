@@ -6,7 +6,7 @@
 // Layout: one scale unit --u (desktop) or the phone layouts (#ui.lay-land / .lay-port), set by layout().
 import * as THREE from 'three';
 import { G, sfx, spriteUrl, isMuted, toggleMute } from './core.js';
-import { SEED_ORDER, SEEDS, SHOP, REGIONS, CFG } from './data.js';
+import { SEED_ORDER, SEEDS, REGIONS, CFG, shop } from './data.js';
 import { HALF, N } from './world-const.js';
 import { clamp } from './util.js';
 import { project, refreshViewport } from './hud/projector.js';
@@ -705,20 +705,15 @@ export class UI {
     this.showOverlay(this.shopWrap, true);
     uiSfx('uiOpen');
   }
-  shopState(item, S) {
-    if (item.id === 'potion') return S.potions >= CFG.potionMax ? 'full' : 'ok';
-    if (item.id === 'heart') return S.shopHeart ? 'sold' : 'ok';
-    if (item.id === 'sword') return S.swordLevel >= 2 ? 'sold' : 'ok';
-    return 'ok';
-  }
   renderShop() {
     const sh = this.shop;
     if (!sh) return;
-    const S = sh.S, dev = deviceKind();
+    const S = sh.S, dev = deviceKind(), items = shop.items(S);   // data.js: the plushies join once the shop is bought out
+    sh.sel = Math.min(Math.max(0, sh.sel), items.length - 1);
     const hint = dev === 'touch' ? 'Tap an item to buy it' : dev === 'pad' ? '↑↓ choose · {jump} buy · {dash} leave' : '↑↓ choose · {interact} or click to buy · {pause} leave';
     this.shopEl.innerHTML = `<div class="shead"><h2>${img('npc_cat')}<span>Miso's Shop</span></h2><div class="counter wallet">${cimg('coin', gemFb)}<b>${S.coins}</b></div></div>
-      <div class="items">${SHOP.map((it, i) => {
-        const st = this.shopState(it, S);
+      <div class="items${items.length > 3 ? ' many' : ''}">${items.map((it, i) => {
+        const st = shop.state(it, S);
         const pr = st === 'sold' ? 'SOLD OUT' : st === 'full' ? 'FULL' : `${cimg('coin', gemFb)}${it.price}`;
         return `<div class="shop-item ${i === sh.sel ? 'sel' : ''} ${st !== 'ok' ? 'out' : ''} ${st === 'ok' && S.coins < it.price ? 'poor' : ''}" data-i="${i}">${img(it.icon)}<div class="info"><div class="nm">${esc(it.name)}</div><div class="ds">${esc(it.desc)}</div></div><div class="pr">${pr}</div></div>`;
       }).join('')}</div><div class="sfoot"><div class="msg">${esc(fmtKeys(sh.msg))}</div><div class="hint">${fmtKeys(hint, { html: true })}</div>
@@ -738,11 +733,12 @@ export class UI {
   buySelected() {
     const sh = this.shop;
     if (!sh) return;
-    const it = SHOP[sh.sel];
-    const st = this.shopState(it, sh.S);
+    const it = shop.items(sh.S)[sh.sel];
+    if (!it) return;
+    const st = shop.check(it, sh.S);
     if (st === 'sold') { sh.msg = 'Sold out! Only one of those, sorry~'; sfx('error'); }
     else if (st === 'full') { sh.msg = 'Your pockets are full of potions already!'; sfx('error'); }
-    else if (sh.S.coins < it.price) { sh.msg = 'Not enough gems, little sprout. Mrrow...'; sfx('error'); }
+    else if (st === 'poor') { sh.msg = 'Not enough gems, little sprout. Mrrow...'; sfx('error'); }
     else { sh.msg = sh.onBuy(it); sfx('buy'); }
     this.renderShop();
   }
@@ -750,7 +746,7 @@ export class UI {
     const sh = this.shop;
     if (!sh) return;
     const nav = input.menuNav();
-    if (nav) { sh.sel = (sh.sel + nav + SHOP.length) % SHOP.length; uiSfx('uiMove'); this.renderShop(); }
+    if (nav) { const n = shop.items(sh.S).length; sh.sel = (((sh.sel + nav) % n) + n) % n; uiSfx('uiMove'); this.renderShop(); const r = this.shopEl.querySelector('.shop-item.sel'); if (r && r.scrollIntoView) r.scrollIntoView({ block: 'nearest' }); }   // wraps over the rows on show; a tall list scrolls to the row
     if (input.pressed('attack') || input.pressed('interact') || input.pressed('jump')) this.buySelected(); // keys/pad; canvas clicks never reach here
     else if (input.cancel()) this.closeShop();
   }

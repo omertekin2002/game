@@ -193,7 +193,13 @@ player wins about two in three. The wooden sword is the balance reference.
   victory croak finally works and he gives 50 gems, once. The lanterns stay lit for good. Following is not saved: after
   Continue Ribbit is home again, the lit lanterns still lit, and a talk picks the parade up again.
 - **Shop (Miso)**: Potion 25 gems (carry 3), Heart Container 120 (once), Shiny Sword 150 (once: double damage, longer
-  reach, sparkly). In first person the purchase is held up in Pip's paws.
+  reach, sparkly). In first person the purchase is held up in Pip's paws. Once the heart and the sword are both sold,
+  Miso's keepsakes give spare gems a use: a guardian plushie (Grumble Shroom, Captain Pinch, Frostbun; `PLUSHIES` in
+  `js/data.js`) for 80 gems each, one of each, in stock once its guardian is beaten. Each one bought sits on her
+  counter as a small copy of its guardian (a scaled clone of the boss model, no shadow, at fixed spots outside the clear
+  stretch in front of her: `PLUSHIE_SPOTS` in `js/props.js`, no colliders), and she has a line for plushies in stock,
+  some bought and all three bought. The stock rules (`shop.items` / `shop.state` / `shop.check` in `js/data.js`) are
+  pure and unit-tested; the shop's ↑↓ wrap over the rows on show.
 - **Chests**: 4 heart-container chests (a ring of sunflowers in the meadow, the islet off the western beach, a nook
   behind the peaks boulders, a hidden glade in the woods) and 10 gem chests hidden 8–40 m off the paths. A gem chest
   spills gems; a heart container (like a Starseed) is raised in Pip's paws in first person or over his head in third
@@ -236,7 +242,7 @@ generated icons that each have a drawn fallback.
   backdrop. Everything works with mouse, keyboard, gamepad and touch.
 - **Completion tracker** (pause menu under the seed row, map card under the legend): a row of chips, each an icon and
   found / total, for chests opened, heart containers (the heart chests plus Miso's shop heart), guardians beaten, regions
-  visited, Starseeds home and errands done (an errand counts once, not its shells), then the overall percentage of
+  visited, Starseeds home, errands done (an errand counts once, not its shells) and Miso's guardian plushies bought, then the overall percentage of
   distinct things found. A full chip turns green and gets a
   ✓ badge, and the finished tally reads ★ 100%, so completion never rests on colour alone. It is read-only over the save
   (`js/completion.js`, a pure module): totals come from the generated island and `data.js`, and save keys for things
@@ -317,10 +323,11 @@ low 1.0, high 2.0) and dynamic resolution of the main pass between 0.70 and 1.0.
 One save slot in the browser (`starseed-isle-save-v2`): autosave every 30 s outside fights and at key moments (seeds,
 chests, purchases, defeats). It keeps the island seed, Pip's place and look, hearts, gems, potions, sword, Starseeds
 (found and placed), chests, defeated bosses, the shop heart, the ending, the time of day, visited regions, errands
-(started or done) and their items found (rainbow shells picked up, parade lanterns lit), and your map marker. Continue resumes there; Save & Quit returns to the title.
+(started or done) and their items found (rainbow shells picked up, parade lanterns lit), Miso's guardian plushies bought,
+and your map marker. Continue resumes there; Save & Quit returns to the title.
 
 The schema lives in `js/save.js` (pure, unit-tested in `tests/save.test.js`). Every save carries a `v` field,
-`SAVE_VERSION` (currently 3); the version comes from `v`, not from the storage key, which stays
+`SAVE_VERSION` (currently 4); the version comes from `v`, not from the storage key, which stays
 `starseed-isle-save-v2`. Loading runs `loadSave(raw, seed)`: `migrate` applies the `MIGRATIONS[n]` steps
 (version n → n + 1) up to `SAVE_VERSION` and rejects non-objects, saves without `seed`, saves newer than
 `SAVE_VERSION` or with no migration path; then `normalize` fills missing fields from `freshState` and
@@ -333,6 +340,9 @@ dropped) and turns shells into flags. A build from before v3 treats a v3 save as
 to be reverted after release, ship a build that accepts v3 and ignores its extra fields rather than a plain revert.
 Mayor Ribbit's parade needs no new version: its state is `errands.ribbit` and each lit lantern a flag in the same
 `shells` map (the errand item flags: `lantern1`…`lantern4` beside `shell1`…`shell5`), so any v3 build loads it.
+`MIGRATIONS[3]` (v3 → v4, Miso's guardian plushies) keeps every v3 field and adds `plushies: {}` (guardian id → true);
+`normalize` keeps only guardian ids (`BOSSES` keys) set to `true`. As with v3, a build from before v4 treats a v4 save
+as newer, so as no save.
 
 The first-person build adds two optional fields without a version bump (`normalize` keeps unknown fields): `pitch`,
 the look angle, which `Game.startSession` restores clamped; and `controlsV`, the version of the controls card the

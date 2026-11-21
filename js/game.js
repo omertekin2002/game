@@ -164,6 +164,7 @@ export class Game {
     // world state from save
     for (const c of W.chests) this.scenery.setChestOpen(c.id, !!S.chests[c.id], true);
     this.syncErrands();      // errand items (Clover's rainbow shells that are out, Ribbit's parade lanterns; interact.js)
+    this.syncPlushies();     // Miso's counter: the guardian plushies bought (interact.js)
     this.resetErrandNpcs();  // a parade villager is back home, not following, until Pip talks to him again
     this.scenery.setBloom(!!S.ending);
     this.treeSeeds.forEach((g) => (g.visible = !!S.ending && this.treeSeedsWanted()));

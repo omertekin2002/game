@@ -76,6 +76,8 @@ export const DebugMixin = {
       /** optional yaw/pitch: also set the look (and the body facing) */
       teleport(x, z, yaw = null, pitch = 0) { const p = game.player; const y = game.world.ground(x, z); p.pos.set(x, y, z); p.prev.copy(p.pos); if (yaw != null) { p.turnTo(yaw); view.setLook(yaw, pitch); } view.snap(); game.clock.resetPhase(); return [x, y, z]; },
       giveSeeds() { for (const id of SEED_ORDER) { if (!game.S.seeds[id]) game.S.seeds[id] = 1; game.S.bosses[id] = true; if (game.bosses[id]) { game.bosses[id].remove(); delete game.bosses[id]; } } game.pickups.filter((p) => p.kind === 'seed').forEach((p) => p.remove()); game.ui.updateHud(game.S, true); game.ui.toast('Got all seeds (debug)'); },
+      /** add n gems (the G key's +100 as a call) → the new total */
+      gems(n = 100) { game.S.coins = Math.max(0, (game.S.coins || 0) + Math.floor(n)); game.ui.updateHud(game.S); return game.S.coins; },
       setTime(h) { game.S.tod = (((h % 24) + 24) % 24) / 24; return h; },
       killBoss() { const f = game.fight; if (f && f.boss && !f.boss.dying) { if (f.phase === 'intro') { f.phase = 'fight'; game.player.autoMove = null; const face = game.bossFace(f.boss); if (f.shot) view.clearShot(f.shot, { face }); else view.lookAtPoint(face.x, face.y, face.z, 0.6); game.player.state = 'normal'; game.events.emit(EV.CUTSCENE_END, { type: 'bossIntro' }); game.events.emit(EV.BOSS_FIGHT, { id: f.id }); } f.boss.hp = 0; f.boss.startDying(); return true; } return false; },
       /** teleport outside a boss arena (id 'woods' | 'peaks' | 'shores', else the nearest unbeaten one) → id */

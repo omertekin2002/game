@@ -3,7 +3,7 @@
 // freeze) run on sim time (later / tickLater), so they hold while a menu or the shop pauses the world.
 import * as THREE from 'three';
 import { sfx } from './core.js';
-import { CFG, SEED_ORDER, SEEDS, ERRANDS, progress, errands } from './data.js';
+import { BOSSES, CFG, SEED_ORDER, SEEDS, ERRANDS, progress, errands } from './data.js';
 import { NPC } from './npcs.js';
 import { Pickup } from './entities.js';
 import { toonMat, sharedOutline, meshWithOutline } from './toon.js';
@@ -177,6 +177,11 @@ export const InteractMixin = {
     }
     this.save(true);
   },
+  /** Miso's counter: the guardian plushies Pip bought (S.plushies), from the save */
+  syncPlushies() {
+    if (!this.scenery.setPlushie) return;
+    for (const id of Object.keys(BOSSES)) this.scenery.setPlushie(id, !!this.S && !!this.S.plushies && this.S.plushies[id] === true);
+  },
   /** every errand item's scenery from the save: shown while it is out (a `keep` item also once found, in its found look:
    *  a lit lantern), hidden otherwise. `instant`: no warm-up (a session start) */
   syncErrands(instant = true) {
@@ -267,6 +272,7 @@ export const InteractMixin = {
     if (it.id === 'potion') { S.potions++; msg = 'A potion! Bottoms up, later.'; }
     if (it.id === 'heart') { S.shopHeart = true; S.maxHp = Math.min(CFG.maxHp, S.maxHp + 2); S.hp = S.maxHp; msg = 'Max hearts +1! Purr-fect.'; sfx('fanfare'); }
     if (it.id === 'sword') { S.swordLevel = 2; this.player.setSword(2); msg = 'The Shiny Sword! Swish swish~'; sfx('fanfare'); }
+    if (it.boss) { S.plushies = { ...(S.plushies || {}), [it.boss]: true }; this.scenery.setPlushie(it.boss, true); msg = it.got; sfx('fanfare'); }   // data.js PLUSHIES: it sits on Miso's counter at once
     this.ui.updateHud(S);
     return msg;
   },
