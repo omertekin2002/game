@@ -17,7 +17,8 @@ const mdFiles = (dir) => (existsSync(dir) ? readdirSync(dir).filter((f) => f.end
 /**
  * Bible-to-bible links that do not resolve yet because the bible files were written in parallel and disagree. The bible
  * text is not edited to fit (S-002a); each entry names the file to fix and the close-out step that adds the anchor or
- * cast entry and removes the entry here. This list only shrinks: a new broken link fails the test.
+ * cast entry and removes the entry here. This list only shrinks: a new broken link fails the test, and so does a second
+ * copy of a listed one.
  */
 const ALLOW_PENDING = [
   // creatures.md names the six shipped species by id; S-047 adds these anchors before their rows in creatures.md.
@@ -37,6 +38,21 @@ const ALLOW_PENDING = [
   'story.md -> atlas-home.md#shellbys-bench',          // S-031 (atlas-home.md)
   // creatures.md marks the section `<a id="tiers">`; S-047 (M06 close-out; pattern tiers ship in S-041) adds this one.
   'systems.md -> creatures.md#pattern-tiers',
+];
+
+/**
+ * charter.md glossary rows (by Name cell) that cite a whole bible file or the shipped code instead of a file#anchor. All
+ * six are shipped (L) names, and the glossary is not edited to fit (charter decision 16), so they are listed here
+ * rather than failing. This list only shrinks: any other row without an anchor fails, and so does a listed row once it
+ * links an anchor.
+ */
+const GLOSSARY_WITHOUT_ANCHOR = [
+  'Starseed Isle (`home`)',
+  'Sprout Village, Whispering Woods, Frostcap Peaks, Sunny Shores, Bloom Meadow',
+  "Grumble's Crown, Summit Crystal Cairn, Pinch's Lighthouse, Meadow Windmill",
+  "Grumble Shroom's Hollow, Captain Pinch's Cove, Frostbun's Summit",
+  "Miso's Shop; the signpost; the well; the hidden glade; the fairy rings; islet 1 and islet 2; the Peaks bridge",
+  'Rainbow shells; parade lanterns',
 ];
 
 /** Every bible reference INDEX.md makes: Appendix B lists plus `bible/<file>.md#<anchor>` links, as { file, anchor, where }. */
@@ -115,9 +131,14 @@ function renderedAnchors(text) {
   return out;
 }
 
+const LINK_RE = /\[[^\]]*\]\((?:\.\/)?((?:\.\.\/|[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.md)?#([^)\s]+)\)/g;
+const BARE_REF_RE = /(?<![\w/.#-])(?:\.\/)?((?:\.\.\/[a-z]+\/)?[a-z0-9-]+\.md)#([A-Za-z0-9_.-]*[A-Za-z0-9_-])/g;
+
 /**
- * Markdown links that carry an anchor: `](#a)`, `](./f.md#a)`, `](f.md#a)` and `](../bible/f.md#a)`, as
- * { file, anchor, line }: file is the path relative to the linking file (`./` dropped), or null for the same file.
+ * Anchor references outside code fences, as { file, anchor, line }: file is the path relative to the referring file
+ * (`./` dropped), or null for the same file. Markdown links count (`](#a)`, `](./f.md#a)`, `](f.md#a)`,
+ * `](../bible/f.md#a)`), and so do bare references in prose or code spans (`./f.md#a`, `` `f.md#a` ``), which the bible
+ * uses in tables such as art-audio.md's asset list.
  */
 function anchorLinks(text) {
   const out = [];
@@ -125,9 +146,17 @@ function anchorLinks(text) {
   lines(text).forEach((line, i) => {
     if (/^\s*(```|~~~)/.test(line)) { fence = !fence; return; }
     if (fence) return;
-    for (const m of line.matchAll(/\]\((?:\.\/)?((?:\.\.\/|[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.md)?#([^)\s]+)\)/g)) {
-      out.push({ file: m[1] ?? null, anchor: m[2], line: i + 1 });
-    }
+    for (const m of line.matchAll(LINK_RE)) out.push({ file: m[1] ?? null, anchor: m[2], line: i + 1 });
+    for (const m of line.replace(/\[[^\]]*\]\([^)]*\)/g, ' ').matchAll(BARE_REF_RE)) out.push({ file: m[1], anchor: m[2], line: i + 1 });
+  });
+  return out;
+}
+
+/** Whole-file markdown links (`](./f.md)`, `](f.md)`, `](../bible/f.md)`), as { file, line }. */
+function fileLinks(text) {
+  const out = [];
+  lines(text).forEach((line, i) => {
+    for (const m of line.matchAll(/\]\((?:\.\/)?((?:\.\.\/|[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.md)\)/g)) out.push({ file: m[1], line: i + 1 });
   });
   return out;
 }
@@ -145,13 +174,16 @@ function brokenLinks(dir, anchorsOf, readFile = read) {
       const anchors = anchorsOf(join(dir, target));
       if (!anchors || !anchors.has(l.anchor)) bad.push({ key: `${f} -> ${target}#${l.anchor}`, at: `${f}:${l.line}` });
     }
+    for (const l of fileLinks(readFile(join(dir, f)))) {
+      if (!anchorsOf(join(dir, l.file))) bad.push({ key: `${f} -> ${l.file}`, at: `${f}:${l.line}` });
+    }
   }
   return bad;
 }
 
 /**
  * The glossary tables' body rows in charter.md (the `###` sections under `## Master glossary index`), as
- * { row, line, locked }; `locked` is true when the row's St. column starts with L (a shipped name).
+ * { row, line, name, locked }; `locked` is true when the row's St. column starts with L (a shipped name).
  */
 function glossaryRows(text) {
   const all = lines(text);
@@ -164,9 +196,31 @@ function glossaryRows(text) {
     if (/^##\s/.test(line)) inGlossary = /^##\s+Master glossary index\b/.test(line);
     if (!inGlossary || !line.startsWith('|') || isSeparator(line)) return;
     if (isSeparator(all[i + 1] ?? '')) { stCol = cells(line).indexOf('St.'); return; }   // header row
-    rows.push({ row: line, line: i + 1, locked: stCol >= 0 && /^L\b/.test(cells(line)[stCol] ?? '') });
+    rows.push({ row: line, line: i + 1, name: cells(line)[0], locked: stCol >= 0 && /^L\b/.test(cells(line)[stCol] ?? '') });
   });
   return rows;
+}
+
+/**
+ * What is wrong with one glossary row: each file#anchor it links must resolve (or be in ALLOW_PENDING). A row with no
+ * anchor must be a shipped (L) name in GLOSSARY_WITHOUT_ANCHOR and cite an existing bible file or `js/` file; a listed
+ * row that now links an anchor must leave the list.
+ */
+function glossaryRowProblems({ row, name, locked }, anchorsOf, withoutAnchor = GLOSSARY_WITHOUT_ANCHOR) {
+  const bad = [];
+  const links = anchorLinks(row).filter((l) => l.file !== null);
+  for (const l of links) {
+    const key = `charter.md -> ${l.file}#${l.anchor}`;
+    if (!anchorsOf(join(BIBLE, l.file))?.has(l.anchor) && !ALLOW_PENDING.includes(key)) bad.push(key);
+  }
+  const listed = withoutAnchor.includes(name);
+  if (links.length > 0) return listed ? [...bad, 'links an anchor now: remove it from GLOSSARY_WITHOUT_ANCHOR'] : bad;
+  if (!listed || !locked) return [...bad, 'no file#anchor link'];
+  const files = fileLinks(row).map((l) => join(BIBLE, l.file));
+  const code = [...row.matchAll(/`(js\/[^`\s]+)`/g)].map((m) => join(import.meta.dir, '..', m[1]));
+  if (files.length + code.length === 0) bad.push('cites no bible file or js/ file');
+  for (const f of [...files, ...code]) if (!existsSync(f)) bad.push(`missing ${f}`);
+  return bad;
 }
 
 const CANON_RE = /CANON(-NOW)?\s+(?:§|section\s+)(\d+)(?:\.(\d+))?/g;
@@ -237,31 +291,20 @@ test('bible cross-links: every anchor link between bible files (and from steps/,
   const steps = brokenLinks(join(ROOT, 'steps'), anchorsOf);
   const linkCount = mdFiles(BIBLE).reduce((n, f) => n + anchorLinks(read(join(BIBLE, f))).length, 0);
   expect(linkCount).toBeGreaterThan(1000);
-  const keys = new Set(bible.map((b) => b.key));
-  // A broken bible link not on the list fails; so does a listed one that now resolves (remove it from ALLOW_PENDING).
+  // A broken bible link not on the list fails; so does a listed one that now resolves (remove it from ALLOW_PENDING)
+  // or that appears more than once (the list must not grow by copies).
   expect(bible.filter((b) => !ALLOW_PENDING.includes(b.key)).map((b) => `${b.at}: ${b.key}`)).toEqual([]);
-  expect(ALLOW_PENDING.filter((k) => !keys.has(k))).toEqual([]);
+  const seen = ALLOW_PENDING.map((k) => [k, bible.filter((b) => b.key === k).map((b) => b.at)]);
+  expect(seen.filter(([, at]) => at.length !== 1)).toEqual([]);
   expect(steps.map((b) => `${b.at}: ${b.key}`)).toEqual([]);
 });
 
 test('glossary: every row of charter.md\'s glossary tables links its defining file and anchor, and each resolves', () => {
-  const charter = read(join(BIBLE, 'charter.md'));
-  const rows = glossaryRows(charter);
+  const rows = glossaryRows(read(join(BIBLE, 'charter.md')));
   expect(rows.length).toBeGreaterThan(100);
-  const bad = [];
-  for (const { row, line, locked } of rows) {
-    const links = anchorLinks(row).filter((l) => l.file !== null);
-    for (const l of links) {
-      const key = `charter.md -> ${l.file}#${l.anchor}`;
-      if (!anchorsOf(join(BIBLE, l.file))?.has(l.anchor) && !ALLOW_PENDING.includes(key)) bad.push(`charter.md:${line}: ${key}`);
-    }
-    if (links.length > 0) continue;
-    // A shipped (L) name may instead cite a whole bible file or the shipped code; a CANON name needs file#anchor.
-    const files = [...row.matchAll(/\]\(\.\/([a-z0-9-]+\.md)\)/g)].map((m) => m[1]);
-    const ok = locked && (files.length > 0 ? files.every((f) => existsSync(join(BIBLE, f))) : /`js\/[^`]+`/.test(row));
-    if (!ok) bad.push(`charter.md:${line}: no file#anchor link`);
-  }
+  const bad = rows.flatMap((r) => glossaryRowProblems(r, anchorsOf).map((p) => `charter.md:${r.line}: ${r.name}: ${p}`));
   expect(bad).toEqual([]);
+  expect(GLOSSARY_WITHOUT_ANCHOR.filter((n) => !rows.some((r) => r.name === n))).toEqual([]);   // no stale names
 });
 
 test('bible: every <a id> is unique within its file', () => {
@@ -344,5 +387,28 @@ test('helpers: GitHub heading slugs, anchor links and glossary rows', () => {
     '| Pip | hero | L | [cast.md#pip](./cast.md#pip) |', '| Mote | moth | C | x |',
     '### B', '| Land | Side stories |', '|---|---|', '| Home | y |', '## Engineering invariants', '| out | of | scope |',
   ].join('\n'));
-  expect(rows.map((r) => [r.line, r.locked])).toEqual([[5, true], [6, false], [10, false]]);
+  expect(rows.map((r) => [r.line, r.name, r.locked])).toEqual([[5, 'Pip', true], [6, 'Mote', false], [10, 'Home', false]]);
+  // Bare references in prose and code spans count; the text of a markdown link does not count twice.
+  expect(anchorLinks('see `./creatures.md#boss-rollo` and (cast.md#pip). [lore.md#myth](./lore.md#myth) https://x.io/a.md#b'))
+    .toEqual([
+      { file: 'lore.md', anchor: 'myth', line: 1 },
+      { file: 'creatures.md', anchor: 'boss-rollo', line: 1 },
+      { file: 'cast.md', anchor: 'pip', line: 1 },
+    ]);
+  expect(fileLinks('[a](./atlas-home.md) [b](./cast.md#pip) [c](../bible/gone.md)')).toEqual([
+    { file: 'atlas-home.md', line: 1 }, { file: '../bible/gone.md', line: 1 },
+  ]);
+  // The glossary exception: only listed shipped rows, citing a bible file or js/ file that exists.
+  const row = (defined, locked, name = 'X') => ({ row: `| ${name} | k | ${locked ? 'L' : 'C'} | ${defined} |`, name, locked });
+  const problems = (r) => glossaryRowProblems(r, anchorsOf, ['X']);
+  expect(problems(row('[cast.md#pip](./cast.md#pip)', false, 'Y'))).toEqual([]);
+  expect(problems(row('[cast.md#nope](./cast.md#nope)', false, 'Y'))).toEqual(['charter.md -> cast.md#nope']);
+  expect(problems(row('[atlas-home.md](./atlas-home.md)', true))).toEqual([]);
+  expect(problems(row('shipped `js/data.js` `ERRANDS`', true))).toEqual([]);
+  expect(problems(row('[gone.md](./gone.md)', true))).toEqual([`missing ${join(BIBLE, 'gone.md')}`]);
+  expect(problems(row('shipped `js/gone.js`', true))).toEqual([`missing ${join(import.meta.dir, '..', 'js/gone.js')}`]);
+  expect(problems(row('nothing', true))).toEqual(['cites no bible file or js/ file']);
+  expect(problems(row('[atlas-home.md](./atlas-home.md)', false))).toEqual(['no file#anchor link']);           // CANON row
+  expect(problems(row('[atlas-home.md](./atlas-home.md)', true, 'Y'))).toEqual(['no file#anchor link']);       // not listed
+  expect(problems(row('[cast.md#pip](./cast.md#pip)', true))).toEqual(['links an anchor now: remove it from GLOSSARY_WITHOUT_ANCHOR']);
 });
