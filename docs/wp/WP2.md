@@ -76,7 +76,8 @@ No edits outside these files.
   position lag, λ 12), figure-8 stride bob on `walkPhase`, strafe roll, forward pull-back, idle breathing, jump lag on
   `player.vy`, one landing spring kicked by `EV.JUMP` (`jumpDip` 2.5 cm) and `EV.LAND` (`landDip` 3.5 cm × impact/8),
   hurt jolt on `EV.HURT` (`hurtY` −5 cm, ±7° roll away from `rel`, pitch kick), i-frame flash 0.35 at 8 Hz (hurt
-  i-frames and the 1.5 s respawn grace, `EV.RESPAWN`) plus the hurt white flash, dash tuck. Kick sizes are exact:
+  i-frames and the 1.5 s respawn grace, `EV.RESPAWN`; with `reduceMotion` a steady `flashCalm` 0.18 tint for the same
+  window, so nothing flickers above 3 Hz, WCAG 2.3.1) plus the hurt white flash, dash tuck. Kick sizes are exact:
   `springPeak()` simulates the discrete spring once.
 - **Frame-rate independence.** Every spring (right-hand position, landing, hurt) is integrated in uniform sub-steps of
   ≤ 1/120 s, so 60, 30, 20 or 10 fps give the same motion (one step per frame went unstable once λ·dt neared 1: the
@@ -133,7 +134,8 @@ Sound: `sfx('sparkle')` (a presented purchase; a C8 name).
   landing squash spring on `EV.LAND` (scaled by `impact`). Silent until WP3 emits them; simulated in the tests.
 - Swings: the sword arm follows the sim sweep bearing (A/B) or chop pitch (C) at render time, the torso turns into it,
   holds through hit-stop; the world `SlashTrail` follows the same sweep.
-- I-frames: `blinkOff` is now **always false**; a cream rim shimmer pulses at 8 Hz instead (`mat.userData.wp2Shim`),
+- I-frames: `blinkOff` is now **always false**; a cream rim shimmer pulses at 8 Hz instead (`mat.userData.wp2Shim`;
+  with `reduceMotion` it holds steady at `shimCalm` 0.7 and the 0.1 white wash goes),
   for the hurt i-frames and for the respawn grace (`EV.RESPAWN`: as long as `player.iframes` lasts, 1.5 s), never for
   the dash / item / dizzy i-frames.
 - Body fade (C12): an ordered dither on Pip's own materials and on his own ink hull (`pl.olMat`, the shared 'char'
@@ -323,7 +325,8 @@ follow, holdTo, overshoot, recDip, recFloor (r3), pathC, chopK, chopHoldTo, chop
 trailA, sparkleEvery`. `recover`. Lighting: `sunK, keyView, keyBias, shadeSun, shadeHemi, shadeR`. Motion: `breathe,
 breatheHz, breatheRot, swayRot, swayRotMax, swayPos, swayPosMax, swayL, bob, bobSprint, strafeRoll, pushBack, jumpK,
 jumpMax, jumpDip, landDip, landK, landD, dashPos, dashRot, dashIn, dashOut, hurtY, hurtRoll, hurtW, hurtZ, flashK,
-flashHz, sprintPump, sprintPumpA, lowerY, lowerRot, hideT, talkT, talkGap (r2 part 3), dizzyT, dizzyY, dizzyRoll`. Boots: `bootsPitch,
+flashHz, flashCalm, shimCalm, sprintPump, sprintPumpA, lowerY, lowerRot, hideT, talkT, talkGap (r2 part 3), dizzyT, dizzyY,
+dizzyRoll`. Boots: `bootsPitch,
 bootsSide, bootsFwd, bootsStep`. Removed (foundation stub): `anchor, anchorPortrait, depth, rest, scale, slashC,
 slashR, slashHand, slashLead, slashTilt, chopHi, chopLo, chopRoll, chopHold`.
 

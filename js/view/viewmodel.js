@@ -402,7 +402,7 @@ const vm = {
     // own monotonic render clock (game.time is reset by the test harness; event stamps must never run backwards)
     this.now += Math.min(0.1, Math.max(0, dt));
     const frozen = g.clock.hitStopT > 0 || g.clock.frozenFrame, now = this.now;
-    const settings = g.settings, motion = settings.get('reduceMotion') ? 0 : clamp(settings.get('headBob') ?? 1, 0, 1);
+    const settings = g.settings, calm = !!settings.get('reduceMotion'), motion = calm ? 0 : clamp(settings.get('headBob') ?? 1, 0, 1);
     // hidden / lowered: TP (out over the first 0.15 s of the switch), shots
     const want = Math.max(clamp(v.blend / 0.43, 0, 1), clamp(v.shotW * 2, 0, 1));
     this.low = want >= this.low ? Math.min(want, this.low + dt / T.hideT) : damp(this.low, want, 12, dt);
@@ -557,11 +557,12 @@ const vm = {
     this.place(this.armL, this.L, lay, low);
     const lvl = pl.swordLevel >= 2 ? 1 : 0;
     this.swords[0].visible = !!swordOn && lvl === 0; this.swords[1].visible = !!swordOn && lvl === 1;
-    // the i-frame flash (feel §6.4: 0.35 at 8 Hz for the hurt i-frames, and for the respawn grace) and the hurt
-    // white flash
+    // the i-frame flash (feel §6.4: 0.35 at 8 Hz for the hurt i-frames, and for the respawn grace; motion comfort holds
+    // a steady flashCalm tint instead) and the hurt white flash
     const sinceHurt = ev.hurt != null ? now - ev.hurt : 9, sinceRsp = ev.respawn != null ? now - ev.respawn : 9;
     const iwin = sinceHurt < CFG.hurtIframes ? sinceHurt : sinceRsp < 1.5 && pl.iframes > 0 ? sinceRsp : -1;
-    const fl = Math.max(pl.flash > 0 ? pl.flash * 0.6 : 0, iwin >= 0 && pl.state !== 'dizzy' ? (Math.floor(iwin * T.flashHz * 2) % 2 === 0 ? T.flashK : 0) : 0);
+    const ifl = iwin < 0 || pl.state === 'dizzy' ? 0 : calm ? T.flashCalm : Math.floor(iwin * T.flashHz * 2) % 2 === 0 ? T.flashK : 0;
+    const fl = Math.max(pl.flash > 0 ? pl.flash * 0.6 : 0, ifl);
     this.mat.userData.flash.value = fl; this.ol.uniforms.uFlash.value = fl;
     // ---- presented item, effects, lights
     this.updateItem(itemK, raysK, now, dt, frozen, lay, low);

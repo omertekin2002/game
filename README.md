@@ -104,7 +104,8 @@ Open Settings from the pause menu or the title.
   third person "Camera drifts behind Pip" and "Pip faces where you look".
 - **Sound**: music, effects and ambience volumes, mute.
 - **Comfort**: "Motion comfort" (one switch for a calm camera: no head bob, roll or speed effects, softer shake, and
-  dimmer full-screen flashes; on by default when your system asks for reduced motion), head bob, camera shake, speed
+  dimmer full-screen flashes; the fast flickers in the scene, such as the invulnerability shimmer and the enemies'
+  wind-up glow, hold steady instead; on by default when your system asks for reduced motion), head bob, camera shake, speed
   effects, camera roll, "Look at whoever is talking", text speed.
 
 ## What's in the box

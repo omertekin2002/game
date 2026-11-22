@@ -17,6 +17,16 @@ function reviveBoss(game, id) {
 }
 
 
+/** photosensitivity (WCAG 2.3.1): flashes per second in a per-frame (60 fps) sample of a flash value: each fall through
+ *  the midpoint of its range is one flash; a value that holds steady has none */
+function flashRate(vals) {
+  const lo = Math.min(...vals), hi = Math.max(...vals), mid = (lo + hi) / 2;
+  if (hi - lo < 1e-3) return 0;
+  let n = 0;
+  for (let i = 1; i < vals.length; i++) if (vals[i - 1] > mid && vals[i] <= mid) n++;
+  return n / (vals.length / 60);
+}
+
 const D2R = Math.PI / 180;
 const ASPECTS = { '16:9': 16 / 9, '21:9': 21 / 9, '4:3': 4 / 3, '844×390': 844 / 390, '390×844': 390 / 844 };
 const mod = (t) => t.game.modules.find((m) => m && m.name === 'wp2-viewmodel');
@@ -907,6 +917,52 @@ export default function register(suite) {
         t.frames(40, { draw: true });
         t.ok(game.fight && game.fight.phase === 'fight' && m.mode === 'rest', 'fight: back to the rest pose', { phase: game.fight && game.fight.phase, mode: m.mode });
       } finally { if (game.fight) game.endFight(true); D.teleport(0, 9.5, 0, 0); t.frames(2); }
+    }],
+    ['motion comfort: the hands\' i-frame flash and Pip\'s TP shimmer hold steady (≤ 3 flashes / s, WCAG 2.3.1); off, they keep 8 Hz; the switch is live', (t) => {
+      const { D, game, settings, EV } = t, pl = game.player, rows = {};
+      const shim = () => pl.mats[0].userData.wp2Shim.value, wash = () => pl.mats[0].userData.flash.value;
+      const sample = (n, f) => { const a = []; for (let i = 0; i < n; i++) { t.frames(1); a.push(f()); } return a; };
+      const hurt = () => { D.god(false); pl.iframes = 0; D.hurt(1, 30); D.god(true); };
+      try {
+        for (const calm of [true, false]) {
+          settings.set('reduceMotion', calm);
+          // first person: the hurt i-frames (1 s), then the respawn grace (1.5 s)
+          D.setView('fp'); t.frames(30);
+          hurt();
+          const fl = sample(60, () => D.vm().flash);
+          pl.iframes = 1.5; game.events.emit(EV.RESPAWN, {});
+          const rs = sample(80, () => D.vm().flash);
+          t.frames(20);
+          // third person: Pip's rim shimmer and its white wash through the hurt i-frames
+          D.setView('tp'); t.frames(20);
+          hurt();
+          const sh = [], wa = [];
+          for (let i = 0; i < 60; i++) { t.frames(1); sh.push(shim()); wa.push(wash()); }
+          t.frames(20);
+          const r = rows[calm ? 'comfort' : 'off'] = { hands: flashRate(fl), grace: flashRate(rs), shim: flashRate(sh), wash: flashRate(wa) };
+          if (calm) {
+            t.ok(r.hands <= 3 && r.grace <= 3 && r.shim <= 3 && r.wash <= 3, 'comfort: no flicker above 3 flashes / s', r);
+            const steady = (a, v) => a.length > 0 && a.every((x) => Math.abs(x - v) < 1e-6);
+            t.ok(steady(fl.slice(20, 55), TV.flashCalm), 'comfort: the hands hold a steady flashCalm tint through the hurt i-frames (after the one-off white flash)', fl);
+            t.ok(steady(rs.slice(2, 85), TV.flashCalm), 'comfort: … and through the respawn grace', rs);
+            t.ok(steady(sh.slice(1, 55), TV.shimCalm), 'comfort: Pip\'s rim holds steady at shimCalm', sh);
+            t.ok(wa.slice(20, 55).every((x) => x === 0), 'comfort: no white wash once the hurt flash is over', wa);
+          } else {
+            t.ok(r.hands >= 6 && r.grace >= 6 && r.shim >= 6, 'off: the hands flash and Pip\'s rim shimmers at 8 Hz as before', r);
+            t.ok(Math.max(...fl.slice(15, 55)) >= TV.flashK - 1e-6 && fl.slice(15, 55).some((x) => x === 0), 'off: the hands still toggle 0.35 / 0', fl);
+          }
+        }
+        // live: switched on in the middle of a hurt window, the flicker stops at once (no reload)
+        D.setView('fp'); t.frames(30);
+        settings.set('reduceMotion', false); hurt();
+        const before = sample(24, () => D.vm().flash);
+        settings.set('reduceMotion', true);
+        const after = sample(24, () => D.vm().flash);
+        rows.live = { before: flashRate(before), after: flashRate(after) };
+        const tail = before.slice(10);   // past the one-off white flash: the 8 Hz on / off
+        t.ok(tail.some((x) => x === 0) && tail.some((x) => x >= TV.flashK - 1e-6) && after.every((x) => Math.abs(x - TV.flashCalm) < 1e-6), 'switching comfort on mid-window steadies the hands at once', { before, after });
+      } finally { settings.set('reduceMotion', false); D.god(true); D.setView('fp'); t.frames(10); }
+      t.note('rates', rows);
     }],
   ], { desc: 'WP2 hands, swords and Pip\'s body', prepare: { view: 'fp', at: [0, 9.5, 0, 0], god: true, freeze: true, time: 12, sword: 1 } });
 

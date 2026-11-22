@@ -203,6 +203,9 @@ export const vm = {
   jumpK: 0.005, jumpMax: 0.03, jumpDip: 0.025, landDip: 0.035, landK: 180, landD: 18,
   dashPos: [-0.04, -0.06, 0.03], dashRot: 14, dashIn: 0.06, dashOut: 0.15,
   hurtY: -0.05, hurtRoll: 7, hurtW: 18, hurtZ: 0.5, flashK: 0.35, flashHz: 8,
+  // motion comfort (photosensitivity, WCAG 2.3.1: nothing in the scene repeats faster than 3 flashes a second): the hands'
+  // i-frame flash and Pip's TP shimmer hold steady at about their mean instead of toggling at flashHz
+  flashCalm: 0.18, shimCalm: 0.7,
   sprintPump: [-0.17, -0.17, -0.40], sprintPumpA: 0.07, // the left fist pumps up into the bottom edge on alternate steps
   lowerY: 0.35, lowerRot: 0.9, hideT: 0.15, talkT: 0.25,
   talkGap: 0.04,              // r2 part 3: FP dialogue keeps the lowered blade's tip this NDC under the dialogue box's top
@@ -347,6 +350,8 @@ export const actors = {
   alertLife: 0.7, alertH: 0.4, alertSize: 0.42, // '!' pop above the head (art §8): life, height over the top, size
   glintLife: 0.18, glintSize: 0.5,
   rimFlash: 0.35, rimHz: 7,   // body flash for the whole wind-up (toon flash amount, pulse Hz) toward a light coral …
+  rimCalm: 0.6, dieCalm: 0.5, // motion comfort: the wind-up rim holds at rimFlash × this (about the pulse's mean) and a
+                              // dying boss at this flash, instead of pulsing at rimHz / flickering at 5 Hz (WCAG 2.3.1)
   rimColor: 0xffa985,         // … or, for the olive slime and the yellow bee, a vivid version of their own hue (coral or
   rimColors: { slime: 0xd8ff4a, bee: 0xfff36a }, // cream turn them muddy / grey; the coral halo carries the colour code)
   passiveContact: false,      // difficulty knob: true = touching an idle enemy hurts (the old rule); false = a bump

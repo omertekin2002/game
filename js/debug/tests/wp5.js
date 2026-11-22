@@ -72,6 +72,16 @@ function leadRun(t, type, rel, secs) {
   } finally { R.off(); H.restore(); }
 }
 
+/** photosensitivity (WCAG 2.3.1): flashes per second in a per-frame (60 fps) sample of a flash value: each fall through
+ *  the midpoint of its range is one flash; a value that holds steady has none */
+function flashRate(vals) {
+  const lo = Math.min(...vals), hi = Math.max(...vals), mid = (lo + hi) / 2;
+  if (hi - lo < 1e-3) return 0;
+  let n = 0;
+  for (let i = 1; i < vals.length; i++) if (vals[i - 1] > mid && vals[i] <= mid) n++;
+  return n / (vals.length / 60);
+}
+
 export default function register(suite) {
   suite('wp5', [
     ['C5: every enemy and boss has numeric hp / maxHp and a display name', (t) => {
@@ -865,6 +875,46 @@ export default function register(suite) {
         for (let s = 0; s < 6; s++) { D.seed(77 + s); game.maybeDrop(pl.pos.x + 1, pl.pos.z, 1, 0); vys.push(+game.pickups[game.pickups.length - 1].vel.y.toFixed(2)); }
         t.ok(vys.every((v) => v >= 4 && v <= 6), 'third person: the drop still pops up (vy 4–6 m/s)', vys);
       } finally { D.setView('fp', { instant: true }); for (const p of game.pickups) p.remove(); game.pickups = []; game.S.hp = game.S.maxHp; t.frames(1); }
+    }],
+    ['motion comfort: the enemy and boss wind-up rim and a dying boss\'s flicker hold steady (≤ 3 flashes / s, WCAG 2.3.1) and stay shown; off, 7 Hz / 5 Hz as before', (t) => {
+      const { game, D, settings } = t, rows = {};
+      const flashOf = (o) => { const m = o.mats.find((q) => q.userData.flash); return () => m.userData.flash.value; };
+      const H = stubHurt(game);
+      try {
+        for (const calm of [true, false]) {
+          settings.set('reduceMotion', calm);
+          // an enemy (crab: a 0.65 s wind-up), in view
+          t.clearEnemies(); noSpawns(game); D.teleport(game.player.pos.x, game.player.pos.z, game.view.yaw, 0);
+          D.spawn('crab', 3, 0, { face: true }); const e = D.last; e.spawnT = 1; t.frames(1);
+          D.actors.attack(e);
+          const fe = flashOf(e), en = [];
+          for (let i = 0; i < 120 && e.state !== 'windup'; i++) t.frames(1);
+          t.frames(1);                                     // its first frame has no wind yet
+          for (let i = 0; i < 120 && e.state === 'windup'; i++) { t.frames(1); if (e.state === 'windup') en.push(fe()); }
+          t.clearEnemies();
+          // a boss (Pinch's charge wind-up), then its death
+          const b = fight(t, 'shores', 7), fb = flashOf(b), bo = [];
+          D.actors.boss('charge'); t.frames(2);
+          for (let i = 0; i < 200 && b.state === 'chargeWind'; i++) { t.frames(1); if (b.state === 'chargeWind') bo.push(fb()); }
+          b.set('walk', 0); b.cool = 99; t.frames(30);
+          D.killBoss(); t.frames(1);
+          const die = [];
+          for (let i = 0; i < 90 && !b.dead; i++) { t.frames(1); die.push(fb()); }
+          game.endFight(true); D.pose('meadow'); t.frames(2);
+          const r = rows[calm ? 'comfort' : 'off'] = { enemy: flashRate(en), boss: flashRate(bo), dying: flashRate(die), n: [en.length, bo.length, die.length], minEnemy: Math.min(...en), minBoss: Math.min(...bo) };
+          t.ok(en.length >= 25 && bo.length >= 25 && die.length >= 60, 'sampled the whole wind-ups and the death', r);
+          if (calm) {
+            t.ok(r.minEnemy > 0.15 && r.minBoss > 0.15, 'comfort: the wind-up tell stays clearly on (flash > 0.15) for the whole wind-up', r);
+            t.ok(r.enemy <= 3 && r.boss <= 3 && r.dying <= 3, 'comfort: no flicker above 3 flashes / s', r);
+            const steady = (a, v) => a.every((x) => Math.abs(x - v) < 1e-6);
+            t.ok(steady(en, TA.rimFlash * TA.rimCalm) && steady(bo, TA.rimFlash * TA.rimCalm), 'comfort: both rims hold at rimFlash × rimCalm', { en, bo });
+            t.ok(steady(die, TA.dieCalm * 0.85), 'comfort: the dying boss holds a steady glow', die);
+          } else {
+            t.ok(r.enemy >= 5 && r.boss >= 5 && r.dying >= 4, 'off: the rims pulse at 7 Hz and the death flickers at 5 Hz as before', r);
+          }
+        }
+      } finally { H.restore(); settings.set('reduceMotion', false); if (game.fight) game.endFight(true); }
+      t.note('rates', rows);
     }],
   ], { desc: 'actors, telegraphs, positional audio (WP5)', prepare: { view: 'fp', pose: 'meadow', god: false, freeze: false, time: 12 } });
 

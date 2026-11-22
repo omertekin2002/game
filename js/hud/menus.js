@@ -104,7 +104,7 @@ export const META = {
   musicVol: { tab: 'sound', g: 'Volume', label: 'Music', fmt: PCT },
   sfxVol: { tab: 'sound', g: 'Volume', label: 'Effects', fmt: PCT },
   ambVol: { tab: 'sound', g: 'Volume', label: 'Ambience', fmt: PCT },
-  reduceMotion: { tab: 'comfort', g: 'Motion', label: 'Motion comfort', note: 'A calmer camera: no bob, roll, wobble or speed effects · dimmer full-screen flashes' },
+  reduceMotion: { tab: 'comfort', g: 'Motion', label: 'Motion comfort', note: 'A calmer camera: no bob, roll, wobble or speed effects · dimmer full-screen flashes, steady glows instead of fast flickers' },
   headBob: { tab: 'comfort', g: 'Motion', label: 'Head bob', fmt: (v) => (v <= 0 ? 'Off' : v < 0.6 ? 'Reduced · ' + PCT(v) : PCT(v)) },
   shake: { tab: 'comfort', g: 'Motion', label: 'Camera shake', fmt: PCT },
   speedFx: { tab: 'comfort', g: 'Motion', label: 'Speed effects', fmt: PCT },

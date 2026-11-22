@@ -572,8 +572,9 @@ export class Enemy {
     }
     this.root.scale.set(sx * sp, sy * sp, sx * sp);
     // flash: white on a hit; a pulse through the wind-up (and the off-view announce beat), toward light coral or, for
-    // green / yellow / orange bodies, cream (TA.rimColors)
-    const rim = wind > 0 || ann ? TA.rimFlash * (0.55 + 0.45 * Math.sin(time * TA.rimHz * TAU)) : 0;
+    // green / yellow / orange bodies, cream (TA.rimColors). Motion comfort holds it steady at about the pulse's mean
+    const calm = !!(G.settings && G.settings.get('reduceMotion'));
+    const rim = wind > 0 || ann ? TA.rimFlash * (calm ? TA.rimCalm : 0.55 + 0.45 * Math.sin(time * TA.rimHz * TAU)) : 0;
     const hitF = this.flash * 0.9, useHit = hitF >= rim;
     for (const m of this.mats) {
       m.userData.flash.value = useHit ? hitF : rim;
