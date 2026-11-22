@@ -1,7 +1,8 @@
 // G.debug API, debug keys, collider gizmos, overlay text (Game mixin) + registerDebug for modules.
 import * as THREE from 'three';
-import { G } from '../core.js';
-import { REGIONS, SEED_ORDER } from '../data.js';
+import { G, store } from '../core.js';
+import { REGIONS, SAVE_KEY, SEED_ORDER } from '../data.js';
+import { FLAG_KEY } from '../save.js';
 import { Enemy } from '../entities.js';
 import { EV } from '../events.js';
 import { TAU, len2, mulberry32, yawOf, wrapAngle, dir3, rightXZ, clamp } from '../util.js';
@@ -359,6 +360,28 @@ export const DebugMixin = {
           return T.run(name, o);
         },
         async list() { if (!G.debugAllowed) return []; const T = await import('./tests.js'); return T.list(); },
+      },
+      /** store a save object and Continue it (migrate + normalize; an older one leaves its backup), from the title or in
+       *  play → the loaded S.v */
+      loadSave(obj) { game.resetEntities(); store.set(SAVE_KEY, obj); game.continueGame(); return game.S.v; },
+      /** the story flags (S.flags, save v7): get(k) → value or undefined; set(k, v) → the new value, false for a key that
+       *  fails FLAG_KEY or a value that is not true / a finite number; v === null deletes the key (debug only: no game
+       *  effect clears a flag); all() → a copy of the map */
+      flags: {
+        get(k) { const F = game.S && game.S.flags; return F && Object.hasOwn(F, k) ? F[k] : undefined; },
+        set(k, v) {
+          const F = game.S && game.S.flags;
+          if (!F || typeof k !== 'string' || !FLAG_KEY.test(k)) return false;
+          if (v === null) { delete F[k]; return undefined; }
+          if (v !== true && !(typeof v === 'number' && Number.isFinite(v))) return false;
+          F[k] = v;
+          return v;
+        },
+        all() { return { ...((game.S && game.S.flags) || {}) }; },
+      },
+      /** the running scene: skip() calls game.skipScene (registered by a cutscene that can be skipped) → true, else false */
+      scene: {
+        skip() { if (typeof game.skipScene !== 'function') return false; game.skipScene(); return true; },
       },
     };
     this.gpuT = null;

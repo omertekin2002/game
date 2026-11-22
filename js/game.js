@@ -3,8 +3,8 @@
 // combat.js, targeting.js, interact.js, fight.js, cutscenes.js, ambient.js, spawn.js and debug/debug.js.
 import * as THREE from 'three';
 import { G, music, audioInit, store } from './core.js';
-import { CFG, SAVE_KEY, REGIONS, NPCS, SEED_ORDER, SEEDS } from './data.js';
-import { freshState, loadSave } from './save.js';
+import { CFG, SAVE_KEY, SAVE_BAK_KEY, REGIONS, NPCS, SEED_ORDER, SEEDS } from './data.js';
+import { SAVE_VERSION, freshState, loadSave } from './save.js';
 import { Player } from './player.js';
 import { NPC } from './npcs.js';
 import { Projectile, Pickup, Blobs } from './entities.js';
@@ -48,6 +48,7 @@ export class Game {
     this.state = 'title';
     this.enemies = []; this.projectiles = []; this.pickups = []; this.npcs = [];
     this.bosses = {}; this.fight = null; this.cutscene = null; this.trans = null;
+    this.skipScene = null;   // a running cutscene that can be skipped registers its skip here (G.debug.scene.skip)
     this.redFlash = 0; this.whiteFlash = 0;
     this.spawnT = 0; this.regionCheckT = 0; this.curRegion = -1; this.pendRegion = -1; this.pendT = 0;
     this.autosaveT = 0; this.ambT = 0; this.regrow = [];
@@ -151,12 +152,27 @@ export class Game {
   }
   continueGame() {
     audioInit();
+    this.backupOldSave();
     const s = loadSave(store.get(SAVE_KEY), this.world.seed);
     if (!s) return this.newGame();
     this.S = s; // validated, migrated and filled from freshState by loadSave (js/save.js)
     // optional pitch is restored clamped in startSession; an older controls card → show the new one once
     if (!((s.controlsV || 1) >= CONTROLS_V)) this.S.controlsSeen = false;
     this.startSession(false);
+  }
+  // A save from an older version is about to migrate: keep its raw string as it was under SAVE_BAK_KEY first (each
+  // migration overwrites the backup before it). Read raw on purpose: store.get parses, and the backup must be untouched.
+  backupOldSave() {
+    try {
+      const raw = localStorage.getItem(SAVE_KEY);
+      if (raw == null) return false;
+      const o = JSON.parse(raw);
+      if (o === null || typeof o !== 'object' || !Number.isInteger(o.v) || o.v >= SAVE_VERSION) return false;
+      localStorage.setItem(SAVE_BAK_KEY, raw);
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
   startSession(isNew) {
     const S = this.S;
@@ -209,7 +225,7 @@ export class Game {
     for (const id in this.bosses) this.bosses[id].remove();
     this.enemies = []; this.projectiles = []; this.pickups = []; this.bosses = {};
     if (this.fight) this.endFight(true);
-    this.fight = null; this.cutscene = null;
+    this.fight = null; this.cutscene = null; this.skipScene = null;
     this.fx.ground.clear();
     this.clearHeldItem();
     this.view.clearShot();
