@@ -115,29 +115,34 @@ function renderedAnchors(text) {
   return out;
 }
 
-/** Markdown links that carry an anchor: `](#a)`, `](./f.md#a)` and `](f.md#a)`, as { file, anchor, line } (file null = same file). */
+/**
+ * Markdown links that carry an anchor: `](#a)`, `](./f.md#a)`, `](f.md#a)` and `](../bible/f.md#a)`, as
+ * { file, anchor, line }: file is the path relative to the linking file (`./` dropped), or null for the same file.
+ */
 function anchorLinks(text) {
   const out = [];
   let fence = false;
   lines(text).forEach((line, i) => {
     if (/^\s*(```|~~~)/.test(line)) { fence = !fence; return; }
     if (fence) return;
-    for (const m of line.matchAll(/\]\((?:\.\/)?([A-Za-z0-9_-]+\.md)?#([^)\s]+)\)/g)) out.push({ file: m[1] ?? null, anchor: m[2], line: i + 1 });
+    for (const m of line.matchAll(/\]\((?:\.\/)?((?:\.\.\/|[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.md)?#([^)\s]+)\)/g)) {
+      out.push({ file: m[1] ?? null, anchor: m[2], line: i + 1 });
+    }
   });
   return out;
 }
 
 /**
- * Links from the files in `dir` (named `prefix<file>`) that do not resolve against the bible, as
- * { key: "<from> -> <file>#<anchor>", at: "<from>:<line>" }. Same-file links resolve against the file itself; links
- * to `<file>.md` resolve in `dir` for bible files and in the bible for step files.
+ * Links from the files in `dir` that do not resolve, as { key: "<from> -> <target>#<anchor>", at: "<from>:<line>" }.
+ * Each link resolves relative to the linking file (a step's `../bible/x.md#a` reaches the bible); same-file links
+ * resolve against the file itself; a target file that does not exist is broken.
  */
-function brokenLinks(dir, anchorsOf) {
+function brokenLinks(dir, anchorsOf, readFile = read) {
   const bad = [];
   for (const f of mdFiles(dir)) {
-    for (const l of anchorLinks(read(join(dir, f)))) {
+    for (const l of anchorLinks(readFile(join(dir, f)))) {
       const target = l.file ?? f;
-      const anchors = l.file === null ? anchorsOf(join(dir, f)) : anchorsOf(join(BIBLE, l.file));
+      const anchors = anchorsOf(join(dir, target));
       if (!anchors || !anchors.has(l.anchor)) bad.push({ key: `${f} -> ${target}#${l.anchor}`, at: `${f}:${l.line}` });
     }
   }
@@ -320,12 +325,20 @@ test('helpers: GitHub heading slugs, anchor links and glossary rows', () => {
   expect(githubSlug('**Bold** `code` [link](./x.md#y) <a id="z"></a>Ünïcode_ok?')).toBe('bold-code-link-ünïcode_ok');
   const anchors = renderedAnchors('<a id="tiers"></a>\n### Pattern tiers\n## Same\n## Same\n```\n## fenced\n```\n# Closed #\n');
   expect([...anchors].sort()).toEqual(['closed', 'pattern-tiers', 'same', 'same-1', 'tiers']);
-  expect(anchorLinks('[a](#x) [b](./cast.md#pip) [c](lore.md#I.2) [d](./cast.md) [e](https://e.com/#f)\n```\n[g](#h)\n```'))
+  expect(anchorLinks('[a](#x) [b](./cast.md#pip) [c](lore.md#I.2) [d](./cast.md) [e](https://e.com/x.md#f)\n```\n[g](#h)\n```\n[i](../bible/systems.md#journal)'))
     .toEqual([
       { file: null, anchor: 'x', line: 1 },
       { file: 'cast.md', anchor: 'pip', line: 1 },
       { file: 'lore.md', anchor: 'I.2', line: 1 },
+      { file: '../bible/systems.md', anchor: 'journal', line: 5 },
     ]);
+  // A step file's links resolve relative to it: `../bible/` reaches the bible; a missing file or anchor is broken.
+  const step = '[ok](../bible/charter.md#tone) [bad](../bible/charter.md#nope) [gone](../bible/gone.md#a) [own](#nope)\n';
+  expect(brokenLinks(join(ROOT, 'no-such-dir'), anchorsOf, () => step)).toEqual([]);   // an absent folder is skipped
+  const bible = (path) => (path.startsWith(BIBLE) ? step : read(path));
+  expect(brokenLinks(BIBLE, anchorsOf, bible).filter((b) => b.key.startsWith('charter.md ->')).map((b) => b.key)).toEqual([
+    'charter.md -> ../bible/charter.md#nope', 'charter.md -> ../bible/gone.md#a', 'charter.md -> charter.md#nope',
+  ]);
   const rows = glossaryRows([
     '## Master glossary index', '### A', '| Name | Kind | St. | Defined in |', '|---|---|---|---|',
     '| Pip | hero | L | [cast.md#pip](./cast.md#pip) |', '| Mote | moth | C | x |',
