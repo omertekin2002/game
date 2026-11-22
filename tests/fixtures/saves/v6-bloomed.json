@@ -1,0 +1,64 @@
+{
+  "v": 6,
+  "seed": 7151,
+  "hp": 8,
+  "maxHp": 8,
+  "coins": 212,
+  "potions": 1,
+  "swordLevel": 2,
+  "seeds": {
+    "woods": 2,
+    "peaks": 2,
+    "shores": 2
+  },
+  "chests": {
+    "hc_woods": true,
+    "hc_meadow": true,
+    "coin_1": true
+  },
+  "bosses": {
+    "woods": true,
+    "peaks": true,
+    "shores": true
+  },
+  "shopHeart": true,
+  "ending": true,
+  "tod": 0.55,
+  "visited": {
+    "0": true,
+    "1": true,
+    "2": true,
+    "3": true,
+    "4": true
+  },
+  "introDone": true,
+  "controlsSeen": true,
+  "playTime": 10800,
+  "px": 0,
+  "pz": 13,
+  "facing": 3.1416,
+  "errands": {
+    "clover": 2,
+    "ribbit": 2
+  },
+  "shells": {
+    "shell1": true,
+    "shell2": true,
+    "shell3": true,
+    "shell4": true,
+    "shell5": true,
+    "lantern1": true,
+    "lantern2": true,
+    "lantern3": true,
+    "lantern4": true
+  },
+  "plushies": {
+    "woods": true
+  },
+  "rematches": {},
+  "secrets": {
+    "acorn": true,
+    "bottle": true
+  },
+  "controlsV": 2
+}
