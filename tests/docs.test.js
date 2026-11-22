@@ -1,14 +1,16 @@
-// docs/roadmap/: the roadmap index, the canon and the game bible (S-001, S-002a). Every bible anchor INDEX.md cites must
-// be an explicit `<a id="..."></a>` in a bible file that exists; every link between bible files (and, once S-002b lands
-// them, from the step files) must reach an anchor GitHub renders: an explicit `<a id>` or a heading slug; every row of
-// charter.md's glossary tables links to its defining file; and every CANON / CANON-NOW section reference in the roadmap
-// docs must name a real section. Run with `bun test`.
+// docs/roadmap/: the roadmap index, the canon, the game bible and the step specs (S-001, S-002a, S-002b). Every bible
+// anchor INDEX.md cites must be an explicit `<a id="..."></a>` in a bible file that exists; every link between bible
+// files and from the step files must reach an anchor GitHub renders: an explicit `<a id>` or a heading slug; every row of
+// charter.md's glossary tables links to its defining file; every `### S-xxx · ` step heading is unique and carries the
+// header line the step-index generator reads; and every CANON / CANON-NOW section reference in the roadmap docs must
+// name a real section. Run with `bun test`.
 import { expect, test } from 'bun:test';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = join(import.meta.dir, '..', 'docs', 'roadmap');
 const BIBLE = join(ROOT, 'bible');
+const STEPS = join(ROOT, 'steps');
 const read = (p) => readFileSync(p, 'utf8');
 const lines = (text) => text.split(/\r?\n/);
 const isHeading = (line) => /^#{1,6}\s/.test(line);
@@ -138,7 +140,7 @@ const BARE_REF_RE = /(?<![\w/.#-])(?:\.\/)?((?:\.\.\/[a-z]+\/)?[a-z0-9-]+\.md)#(
  * Anchor references outside code fences, as { file, anchor, line }: file is the path relative to the referring file
  * (`./` dropped), or null for the same file. Markdown links count (`](#a)`, `](./f.md#a)`, `](f.md#a)`,
  * `](../bible/f.md#a)`), and so do bare references in prose or code spans (`./f.md#a`, `` `f.md#a` ``), which the bible
- * uses in tables such as art-audio.md's asset list.
+ * uses in tables such as art-audio.md's asset list; those carry `bare: true`.
  */
 function anchorLinks(text) {
   const out = [];
@@ -147,7 +149,7 @@ function anchorLinks(text) {
     if (/^\s*(```|~~~)/.test(line)) { fence = !fence; return; }
     if (fence) return;
     for (const m of line.matchAll(LINK_RE)) out.push({ file: m[1] ?? null, anchor: m[2], line: i + 1 });
-    for (const m of line.replace(/\[[^\]]*\]\([^)]*\)/g, ' ').matchAll(BARE_REF_RE)) out.push({ file: m[1], anchor: m[2], line: i + 1 });
+    for (const m of line.replace(/\[[^\]]*\]\([^)]*\)/g, ' ').matchAll(BARE_REF_RE)) out.push({ file: m[1], anchor: m[2], line: i + 1, bare: true });
   });
   return out;
 }
@@ -161,23 +163,83 @@ function fileLinks(text) {
   return out;
 }
 
+/** Where a link from `from` points, relative to its folder; null skips it. The default: the link's own path. */
+const ownTarget = (l, from) => l.file ?? from;
+
 /**
  * Links from the files in `dir` that do not resolve, as { key: "<from> -> <target>#<anchor>", at: "<from>:<line>" }.
- * Each link resolves relative to the linking file (a step's `../bible/x.md#a` reaches the bible); same-file links
- * resolve against the file itself; a target file that does not exist is broken.
+ * Each link resolves relative to the linking file (a step's `../bible/x.md#a` reaches the bible), or wherever `target`
+ * says; same-file links resolve against the file itself; a target file that does not exist is broken.
  */
-function brokenLinks(dir, anchorsOf, readFile = read) {
+function brokenLinks(dir, anchorsOf, readFile = read, target = ownTarget) {
   const bad = [];
   for (const f of mdFiles(dir)) {
     for (const l of anchorLinks(readFile(join(dir, f)))) {
-      const target = l.file ?? f;
-      const anchors = anchorsOf(join(dir, target));
-      if (!anchors || !anchors.has(l.anchor)) bad.push({ key: `${f} -> ${target}#${l.anchor}`, at: `${f}:${l.line}` });
+      const to = target(l, f);
+      if (to === null) continue;
+      const anchors = anchorsOf(join(dir, to));
+      if (!anchors || !anchors.has(l.anchor)) bad.push({ key: `${f} -> ${to}#${l.anchor}`, at: `${f}:${l.line}` });
     }
     for (const l of fileLinks(readFile(join(dir, f)))) {
-      if (!anchorsOf(join(dir, l.file))) bad.push({ key: `${f} -> ${l.file}`, at: `${f}:${l.line}` });
+      const to = target(l, f);
+      if (to === null) continue;
+      if (!anchorsOf(join(dir, to))) bad.push({ key: `${f} -> ${to}`, at: `${f}:${l.line}` });
     }
   }
+  return bad;
+}
+
+/**
+ * Where a step file's link points. Markdown links (`../bible/x.md#a`, `#a`, `./M01-M04.md#a`) resolve as written. Bare
+ * `x.md#a` references are skipped: in the step files they are prose shorthand for a bible section, often quoting the
+ * ALLOW_PENDING entries a step will remove, not links GitHub renders. A link to a step file that README.md lists but
+ * that has not landed yet (M15-M35 arrive in S-002c) is skipped until it lands; any other missing file is broken.
+ */
+function stepTarget(l, from, { present = mdFiles(STEPS), listed = listedStepFiles() } = {}) {
+  if (l.bare) return null;
+  if (l.file === null) return from;
+  if (listed.includes(l.file) && !present.includes(l.file)) return null;
+  return l.file;
+}
+
+/** The step files README.md lists (`steps/M01-M04.md`, ...), whether or not they are in the repo yet. */
+function listedStepFiles(text = read(join(ROOT, 'README.md'))) {
+  return [...new Set([...text.matchAll(/\bsteps\/(M\d\d-M\d\d\.md)\b/g)].map((m) => m[1]))].sort();
+}
+
+/**
+ * The `### S-xxx · ` step headings outside code fences, as { id, line, header }: header is the next non-empty line,
+ * which the step-index generator reads (`Milestone M.. · Depends on: ... · Size: ...`).
+ */
+function stepHeadings(text) {
+  const all = lines(text);
+  const out = [];
+  let fence = false;
+  all.forEach((line, i) => {
+    if (/^\s*(```|~~~)/.test(line)) { fence = !fence; return; }
+    const m = !fence && line.match(/^### (S-\S+) · /);
+    if (!m) return;
+    let j = i + 1;
+    while (j < all.length && all[j].trim() === '') j++;
+    out.push({ id: m[1], line: i + 1, header: all[j] ?? '' });
+  });
+  return out;
+}
+
+/** What is wrong with the step headings of { file: text }: ids repeated across the files, and malformed header lines. */
+function stepHeadingProblems(files) {
+  const bad = [];
+  const where = new Map();
+  for (const [f, text] of Object.entries(files)) {
+    for (const h of stepHeadings(text)) {
+      if (!where.has(h.id)) where.set(h.id, []);
+      where.get(h.id).push(`${f}:${h.line}`);
+      if (!h.header.startsWith('Milestone M') || !h.header.includes('Depends on:') || !h.header.includes('Size:')) {
+        bad.push(`${f}:${h.line}: ${h.id}: header line is not "Milestone M.. · Depends on: ... · Size: ..."`);
+      }
+    }
+  }
+  for (const [id, at] of where) if (at.length > 1) bad.push(`${id}: repeated at ${at.join(', ')}`);
   return bad;
 }
 
@@ -286,9 +348,9 @@ const anchorsOf = (path) => {
   return anchorCache.get(path);
 };
 
-test('bible cross-links: every anchor link between bible files (and from steps/, once present) resolves', () => {
+test('bible cross-links: every anchor link between bible files and from the step files resolves', () => {
   const bible = brokenLinks(BIBLE, anchorsOf);
-  const steps = brokenLinks(join(ROOT, 'steps'), anchorsOf);
+  const steps = brokenLinks(STEPS, anchorsOf, read, stepTarget);
   const linkCount = mdFiles(BIBLE).reduce((n, f) => n + anchorLinks(read(join(BIBLE, f))).length, 0);
   expect(linkCount).toBeGreaterThan(1000);
   // A broken bible link not on the list fails; so does a listed one that now resolves (remove it from ALLOW_PENDING)
@@ -296,7 +358,18 @@ test('bible cross-links: every anchor link between bible files (and from steps/,
   expect(bible.filter((b) => !ALLOW_PENDING.includes(b.key)).map((b) => `${b.at}: ${b.key}`)).toEqual([]);
   const seen = ALLOW_PENDING.map((k) => [k, bible.filter((b) => b.key === k).map((b) => b.at)]);
   expect(seen.filter(([, at]) => at.length !== 1)).toEqual([]);
+  const stepLinks = mdFiles(STEPS).reduce((n, f) => n + anchorLinks(read(join(STEPS, f))).filter((l) => !l.bare).length, 0);
+  expect(stepLinks).toBeGreaterThan(700);   // markdown links from M01-M14 alone
   expect(steps.map((b) => `${b.at}: ${b.key}`)).toEqual([]);
+});
+
+test('step files: the M01-M14 files are present, and every `### S-xxx · ` heading is unique with a generator header', () => {
+  const present = mdFiles(STEPS);
+  for (const f of ['M01-M04.md', 'M05-M08.md', 'M09-M12.md', 'M13-M14.md']) expect(present).toContain(f);
+  expect(present.filter((f) => !listedStepFiles().includes(f))).toEqual([]);   // README.md lists every step file
+  const files = Object.fromEntries(present.map((f) => [f, read(join(STEPS, f))]));
+  expect(Object.values(files).reduce((n, t) => n + stepHeadings(t).length, 0)).toBeGreaterThan(140);
+  expect(stepHeadingProblems(files)).toEqual([]);
 });
 
 test('glossary: every row of charter.md\'s glossary tables links its defining file and anchor, and each resolves', () => {
@@ -392,11 +465,37 @@ test('helpers: GitHub heading slugs, anchor links and glossary rows', () => {
   expect(anchorLinks('see `./creatures.md#boss-rollo` and (cast.md#pip). [lore.md#myth](./lore.md#myth) https://x.io/a.md#b'))
     .toEqual([
       { file: 'lore.md', anchor: 'myth', line: 1 },
-      { file: 'creatures.md', anchor: 'boss-rollo', line: 1 },
-      { file: 'cast.md', anchor: 'pip', line: 1 },
+      { file: 'creatures.md', anchor: 'boss-rollo', line: 1, bare: true },
+      { file: 'cast.md', anchor: 'pip', line: 1, bare: true },
     ]);
   expect(fileLinks('[a](./atlas-home.md) [b](./cast.md#pip) [c](../bible/gone.md)')).toEqual([
     { file: 'atlas-home.md', line: 1 }, { file: '../bible/gone.md', line: 1 },
+  ]);
+  // In a step file a markdown link resolves as written, a bare `x.md#a` is skipped, and so is a link to a listed step
+  // file that has not landed; a link to any other missing file is not.
+  const where = { present: ['M01-M04.md'], listed: ['M01-M04.md', 'M18-M20.md'] };
+  const to = (text) => anchorLinks(text).map((l) => stepTarget(l, 'M01-M04.md', where));
+  expect(to('story.md#beacon-1 [a](story.md#beacon-1) [b](../bible/story.md#x) [c](#own)')).toEqual([
+    'story.md', '../bible/story.md', 'M01-M04.md', null,   // markdown links first, then the bare reference
+  ]);
+  expect(to('[d](./M18-M20.md#s-158a) [e](./M99-M99.md#s-1) [f](./M01-M04.md#s-001)')).toEqual([null, 'M99-M99.md', 'M01-M04.md']);
+  expect(brokenLinks(STEPS, anchorsOf, () => '[a](../bible/charter.md#nope) [b](#nope) [c](./M99-M99.md) charter.md#nope\n', stepTarget)
+    .filter((b) => b.at.startsWith('M01-M04.md:')).map((b) => b.key)).toEqual([
+    'M01-M04.md -> ../bible/charter.md#nope', 'M01-M04.md -> M01-M04.md#nope', 'M01-M04.md -> M99-M99.md',
+  ]);
+  expect(listedStepFiles('[a](steps/M01-M04.md) `steps/M15-M17.md` … steps/M01-M04.md, steps/README.md')).toEqual(['M01-M04.md', 'M15-M17.md']);
+  expect(stepHeadings('### S-001 · a\n\nMilestone M01 · Depends on: none · Size: S\n```\n### S-009 · fenced\n```\n### S-002a · b\nx'))
+    .toEqual([
+      { id: 'S-001', line: 1, header: 'Milestone M01 · Depends on: none · Size: S' },
+      { id: 'S-002a', line: 7, header: 'x' },
+    ]);
+  expect(stepHeadingProblems({
+    'A.md': '### S-001 · a\nMilestone M01 · Depends on: none · Size: S\n### S-002 · b\nMilestone M01 · Size: S\n',
+    'B.md': '### S-001 · again\nMilestone M02 · Depends on: S-001 · Size: M\n### S-003 · c\n',
+  })).toEqual([
+    'A.md:3: S-002: header line is not "Milestone M.. · Depends on: ... · Size: ..."',
+    'B.md:3: S-003: header line is not "Milestone M.. · Depends on: ... · Size: ..."',
+    'S-001: repeated at A.md:1, B.md:1',
   ]);
   // The glossary exception: only listed shipped rows, citing a bible file or js/ file that exists.
   const row = (defined, locked, name = 'X') => ({ row: `| ${name} | k | ${locked ? 'L' : 'C'} | ${defined} |`, name, locked });
