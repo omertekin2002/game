@@ -251,7 +251,10 @@ generated icons that each have a drawn fallback.
   while you carry a Starseed, with its distance; the
   Great Tree, the shop, landmarks and your map marker; the goal, the marker and the tree stay pinned at its edge when
   behind you), the seed tray and the objective line, the boss bar during fights, the region card on arrival.
-- **Top right** (desktop): a minimap that turns with you, or north-up, or off. Phones show the compass only.
+- **Top right** (desktop): a minimap that turns with you, or north-up, or off. Phones show the compass only. Its markers
+  don't rely on colour alone: each kind has its own shape (the Great Tree a big disc, a guardian a triangle and a beaten
+  one a ring, the shop a square, the altar a four-point sparkle, a landmark a plus, your marker a star), so the minimap
+  reads the same in greyscale; the colours stay as a second cue.
 - **Danger and targets**: damage petals point at whoever hit Pip; coral chevrons at the screen edge warn of wind-ups off
   screen, with a "look up" caret for threats above; gold corners frame the locked enemy (off screen: a reticle at the
   edge with an arrow the way to turn); small heart pips show the health of the locked, aimed or last-hit enemy. At low
