@@ -52,6 +52,7 @@ export const COLLIDER_H = {
   house: { h: 4.86, eyeAdd: 0.12 },                               // per building below (house_a / house_b / shop)
   tree: { h: 9.0, eyeAdd: 0.3 },                                  // Great Tree trunk + roots: the built model's height
   rail: { h: 1.5 },                                               // bridge rails: their own heights from the deck (railShapes)
+  post: { h: 0.67, eye: 0.6, stand: true },                       // post-pass solids (world-post.js): the reasons' scarf rock
 };
 const HOUSE_H = { house_a: 4.86, house_b: 4.55, shop: 4.89 };
 // fitted footprints (see the header). Measured by triangle-sampling each prop mesh in 24 sectors (WP3 doc §fit)
