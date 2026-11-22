@@ -269,9 +269,11 @@ export const PlayerBody = {
         G.fx.sparkle(p.x + Math.sin(a) * r, p.y + 0.45, p.z + Math.cos(a) * r, 0xffe27a, 1, 0.1);
       }
     }
-    // hurt flash, then the i-frame shimmer (cream, 0.35 at 8 Hz; Pip never vanishes, blinkOff stays false)
+    // hurt flash, then the i-frame shimmer (cream, 0.35 at 8 Hz; Pip never vanishes, blinkOff stays false). Motion
+    // comfort holds the rim steady at shimCalm with no wash (no repeating flash; WCAG 2.3.1)
     const shimmer = this.iframes > 0 && this.t - an.hurtAt < an.iwin + 0.05 && st !== 'dash' && st !== 'item' && st !== 'dizzy';
-    const fl = Math.max(this.flash, 0) * 0.8, on = Math.floor(time * 16) % 2 === 0, sh = shimmer ? (on ? 1.1 : 0.25) : 0, wash = shimmer && on ? 0.1 : 0;
+    const calm = !!(G.settings && G.settings.get('reduceMotion')), on = Math.floor(time * 16) % 2 === 0;
+    const fl = Math.max(this.flash, 0) * 0.8, sh = !shimmer ? 0 : calm ? TV.shimCalm : on ? 1.1 : 0.25, wash = shimmer && on && !calm ? 0.1 : 0;
     for (const m of this.mats) {
       if (m.userData.flash) m.userData.flash.value = Math.max(fl, wash);
       if (m.userData.wp2Shim) m.userData.wp2Shim.value = sh;

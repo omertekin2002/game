@@ -323,7 +323,7 @@ wait), facing Pip while he is close, then she turns back to her spot's facing (`
 ## TUNE.actors
 
 `danger dangerEdge chance glint windup{} slimeHopGate reach{} tokens tokenRetry offEdge offView announce announceAdd
-batWait notice forget forgetT alertLife alertH alertSize glintLife glintSize rimFlash rimHz rimColor rimColors{}
+batWait notice forget forgetT alertLife alertH alertSize glintLife glintSize rimFlash rimHz rimCalm dieCalm rimColor rimColors{}
 passiveContact bodyH emerge snowK snowT reticle reticleH ringJump ringWall stripePad stripeLock stripeWall
 frostDisc pillarR pillarH zoneWall pillarIn snapWind bubbleWind throwWind slideWind snap[] snapLock slide[]
 bubbleEnraged shove room{} roomWalk keepOut{} shrug{ hits gap v t cool rest wind } bossDmg{ ring rush snap leap } cool{}

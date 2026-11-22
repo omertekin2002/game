@@ -696,9 +696,11 @@ export class Boss {
     }
     if (n.head) n.head.rotation.x = this.state === 'sleep' ? 0.15 : 0;
     this.root.scale.set(sx, sy, sx);
-    // flash: white hit > coral wind-up pulse > gold opening pulse (3 Hz) with sparkles at belly height
-    let f = this.flash * 0.85, c = WHITE;
-    const rim = wind > 0 ? TA.rimFlash * (0.6 + 0.4 * Math.sin(time * TA.rimHz * TAU)) : 0;
+    // flash: white hit > coral wind-up pulse > gold opening pulse (3 Hz) with sparkles at belly height. Motion comfort
+    // holds the wind-up rim steady at about its mean and the dying flicker (5 Hz) at dieCalm (WCAG 2.3.1)
+    const calm = !!(G.settings && G.settings.get('reduceMotion'));
+    let f = (calm && this.dying ? TA.dieCalm : this.flash) * 0.85, c = WHITE;
+    const rim = wind > 0 ? TA.rimFlash * (calm ? TA.rimCalm : 0.6 + 0.4 * Math.sin(time * TA.rimHz * TAU)) : 0;
     const gold = this.opening && !this.dying ? 0.3 * (0.5 + 0.5 * Math.sin(time * 3 * TAU)) : 0;
     if (rim > f) { f = rim; c = DANGER; }
     if (gold > f) { f = gold; c = CHANCE; }
