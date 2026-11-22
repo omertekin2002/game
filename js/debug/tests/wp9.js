@@ -4,7 +4,7 @@
 //   wp9-heavy  the Great Tree crown line of sight (world mapper's metric), landmark skylines, world-gen time (cold boot
 //              and warm), carving on other seeds, the package's draw calls / triangles per view (module objects on vs off)
 //              and the whole scene against the foundation's numbers per view
-import { NPCS, SIGNS, DOOR_LINES, SAVE_KEY } from '../../data.js';
+import { NPCS, SIGNS, DOOR_LINES, SAVE_KEY, REASONS } from '../../data.js';
 import { world as TW } from '../../tune.js';
 import { propModel, ALTAR, WELL, HOUSE_WINDOWS, SHOP_COUNTER, landmarkParts, shopModel } from '../../props.js';
 import { store } from '../../core.js';
@@ -524,6 +524,37 @@ export default function register(suite) {
       t.eq(ct, cn, 'crown parts tagged userData.cull { dist: Infinity }');
       // the whole island's worth at once (no view sees all of it: wp9-heavy measures per view against the 40 / 150k budget)
       t.ok(calls <= 60 && tris <= 200000, 'all module objects at once ≤ 60 calls / 200k triangles', { calls, tris: Math.round(tris) });
+    }],
+    ['reason props by the arenas (S-004): seven groups, Look prompts and texts, the scarf rock solid and the cradle not', (t) => {
+      const { W, D, game } = t, sc = game.scenery, S = game.S;
+      const groups = [...(sc.reasons || new Map()).values()].map((r) => r.data.kind).sort();
+      t.eq(groups.join(','), 'cradle,nightlight,nightlight,nightlight,scarf,spyglass,tally', 'Scenery reason groups (three night-lights, spyglass, tally, scarf, cradle)');
+      t.ok([...sc.reasons.values()].every((r) => r.group.parent === sc.root && r.group.userData.cull && r.group.userData.cull.dist === 90), 'every group under the scenery root, culled at 90 m');
+      const before = JSON.stringify({ flags: S.flags, coins: S.coins, secrets: S.secrets });
+      for (const [id, label, text] of [['home:reason-grumble-2', 'Look · Night-lights', REASONS[0].text], ['home:reason-pinch-tally', 'Look · Chalk marks', REASONS[1].text], ['home:reason-frost-cradle', 'Look · Snow cradle', REASONS[2].text]]) {
+        const at = D.standAt('reason', id); t.frames(2);
+        const tg = D.target();
+        t.eq(tg && tg.label, label, id + ' prompt', { at, tg });
+        if (tg && tg.kind === 'reason' && game.target) { t.eq(game.target.o && game.target.o.id, id, id + ' is the target'); game.interact(game.target); t.eq(game.ui.dlg && game.ui.dlg.lines.join(' '), text, id + ' text'); t.dlgDone(); t.frames(2); }
+      }
+      t.eq(JSON.stringify({ flags: S.flags, coins: S.coins, secrets: S.secrets }), before, 'reading sets no flag and gives nothing');
+      // the side night-lights, spyglass and scarf never answer Look
+      t.ok(!W.reasons.filter((r) => /grumble-[13]|spyglass|scarf/.test(r.id)).some((r) => game.interactables([]).some((c) => c.o === r)), 'only the middle night-light, the tally and the cradle are targets');
+      const scarf = W.reasons.find((r) => r.kind === 'scarf'), cradle = W.reasons.find((r) => r.kind === 'cradle');
+      const posts = W.colliders.filter((c) => c.kind === 'post');
+      t.ok(posts.length === 1 && posts[0].post === scarf.id && Math.abs(posts[0].r - 0.5) < 1e-9 && posts[0].active, 'attachPost: the scarf rock is one solid circle (r 0.5)', posts.map((c) => ({ post: c.post, r: c.r, x: c.x, z: c.z })));
+      t.ok(!W.colliders.some((c) => c.post === cradle.id || Math.hypot(c.x - cradle.x, c.z - cradle.z) < (c.r || 0)), 'the cradle has no collider (walk-over)');
+      // walking at the rock stops Pip outside it; walking across the cradle does not
+      let done = false;
+      for (let k = 0; k < 24 && !done; k++) {   // a free, walkable approach 2.5 m out
+        const b = (k / 24) * Math.PI * 2, x = scarf.x + Math.sin(b) * 2.5, z = scarf.z + Math.cos(b) * 2.5;
+        if (!W.walkable(x, z) || W.solidNear(x, z, 0.6)) continue;
+        D.teleport(x, z, yawOf(scarf.x - x, scarf.z - z), 0); t.frames(1); t.move(0, 1); t.frames(90); t.move(0, 0);
+        const d = Math.hypot(t.pl.pos.x - scarf.x, t.pl.pos.z - scarf.z);
+        t.ok(d >= 0.55, 'Pip stops at the scarf rock (' + d.toFixed(2) + ' m from its centre)', { d });
+        done = true;
+      }
+      t.ok(done, 'found a walkable approach to the scarf rock');
     }],
   ], { desc: 'world and content at eye level (WP9)', prepare: { view: 'fp', pose: 'spawn', god: true, freeze: true, time: 12 } });
 

@@ -3,7 +3,7 @@
 // freeze) run on sim time (later / tickLater), so they hold while a menu or the shop pauses the world.
 import * as THREE from 'three';
 import { sfx } from './core.js';
-import { BOSSES, CFG, SEED_ORDER, SEEDS, ERRANDS, SECRETS, progress, errands, secrets } from './data.js';
+import { BOSSES, CFG, SEED_ORDER, SEEDS, ERRANDS, SECRETS, progress, errands, secrets, reasonFor } from './data.js';
 import { NPC } from './npcs.js';
 import { Boss } from './bosses.js';
 import { Pickup } from './entities.js';
@@ -129,10 +129,11 @@ export const InteractMixin = {
     pl.endSwing();          // E mid-swing: the swing stops here (talking pauses the world; no hits during it)
     pl.vel.set(0, 0);
     this.faceSubject(t.px ?? t.x, t.py ?? (t.y ?? pl.pos.y) + 0.8, t.pz ?? t.z); // FP eases onto the aim point (NPC face, sign board, lid…)
-    this.events.emit(EV.INTERACT, { kind: o instanceof NPC ? (o.def.shop ? 'shop' : 'npc') : o instanceof Boss ? 'guardian' : o.kind, target: o });
+    this.events.emit(EV.INTERACT, { kind: o instanceof NPC ? (o.def.shop ? 'shop' : 'npc') : o instanceof Boss ? 'guardian' : t.kind === 'reason' ? 'reason' : o.kind, target: o });
     if (o instanceof NPC) return this.talkTo(o);
     if (o instanceof Boss) return this.wakeRematch(o);   // a napping rematch guardian (fight.js)
-    switch (o.kind) {
+    switch (t.kind === 'reason' ? 'reason' : o.kind) {
+      case 'reason': { const r = reasonFor(o); if (r) { sfx('talk'); this.ui.say([r.text], {}); } break; }   // a Catcher's reason: no flag, no gems
       case 'sign': sfx('talk'); this.ui.say(o.lines, { name: 'Sign' }); break;
       case 'door': sfx('door'); this.ui.say(o.lines, {}); break;
       case 'well': sfx('splash'); this.ui.say(o.lines, {}); break;
