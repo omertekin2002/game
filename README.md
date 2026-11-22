@@ -135,6 +135,7 @@ Open Settings from the pause menu or the title.
   to a procedural version.
 
 Design: `docs/DESIGN.md`. Code contract: `docs/ARCHITECTURE.md`, with per-area detail in `docs/wp/`.
+Roadmap and game bible: docs/roadmap/README.md.
 
 ## Tests
 
