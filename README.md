@@ -126,6 +126,10 @@ Open Settings from the pause menu or the title.
   humming crystal stone below the Summit Crystal Cairn, a message in a bottle at Pinch's Lighthouse, a seed pouch at the
   Meadow Windmill), on the side away from its path. Nothing points at them: each twinkles faintly only within 6 m. Use
   reads it like a sign and gives 25 gems, once. Digby drops a hint once the first Starseed is home.
+- The guardians' kind reasons, seen before each fight: three little unlit night-lights in a row by the Woods arena sign,
+  a brass spyglass on the lighthouse gallery pointing out to sea and a chalk tally of nights on its door, a tiny knitted
+  scarf on a rock and a snow cradle near the Peaks arena. Look (Use) at the night-lights, the chalk marks or the snow
+  cradle for one line each; reading gives nothing and sets nothing.
 - A completion tracker on the pause menu and the map card: chests opened, heart containers (the four heart chests and
   Miso's shop heart), guardians beaten, regions visited, Starseeds home, errands done, Miso's guardian plushies bought, guardian rematches won and landmark secrets found (0/4), each as found /
   total with a ✓ when full,
@@ -181,6 +185,7 @@ Console helpers live on `G.debug` (full list in `docs/ARCHITECTURE.md` §17), fo
 `setView('tp')`, `cutscene('ending')`, `hud(false)`, `await perf()`, `info()`. To test the landmark secrets,
 `standAt('secret', i)` puts Pip in front of keepsake `i` of `G.world.secrets` (0 acorn, 1 stone, 2 bottle, 3 pouch) aimed
 at it, so Use reads it; `G.game.S.secrets` holds the ones found (the tracker's Secrets chip counts them).
+`standAt('reason', id)` does the same for a guardian's reason (`G.world.reasons`, e.g. `'home:reason-grumble-2'`).
 
 In-page tests (`docs/ARCHITECTURE.md` §18) run in the page itself, with `?debug=1`, from the browser console:
 
