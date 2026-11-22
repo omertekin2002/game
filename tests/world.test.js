@@ -1,10 +1,12 @@
 // Unit tests for deterministic island generation (js/world.js). Run with `bun test`.
 import { describe, expect, test } from 'bun:test';
 import { generateWorld } from '../js/world.js';
-import { CFG, REGION, SECRETS } from '../js/data.js';
+import { CFG, REGION, SECRETS, SIGNS } from '../js/data.js';
 import { shapeDist } from '../js/world-collide.js';
 import { world as TW } from '../js/tune.js';
 import { placementPrint } from './lib/world-print.js';
+import { worldAll } from './lib/world-cache.js';
+import { LIGHTHOUSE, nightLightModel, spyglassModel, scarfRockModel, snowCradleModel } from '../js/props.js';
 import PRINTS from './fixtures/world-prints.json';
 
 const HEART_IDS = ['hc_meadow', 'hc_shores', 'hc_peaks', 'hc_woods'];
@@ -75,11 +77,32 @@ function cairnNearValid(w, reach) {
   return false;
 }
 
-const worlds = new Map();
-const world = (seed) => {
-  if (!worlds.has(seed)) worlds.set(seed, generateWorld(seed));
-  return worlds.get(seed);
-};
+const world = worldAll;   // one generation per seed per process, shared with the post-pass tests (tests/lib/world-cache.js)
+
+// the Catchers' reasons (World.placeReasons, S-004): ids in order, and the atlas default rule for an item placed on the
+// ground (atlas-home.md 1.3): dry, walkable, slope < 0.5, off the path band (night-lights 1.2 m, else 2.2 m), off
+// bridges, outside every arena and its 5 m ring, ≥ 1 m from solids and colliders, ≥ 2.5 m from chests, interactables and
+// NPC spots, ≥ 2 m from shells, parade lanterns, keepsakes and the other reason items (but the night-lights of the row),
+// reachable. Returns the broken rules (empty when valid)
+const REASON_IDS = ['home:reason-grumble-2', 'home:reason-grumble-1', 'home:reason-grumble-3', 'home:reason-rings', 'home:reason-pinch-spyglass', 'home:reason-pinch-tally', 'home:reason-frost-scarf', 'home:reason-frost-cradle'];
+function reasonFaults(w, it, reach) {
+  const bad = [], d = (p) => Math.hypot(p.x - it.x, p.z - it.z), { x, z } = it;
+  if (!(w.hAt(x, z) > 0.3)) bad.push('wet');
+  if (!w.walkable(x, z) || !(w.slopeAt(x, z) < 0.5)) bad.push('steep');
+  if (w.pathDAt(x, z) < (it.kind === 'nightlight' ? 1.2 : 2.2)) bad.push('path');
+  if (w.bridgeAt(x, z) !== null) bad.push('bridge');
+  if (w.inArena(x, z, 5)) bad.push('arena');
+  if (w.solidNear(x, z, 1.0)) bad.push('solid');
+  if (w.colliders.some((c) => shapeDist(c, x, z) < 1.0)) bad.push('collider');
+  if (w.chests.some((c) => d(c) < 2.5)) bad.push('chest');
+  if (w.interact.some((q) => d(q) < 2.5)) bad.push('interactable');
+  if (Object.values(w.npcSpots).some((q) => d(q) < 2.5)) bad.push('npc spot');
+  if (w.shells.concat(w.lanterns, w.secrets).some((q) => d(q) < 2)) bad.push('earlier pass item');
+  if (w.reasons.some((q) => q !== it && q.x != null && !(q.kind === 'nightlight' && it.kind === 'nightlight') && d(q) < 2)) bad.push('reason item');
+  if (!w.isReached(reach, x, z, false)) bad.push('unreachable');
+  return bad;
+}
+const reachOf = (w) => { const keep = [w.walk, w.reach], R = w.bfs(w.buildWalk()); w.walk = keep[0]; w.reach = keep[1]; return R; };
 
 describe('generateWorld determinism', () => {
   test('same seed gives the same island', () => {
@@ -236,6 +259,76 @@ describe.each(SEEDS)('seed %p', (seed) => {
     }
   }, SLOW);
 
+  test('the reasons pass changes nothing else in the world', () => {
+    const w = world(seed), bare = generateWorld(seed, { reasons: false });
+    expect(bare.reasons).toEqual([]);
+    expect(bare.shells).toEqual(w.shells);         // its own RNG stream: every earlier pass stays where it was
+    expect(bare.lanterns).toEqual(w.lanterns);
+    expect(bare.secrets).toEqual(w.secrets);
+    expect(placementPrint(w)).toEqual(placementPrint(bare));
+    expect(fingerprint(w)).toEqual(fingerprint(bare));
+    expect(fnv(w.walk)).toBe(fnv(bare.walk));
+    expect(fnv(w.reach)).toBe(fnv(bare.reach));
+    expect(w.unreachable).toEqual(bare.unreachable);
+    expect(bare.props.length).toBe(w.props.length);
+    expect(bare.deco.length).toBe(w.deco.length);
+    expect(bare.colliders.length).toBe(w.colliders.length);
+    expect(bare.interact.length).toBe(w.interact.length);
+    expect(bare.reserved).toEqual(w.reserved);
+    expect(bare.npcSpots).toEqual(w.npcSpots);
+    expect(generateWorld(seed).reasons).toEqual(w.reasons);   // deterministic per seed
+  }, SLOW);
+
+  test('eight reason items, in order, each obeying its rule', () => {
+    const w = world(seed), reach = reachOf(w), R = w.reasons, by = (id) => R.find((r) => r.id === id);
+    expect(R.map((r) => r.id)).toEqual(REASON_IDS);
+    // the night-lights: 1.2 m apart in a line beside the Woods arena sign, the middle one on the side away from the path
+    const [n2, n1, n3] = R.slice(0, 3), d = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+    expect(R.slice(0, 3).map((r) => r.kind)).toEqual(['nightlight', 'nightlight', 'nightlight']);
+    expect(Math.abs(d(n1, n2) - 1.2)).toBeLessThanOrEqual(0.05);
+    expect(Math.abs(d(n2, n3) - 1.2)).toBeLessThanOrEqual(0.05);
+    expect(Math.abs(d(n1, n3) - 2.4)).toBeLessThanOrEqual(0.1);
+    const sign = w.interact.find((it) => it.kind === 'sign' && it.lines === SIGNS.arena_woods);
+    expect(d(n2, sign)).toBeGreaterThanOrEqual(1.5);
+    expect(d(n2, sign)).toBeLessThanOrEqual(3.5);
+    expect(w.pathDAt(n2.x, n2.z)).toBeGreaterThan(w.pathDAt(sign.x, sign.z));
+    // the fairy rings: three lists of ≥ 7 glowshrooms, each within 2.2 m of its clearing's ring
+    const rings = by('home:reason-rings').rings, cl = w.woodsGaps.clearings;
+    expect(rings.length).toBe(3);
+    rings.forEach((ids, i) => {
+      expect(ids.length).toBeGreaterThanOrEqual(7);
+      for (const k of ids) {
+        expect(w.deco[k].type).toBe('glowshroom');
+        expect(Math.hypot(w.deco[k].x - cl[i].ring.x, w.deco[k].z - cl[i].ring.z)).toBeLessThanOrEqual(2.2);
+      }
+    });
+    // the lighthouse items: on the gallery (r 1.3 m, bearing 200°) and on the door, turned with the landmark
+    const lm = w.landmarks.find((l) => l.id === 'shores'), k = lm.height / LIGHTHOUSE.H, spy = by('home:reason-pinch-spyglass'), tally = by('home:reason-pinch-tally');
+    expect([spy.attach, tally.attach]).toEqual(['shores', 'shores']);
+    expect(Math.hypot(spy.x - lm.x, spy.z - lm.z)).toBeCloseTo(1.3, 2);
+    expect(Math.atan2(spy.x - lm.x, spy.z - lm.z)).toBeCloseTo(Math.PI - (200 * Math.PI) / 180, 2);
+    expect(spy.y).toBeCloseTo(lm.y - LIGHTHOUSE.sink + LIGHTHOUSE.deck * k, 2);
+    expect(spy.s).toBeCloseTo(k, 3);   // scaled with the lighthouse, so the tube clears the gallery rail
+    expect(Math.hypot(tally.x - lm.x, tally.z - lm.z)).toBeCloseTo((LIGHTHOUSE.door.z + 0.01) * k, 2);
+    expect(Math.atan2(tally.x - lm.x, tally.z - lm.z)).toBeCloseTo(Math.atan2(Math.sin(lm.rot), Math.cos(lm.rot)), 2);
+    expect(tally.y).toBeCloseTo(lm.y - LIGHTHOUSE.sink + LIGHTHOUSE.door.y * k, 3);
+    // Frostbun's: ≥ 20 m from the Peaks arena centre; the cradle ≥ 2.5 m from the arena sign; the rock is solid
+    const a = w.arenas.peaks, ps = w.interact.find((it) => it.kind === 'sign' && it.lines === SIGNS.arena_peaks), scarf = by('home:reason-frost-scarf'), cradle = by('home:reason-frost-cradle');
+    expect(d(scarf, a)).toBeGreaterThanOrEqual(20);
+    expect(d(cradle, a)).toBeGreaterThanOrEqual(20);
+    expect(d(cradle, ps)).toBeGreaterThanOrEqual(2.5);
+    expect(scarf.solid).toEqual({ r: 0.5 });
+    expect(cradle.solid).toBeUndefined();
+    // every item on the ground obeys the rule, as stored (rounded to the millimetre, y on the ground)
+    for (const it of R) {
+      if (it.x == null || it.attach) continue;
+      expect({ id: it.id, bad: reasonFaults(w, it, reach) }).toEqual({ id: it.id, bad: [] });
+      expect(it.x).toBe(+it.x.toFixed(3));
+      expect(it.z).toBe(+it.z.toFixed(3));
+      expect(it.y).toBeCloseTo(w.hAt(it.x, it.z), 6);
+    }
+  }, SLOW);
+
   test('spawn point is on dry land', () => {
     const w = world(seed);
     expect(w.hAt(w.spawn.x, w.spawn.z)).toBeGreaterThan(0);
@@ -247,7 +340,7 @@ describe.each(SEEDS)('seed %p', (seed) => {
 test('on seeds 1–40 every rainbow shell is at the spot Clover names', () => {
   const off = [];
   for (let seed = 1; seed <= 40; seed++) {
-    const w = generateWorld(seed), a = w.arenas.shores, lm = w.landmarks.find((l) => l.id === 'shores');
+    const w = worldAll(seed), a = w.arenas.shores, lm = w.landmarks.find((l) => l.id === 'shores');
     if (w.shells.length !== 5) off.push([seed, 'count', w.shells.length]);
     for (const s of w.shells) {
       const isle = s.at.startsWith('islet') ? w.islets[+s.at.slice(5) - 1] : null;
@@ -271,9 +364,9 @@ test('default seed has exactly 14 chests, as documented in docs/DESIGN.md', () =
 test('on seeds 1–40 there are four parade lanterns, each at the spot Ribbit names and reachable', () => {
   const off = [];
   for (let seed = 1; seed <= 40; seed++) {
-    const w = generateWorld(seed);
+    const w = worldAll(seed);
     if (w.lanterns.length !== 4) off.push([seed, 'count', w.lanterns.length]);
-    const reach = w.bfs(w.buildWalk());
+    const reach = reachOf(w);
     for (const s of w.lanterns) if (!lanternNear(w, s) || !w.isReached(reach, s.x, s.z, false)) off.push([seed, s.at, s.x, s.z]);
   }
   expect(off).toEqual([]);
@@ -302,3 +395,37 @@ test('on seeds 1–150 every landmark has its keepsake on valid reachable ground
   }
   expect(off).toEqual([]);
 }, 300_000);
+
+// every island has the Catchers' reasons: the eight ids in order, every item on the ground valid and reachable from the
+// spawn (seeds 1–40, from the shared world cache)
+test('on seeds 1–40 every reason item exists, obeys its rule and is reachable', () => {
+  const off = [];
+  for (let seed = 1; seed <= 40; seed++) {
+    const w = worldAll(seed), ids = w.reasons.map((r) => r.id);
+    if (ids.join() !== REASON_IDS.join()) { off.push([seed, 'ids', ids]); continue; }
+    const reach = reachOf(w);
+    for (const it of w.reasons) {
+      if (it.kind === 'rings') { if (it.rings.length !== 3 || it.rings.some((r) => r.length < 7)) off.push([seed, it.id, it.rings.map((r) => r.length)]); continue; }
+      if (it.attach) continue;
+      const bad = reasonFaults(w, it, reach);
+      if (bad.length) off.push([seed, it.id, bad]);
+    }
+    const [n2, n1, n3] = w.reasons, d = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+    if (Math.abs(d(n1, n2) - 1.2) > 0.05 || Math.abs(d(n2, n3) - 1.2) > 0.05) off.push([seed, 'night-light row', d(n1, n2), d(n2, n3)]);
+  }
+  expect(off).toEqual([]);
+}, 240_000);
+
+// the reason props are code-built within their ART BRIEF budgets (atlas-home.md #placeReasons)
+test('the reason props stay within their triangle budgets', () => {
+  const tris = (...gs) => gs.reduce((n, g) => n + (g.index ? g.index.count : g.attributes.position.count) / 3, 0);
+  const sc = scarfRockModel(), cr = snowCradleModel();
+  const got = { nightlight: tris(nightLightModel(false).geo), nightlightLit: tris(nightLightModel(true).geo), spyglass: tris(spyglassModel().geo), scarf: tris(sc.rock.geo, sc.scarf.geo), cradle: tris(cr.nest.geo, cr.hollow) };
+  const cap = { nightlight: 120, nightlightLit: 120, spyglass: 160, scarf: 220, cradle: 200 };
+  for (const k in cap) expect({ k, n: got[k], ok: got[k] <= cap[k] }).toEqual({ k, n: got[k], ok: true });
+  // heights: the night-light 0.42 m, the spyglass 0.7 m, the cradle 0.25 m
+  const top = (g) => { g.computeBoundingBox(); return g.boundingBox.max.y; };
+  expect(top(nightLightModel(false).geo)).toBeCloseTo(0.42, 2);
+  expect(Math.abs(top(spyglassModel().geo) - 0.7)).toBeLessThan(0.03);
+  expect(top(cr.nest.geo)).toBeCloseTo(0.25, 2);
+});

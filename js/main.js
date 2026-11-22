@@ -5,6 +5,7 @@ import { CFG, SAVE_KEY } from './data.js';
 import { loadSave } from './save.js';
 import { loadAll, Assets } from './assets.js';
 import { generateWorld } from './world.js';
+import { attachPost } from './world-post.js';
 import { buildTerrain, buildWater, buildMapCanvas } from './terrain.js';
 import { Scenery } from './scatter.js';
 import { Sky } from './sky.js';
@@ -60,6 +61,7 @@ async function boot() {
   const saved = loadSave(store.get(SAVE_KEY), CFG.seed);
   const seed = q ? +q[1] : (saved && saved.seed) || CFG.seed;
   const world = generateWorld(seed);
+  attachPost(world);   // post-pass solids (the reasons' scarf rock) join the colliders; prints and walk are unchanged
   G.world = world;
   if (G.debugOn) {
     console.log(`[Starseed] world generated in ${world.genMs.toFixed(0)} ms — props ${world.props.length}, deco ${world.deco.length}, carved ${world.carved}`);

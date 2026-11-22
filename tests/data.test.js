@@ -1,6 +1,6 @@
 // Sanity checks for the content tables in js/data.js. Run with `bun test`.
 import { expect, test } from 'bun:test';
-import { BOSSES, CFG, ENEMY, ERRANDS, NPCS, REGIONS, SEED_ORDER, SEEDS, SHOP, errands } from '../js/data.js';
+import { BOSSES, CFG, ENEMY, ERRANDS, NPCS, REASONS, REGIONS, SEED_ORDER, SEEDS, SHOP, errands, reasonFor } from '../js/data.js';
 import { freshState } from '../js/save.js';
 
 test('every enemy in a region spawn table exists in ENEMY', () => {
@@ -234,4 +234,20 @@ test("Elder Shellby's intro is short and keeps its story; his first hints keep w
   // signpost, Miso's potions
   const first = sh.lines(freshState(CFG.seed)).join(' ');
   for (const fact of ['Great Tree', 'compass', 'signpost', 'Miso sells potions']) expect(first).toContain(fact);
+});
+
+test('the Catchers\' reasons (REASONS): three Look lines, one per Catcher, each ≤ 220 characters with its text id', () => {
+  expect(REASONS.map((r) => r.t)).toEqual(['home.reason.grumble', 'home.reason.pinch', 'home.reason.frost']);
+  expect(REASONS.map((r) => r.boss).sort()).toEqual(Object.keys(BOSSES).sort());
+  for (const r of REASONS) {
+    expect(typeof r.text === 'string' && r.text.length > 0).toBe(true);
+    expect(r.text.length).toBeLessThanOrEqual(220);
+    expect(typeof r.name === 'string' && r.name.length > 0).toBe(true);
+  }
+  // only the middle night-light, the tally and the cradle answer Look
+  expect(reasonFor({ id: 'home:reason-grumble-2', kind: 'nightlight' })).toBe(REASONS[0]);
+  expect(reasonFor({ id: 'home:reason-grumble-1', kind: 'nightlight' })).toBeNull();
+  expect(reasonFor({ id: 'home:reason-pinch-tally', kind: 'tally' })).toBe(REASONS[1]);
+  expect(reasonFor({ id: 'home:reason-frost-cradle', kind: 'cradle' })).toBe(REASONS[2]);
+  for (const kind of ['rings', 'spyglass', 'scarf']) expect(reasonFor({ id: 'x', kind })).toBeNull();
 });

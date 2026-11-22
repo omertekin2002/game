@@ -24,7 +24,7 @@
 // turns Pip's body to the target (it.bodyYaw: movement strafes) and aims swings at it (it.faceYaw / it.facePitch). The
 // lock target also gets the strongest swing magnetism (combat.js). Touch auto-face (feel §8.7): see touchAutoFace.
 import * as THREE from 'three';
-import { ERRANDS, progress, errands, secrets } from './data.js';
+import { ERRANDS, progress, errands, secrets, reasonFor } from './data.js';
 import { NPC } from './npcs.js';
 import { Boss } from './bosses.js';
 import { EV } from './events.js';
@@ -86,6 +86,13 @@ export const TargetingMixin = {
       if (Math.abs(it.x - pl.pos.x) > 5 || Math.abs(it.z - pl.pos.z) > 5 || secrets.got(S, it.id)) continue;
       const a = A.secret || [0.25, 0.5];
       out.push({ o: it, kind: 'secret', px: it.x, py: it.y + a[0], pz: it.z, R: a[1], range: TC.secretRange || 1.6, x: it.x, y: it.y, z: it.z, h: 0.8 });
+    }
+    // the Catchers' reasons (W.reasons, S-004): the middle night-light, the door tally and the snow cradle answer Look,
+    // before and after the bloom. Aimed 0.3 m up (the tally: at the decal's centre, its stored y)
+    if (S) for (const it of this.world.reasons || []) {
+      if (it.x == null || Math.abs(it.x - pl.pos.x) > 5 || Math.abs(it.z - pl.pos.z) > 5 || !reasonFor(it)) continue;
+      const py = it.kind === 'tally' ? it.y : it.y + 0.3;
+      out.push({ o: it, kind: 'reason', px: it.x, py, pz: it.z, R: 0.4, range: 1.6, x: it.x, y: it.y, z: it.z, h: it.kind === 'tally' ? 0.6 : 0.8 });
     }
     return out;
   },
@@ -171,6 +178,7 @@ export const TargetingMixin = {
     const o = t.o;
     if (o instanceof NPC) { t.verb = o.def.shop ? 'Shop' : 'Talk'; t.name = o.name; }
     else if (isBoss(o)) { t.verb = VERB.guardian; t.name = o.name; }   // a napping rematch guardian: 'Wake · Grumble Shroom'
+    else if (t.kind === 'reason') { const r = reasonFor(o); t.verb = 'Look'; t.name = (r && r.name) || 'Something'; }   // 'Look · Night-lights'
     else if (t.kind === 'secret') { const s = secrets.get(o.id); t.verb = (s && s.verb) || 'Look'; t.name = (s && s.label) || 'Something'; }   // 'Look · Something glowing'
     else {
       t.verb = t.kind === 'pedestal' ? (progress.carried(this.S) > 0 ? 'Place' : 'Look') : VERB[t.kind] || 'Use';
