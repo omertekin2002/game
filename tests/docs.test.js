@@ -1,11 +1,14 @@
-// docs/roadmap/: the roadmap index, the canon, the game bible and the step specs (S-001, S-002a, S-002b). Every bible
+// docs/roadmap/: the roadmap index, the canon, the game bible and the step specs (S-001, S-002a, S-002b, S-002c). Every bible
 // anchor INDEX.md cites must be an explicit `<a id="..."></a>` in a bible file that exists; every link between bible
 // files and from the step files must reach an anchor GitHub renders: an explicit `<a id>` or a heading slug; every row of
 // charter.md's glossary tables links to its defining file; every `### S-xxx · ` step heading is unique and carries the
-// header line the step-index generator reads; and every CANON / CANON-NOW section reference in the roadmap docs must
-// name a real section. Run with `bun test`.
+// header line the step-index generator reads; the generator's own check passes and regenerating INDEX.md from the step
+// files reproduces the committed one; and every CANON / CANON-NOW section reference in the roadmap docs must name a real
+// section. Run with `bun test`.
 import { expect, test } from 'bun:test';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const ROOT = join(import.meta.dir, '..', 'docs', 'roadmap');
@@ -190,16 +193,13 @@ function brokenLinks(dir, anchorsOf, readFile = read, target = ownTarget) {
 }
 
 /**
- * Where a step file's link points. Markdown links (`../bible/x.md#a`, `#a`, `./M01-M04.md#a`) resolve as written. Bare
- * `x.md#a` references are skipped: in the step files they are prose shorthand for a bible section, often quoting the
- * ALLOW_PENDING entries a step will remove, not links GitHub renders. A link to a step file that README.md lists but
- * that has not landed yet (M15-M35 arrive in S-002c) is skipped until it lands; any other missing file is broken.
+ * Where a step file's link points. Markdown links (`../bible/x.md#a`, `#a`, `./M01-M04.md#a`) resolve as written, and a
+ * missing file is broken. Bare `x.md#a` references are skipped: in the step files they are prose shorthand for a bible
+ * section, often quoting the ALLOW_PENDING entries a step will remove, not links GitHub renders.
  */
-function stepTarget(l, from, { present = mdFiles(STEPS), listed = listedStepFiles() } = {}) {
+function stepTarget(l, from) {
   if (l.bare) return null;
-  if (l.file === null) return from;
-  if (listed.includes(l.file) && !present.includes(l.file)) return null;
-  return l.file;
+  return l.file ?? from;
 }
 
 /** The step files README.md lists (`steps/M01-M04.md`, ...), whether or not they are in the repo yet. */
@@ -359,18 +359,47 @@ test('bible cross-links: every anchor link between bible files and from the step
   const seen = ALLOW_PENDING.map((k) => [k, bible.filter((b) => b.key === k).map((b) => b.at)]);
   expect(seen.filter(([, at]) => at.length !== 1)).toEqual([]);
   const stepLinks = mdFiles(STEPS).reduce((n, f) => n + anchorLinks(read(join(STEPS, f))).filter((l) => !l.bare).length, 0);
-  expect(stepLinks).toBeGreaterThan(700);   // markdown links from M01-M14 alone
+  expect(stepLinks).toBeGreaterThan(700);   // markdown links from M01-M14 alone; M15-M35 add more
   expect(steps.map((b) => `${b.at}: ${b.key}`)).toEqual([]);
 });
 
-test('step files: the M01-M14 files are present, and every `### S-xxx · ` heading is unique with a generator header', () => {
+const STEP_FILES = [
+  'M01-M04.md', 'M05-M08.md', 'M09-M12.md', 'M13-M14.md', 'M15-M17.md', 'M18-M20.md', 'M21-M23.md', 'M24-M26.md',
+  'M27-M29.md', 'M30-M33.md', 'M34-M35.md',
+];
+
+test('step files: all eleven are present, README.md lists exactly them, and every `### S-xxx · ` heading is unique with a generator header', () => {
   const present = mdFiles(STEPS);
-  for (const f of ['M01-M04.md', 'M05-M08.md', 'M09-M12.md', 'M13-M14.md']) expect(present).toContain(f);
-  expect(present.filter((f) => !listedStepFiles().includes(f))).toEqual([]);   // README.md lists every step file
+  expect(present).toEqual(STEP_FILES);
+  expect(listedStepFiles()).toEqual(STEP_FILES);
   const files = Object.fromEntries(present.map((f) => [f, read(join(STEPS, f))]));
-  expect(Object.values(files).reduce((n, t) => n + stepHeadings(t).length, 0)).toBeGreaterThan(140);
+  expect(Object.values(files).reduce((n, t) => n + stepHeadings(t).length, 0)).toBe(415);
   expect(stepHeadingProblems(files)).toEqual([]);
 });
+
+/** python3 for the step-index generator, or null (the generator tests then skip with a printed note). */
+const PYTHON = spawnSync('python3', ['--version']).status === 0 ? 'python3' : null;
+const skipNote = (what) => console.log(`docs.test.js: python3 not found; skipping ${what}`);
+
+test('step index: the generator\'s check passes (ids, titles and dependencies match the step files; no unknown dependency, no cycle)', () => {
+  if (!PYTHON) return skipNote('the step-index generator check');
+  const run = spawnSync(PYTHON, [join(ROOT, 'tools', 'step-index-src.py'), 'check'], { encoding: 'utf8' });
+  expect({ status: run.status, out: run.stdout + run.stderr }).toEqual({ status: 0, out: expect.stringContaining(' 0 problems') });
+});
+
+test('step index: regenerating INDEX.md from the step files in a scratch copy reproduces the committed one byte for byte', () => {
+  if (!PYTHON) return skipNote('the INDEX.md regeneration check');
+  // build-step-index.sh rewrites INDEX.md in place, so it runs on a copy of docs/roadmap, never on the repo's.
+  const tmp = mkdtempSync(join(tmpdir(), 'roadmap-'));
+  try {
+    cpSync(ROOT, join(tmp, 'roadmap'), { recursive: true });
+    const run = spawnSync('sh', [join(tmp, 'roadmap', 'tools', 'build-step-index.sh')], { encoding: 'utf8' });
+    expect({ status: run.status, out: run.stdout + run.stderr }).toEqual({ status: 0, out: expect.stringContaining('order violations []') });
+    expect(read(join(tmp, 'roadmap', 'INDEX.md')) === read(join(ROOT, 'INDEX.md'))).toBe(true);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}, 30_000);
 
 test('glossary: every row of charter.md\'s glossary tables links its defining file and anchor, and each resolves', () => {
   const rows = glossaryRows(read(join(BIBLE, 'charter.md')));
@@ -471,14 +500,12 @@ test('helpers: GitHub heading slugs, anchor links and glossary rows', () => {
   expect(fileLinks('[a](./atlas-home.md) [b](./cast.md#pip) [c](../bible/gone.md)')).toEqual([
     { file: 'atlas-home.md', line: 1 }, { file: '../bible/gone.md', line: 1 },
   ]);
-  // In a step file a markdown link resolves as written, a bare `x.md#a` is skipped, and so is a link to a listed step
-  // file that has not landed; a link to any other missing file is not.
-  const where = { present: ['M01-M04.md'], listed: ['M01-M04.md', 'M18-M20.md'] };
-  const to = (text) => anchorLinks(text).map((l) => stepTarget(l, 'M01-M04.md', where));
+  // In a step file a markdown link resolves as written and a bare `x.md#a` is skipped.
+  const to = (text) => anchorLinks(text).map((l) => stepTarget(l, 'M01-M04.md'));
   expect(to('story.md#beacon-1 [a](story.md#beacon-1) [b](../bible/story.md#x) [c](#own)')).toEqual([
     'story.md', '../bible/story.md', 'M01-M04.md', null,   // markdown links first, then the bare reference
   ]);
-  expect(to('[d](./M18-M20.md#s-158a) [e](./M99-M99.md#s-1) [f](./M01-M04.md#s-001)')).toEqual([null, 'M99-M99.md', 'M01-M04.md']);
+  expect(to('[d](./M18-M20.md#s-158a) [e](./M99-M99.md#s-1)')).toEqual(['M18-M20.md', 'M99-M99.md']);
   expect(brokenLinks(STEPS, anchorsOf, () => '[a](../bible/charter.md#nope) [b](#nope) [c](./M99-M99.md) charter.md#nope\n', stepTarget)
     .filter((b) => b.at.startsWith('M01-M04.md:')).map((b) => b.key)).toEqual([
     'M01-M04.md -> ../bible/charter.md#nope', 'M01-M04.md -> M01-M04.md#nope', 'M01-M04.md -> M99-M99.md',
