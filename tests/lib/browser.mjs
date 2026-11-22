@@ -5,6 +5,7 @@ import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 
 export const SAVE_KEY = 'starseed-isle-save-v2'; // SAVE_KEY in js/data.js
+export const SAVE_BAK_KEY = 'starseed-isle-save-v2-bak'; // SAVE_BAK_KEY in js/data.js
 export const SETTINGS_KEY = 'starseed-isle-settings-v1'; // SETTINGS_KEY in js/settings.js
 
 /** the repo root (where tools/serve.mjs serves from) */

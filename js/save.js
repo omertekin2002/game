@@ -3,7 +3,10 @@
 import { BOSSES, CFG, SECRETS, SEED_ORDER } from './data.js';
 
 // Bump when the save layout changes, and add a MIGRATIONS step from the previous version.
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
+
+// A story flag key (S.flags): letters (camelCase milestones like `wennaAwake`), digits and `:_.-`, 1-48 characters
+export const FLAG_KEY = /^[A-Za-z0-9:_.-]{1,48}$/;
 
 export function freshState(seed) {
   return {
@@ -14,6 +17,7 @@ export function freshState(seed) {
     plushies: {},              // v4: Miso's guardian plushies bought: guardian id (BOSSES key) → true (data.js PLUSHIES)
     rematches: {},             // v5: guardian rematches won after the bloom: guardian id (BOSSES key) → true (data.js REMATCH)
     secrets: {},               // v6: landmark keepsakes found: keepsake id (data.js SECRETS) → true
+    flags: {},                 // v7: story flags, seen lines, gates and choices: key → true | finite number (docs/roadmap/bible/systems.md#flags)
   };
 }
 
@@ -28,7 +32,24 @@ export const MIGRATIONS = {
   4: (s) => ({ ...s, rematches: {} }),
   // v5 → v6: the landmark keepsakes. Every v5 field (rematches included) is kept; none found yet
   5: (s) => ({ ...s, secrets: {} }),
+  // v6 → v7: the generic story flags map. Every v6 field is kept; the flags a v6 save already earned are derived (v7Flags)
+  6: (s) => ({ ...s, flags: v7Flags(s) }),
 };
+
+// The flags a v6 save has already earned: `bloom` mirrors the shipped `ending`, and each guardian beaten gets its calm
+// order and its handover (the scene did not exist yet). The real order is unknown, so SEED_ORDER order stands in.
+export function v7Flags(s) {
+  const out = {};
+  if (s.ending === true) out.bloom = true;
+  let n = 0;
+  const bosses = isObj(s.bosses) ? s.bosses : {};
+  for (const id of SEED_ORDER) {
+    if (bosses[id] !== true) continue;
+    out['calm:' + id] = ++n;
+    out['handover:' + id] = true;
+  }
+  return out;
+}
 
 const isObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 const num = (x) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
@@ -80,6 +101,10 @@ export function normalize(s, seed) {
   if (isObj(s.rematches)) for (const id of Object.keys(BOSSES)) if (s.rematches[id]) out.rematches[id] = true;   // guardian ids, as flags
   out.secrets = {};
   if (isObj(s.secrets)) for (const { id } of SECRETS) if (s.secrets[id] === true) out.secrets[id] = true;   // keepsake ids, true only
+  out.flags = {};
+  if (isObj(s.flags)) {   // valid keys only, each true or a finite number (0 included); anything else is dropped
+    for (const [k, v] of Object.entries(s.flags)) if (FLAG_KEY.test(k) && (v === true || (typeof v === 'number' && Number.isFinite(v)))) out.flags[k] = v;
+  }
   out.errands = {};
   if (isObj(s.errands)) for (const k of Object.keys(s.errands)) { const n = Math.round(clampNum(s.errands[k], 0, 2, 0)); if (n > 0) out.errands[k] = n; }
   for (const k of ['shopHeart', 'ending', 'introDone', 'controlsSeen']) out[k] = !!s[k];

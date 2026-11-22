@@ -31,6 +31,8 @@ export const CFG = {
 // The storage key stays fixed so existing saves keep loading. The save's schema version is its `v` field
 // (SAVE_VERSION in js/save.js), not the "v2" in this name: bump SAVE_VERSION and add a migration instead.
 export const SAVE_KEY = 'starseed-isle-save-v2';
+// The untouched save string from before its last migration (js/game.js continueGame writes it; nothing reads it yet)
+export const SAVE_BAK_KEY = 'starseed-isle-save-v2-bak';
 
 export const REGION = { VILLAGE: 0, WOODS: 1, PEAKS: 2, SHORES: 3, MEADOW: 4 };
 export const REGIONS = [

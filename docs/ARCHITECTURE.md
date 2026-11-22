@@ -38,7 +38,7 @@ names use it too.
 | Layers | `LAYER = { WORLD: 0, BODY: 1, PRESENT: 2, DEBUG: 3 }` (`PRESENT` is unused now); scatter's `LAYER_SHADOW = 4` (shadow-only casters); layer 30 only during the boot warm-up. Layers are not inherited: `setLayer(obj, layer, skip)` sets every descendant |
 | FOV | settings store horizontal degrees at 16:9; the camera uses vertical degrees, Hor+ (`vFovFor(hDeg, aspect)`); a narrow screen keeps ≥ 70° horizontal up to a 100° vertical cap |
 | Tunables | new numbers go into `js/tune.js` (`TUNE`, §16), never into `CFG` (`js/data.js` keeps the original game constants and content) |
-| Storage | only through `store.get / set / del` (`core.js`, wrapped in try/catch). Keys: save `starseed-isle-save-v2`, settings `starseed-isle-settings-v1` (object-valued `keys` and `pad` inside it), HUD memory `starseed-isle-hud-v1`, mute `starseed-isle-muted` |
+| Storage | only through `store.get / set / del` (`core.js`, wrapped in try/catch). Keys: save `starseed-isle-save-v2` (and its pre-migration backup `starseed-isle-save-v2-bak`, which `Game.backupOldSave` writes raw through `localStorage` because the copy must stay byte-identical), settings `starseed-isle-settings-v1` (object-valued `keys` and `pad` inside it), HUD memory `starseed-isle-hud-v1`, mute `starseed-isle-muted` |
 
 Grep rules (must stay empty): `grep -rnE "\.yawTarget|cam\.bias|cam\.yaw" js` and
 `grep -rnE "player\.facing\s*=|pl\.facing\s*=" js` (the body facing is written only inside `player.js`, or through
@@ -54,7 +54,7 @@ Grep rules (must stay empty): `grep -rnE "\.yawTarget|cam\.bias|cam\.yaw" js` an
 | `js/core.js`, `js/util.js` | `G`, guarded audio calls, `store`, `spriteUrl`; maths, RNG, noise, easing, conventions, `LAYER` | §1 |
 | `js/tune.js`, `js/settings.js` | `TUNE` groups; settings schema and persistence | §16, §12 |
 | `js/game.js` | session, save, transitions, input routing, step and render orchestration, module host | §3, §6 |
-| `js/save.js` | save schema: `SAVE_VERSION`, `freshState`, `migrate`, `normalize`, `loadSave` (pure; unit-tested in `tests/save.test.js`) | §12 |
+| `js/save.js` | save schema: `SAVE_VERSION`, `FLAG_KEY`, `freshState`, `migrate`, `v7Flags`, `normalize`, `loadSave` (pure; unit-tested in `tests/save.test.js`) | §12 |
 | `js/completion.js` | completion tally `completion(W, S)` for the tracker on the pause menu and map card (`js/hud/tracker.js`); pure, unit-tested in `tests/completion.test.js` | §12 |
 | `js/view/view.js` | `ViewController`: look, camera pose, FOV, near plane, layers, shots | §7, [WP1](wp/WP1.md) |
 | `js/view/rig-fp.js`, `rig-tp.js`, `lockon.js`, `shots.js`, `shake.js`, `comfort.js`, `feel.js` | FP eye rig and feel layers, TP spring arm, lock-on camera, cinematics, trauma shake, comfort factors, module `wp1-feel` | §7, [WP1](wp/WP1.md) |
@@ -597,13 +597,16 @@ from `META` (`js/hud/menus.js`); a key without `META` still gets a row.
 | `hudScale`, `minimap` | 1 (0.8–1.2), `heading` (`heading`, `north`, `off`) | HUD |
 | `quality`, `dynRes` | `auto` (`auto`, `low`, `high`), true | perf (DPR, grass, shadow map, dynamic resolution), assets (HD / lo, anisotropy), atmosphere (terrain layers) |
 
-Save (`game.S`, key `starseed-isle-save-v2`, `v: 6`): seed, position, facing, hp, maxHp, coins, potions, swordLevel,
+Save (`game.S`, key `starseed-isle-save-v2`, `v: 7`): seed, position, facing, hp, maxHp, coins, potions, swordLevel,
 seeds (0 none, 1 carried, 2 placed), chests, bosses, shopHeart, ending, time of day, visited regions, playTime, intro and
 controls flags, `errands` (errand id → 1 started, 2 done; `ERRANDS` and the `errands` helpers in `js/data.js`), `shells`
 (the errand item flags: item id → true, a rainbow shell picked up `shell1`… or a parade lantern lit `lantern1`…; no two
 errands share an id), `plushies` (v4: Miso's guardian plushies bought, guardian id → true), `rematches` (v5: guardian
 rematches won after the bloom, guardian id → true; `REMATCH` and the `rematch` helpers in `js/data.js`), `secrets` (v6:
-landmark keepsakes found, keepsake id → true; `SECRETS` and the `secrets` helpers in `js/data.js`), plus the optional `pitch` (restored clamped ±0.6 rad), `controlsV` (< 2 → the first-run coach marks once)
+landmark keepsakes found, keepsake id → true; `SECRETS` and the `secrets` helpers in `js/data.js`), `flags` (v7: story
+flags, seen lines, gates and choices, key → `true` or a finite number; keys match `FLAG_KEY`
+`/^[A-Za-z0-9:_.-]{1,48}$/`; docs/roadmap/bible/systems.md#flags), plus the optional `pitch` (restored clamped ±0.6
+rad), `controlsV` (< 2 → the first-run coach marks once)
 and `waypoint { x, z }` (the map marker). Non-numeric optional fields fall back to defaults. Autosave every 30 s outside
 fights and at key events. `wp9-world.onSession` moves a Continue whose saved spot is now inside a collider to the
 nearest free spot.
@@ -614,7 +617,13 @@ and fills, clamps or coerces the known fields; unknown fields such as `pitch`, `
 `js/save.js` imports only `js/data.js`, so `bun test` can load it. To change the layout, bump `SAVE_VERSION` and add a
 `MIGRATIONS[old]` step with a test (`docs/DESIGN.md` §15). `MIGRATIONS[2]` (v2 → v3) adds `errands: {}` and
 `shells: {}` and keeps every v2 field; `MIGRATIONS[3]` (v3 → v4) adds `plushies: {}`; `MIGRATIONS[4]` (v4 → v5) adds
-`rematches: {}`; `MIGRATIONS[5]` (v5 → v6) adds `secrets: {}`.
+`rematches: {}`; `MIGRATIONS[5]` (v5 → v6) adds `secrets: {}`; `MIGRATIONS[6]` (v6 → v7) adds `flags` from
+`v7Flags`: `bloom: true` when `ending`, and for each guardian beaten, numbered in `SEED_ORDER` order, `calm:<id>` = n and
+`handover:<id>` = true. `normalize` keeps a flag only for a `FLAG_KEY` key with `true` or a finite number (0 included).
+Before `loadSave`, `Game.continueGame` copies the raw string of a save whose `v` is below `SAVE_VERSION` to
+`SAVE_BAK_KEY` (`starseed-isle-save-v2-bak`, `js/data.js`), overwriting an older backup; nothing reads it yet. Save
+fixtures for tests are in `tests/fixtures/saves/` (`v6-bloomed`, and the Act I chain `act1-fresh`, `act1-1seed`,
+`act1-2seed`, `act1-3carried`, `act1-bloomed`).
 
 Errands (`js/interact.js`), driven by their `ERRANDS` entry (`js/data.js`): `item` (the id prefix and the scenery kind),
 `list` (the world list of its spots), `how` (`'use'`: picked up with Use; `'walk'`: lit by walking past), `keep` (a found
@@ -896,6 +905,9 @@ comparison only).
 | `armProbe(x, z, yaw, pitch)` | the TP spring arm as a pure query |
 | `perf({ ms }) → Promise<{ fps, frames, cpuMs, gpuMain, gpuVm, gpuTimer, gpuDropped, calls, tris, dpr, size, view, tod }>` | real frames, GPU per pass via `EXT_disjoint_timer_query_webgl2` (null when unavailable); pin the hour with `setTime` + `freezeTime` |
 | `info()`, `cam()`, `player()`, `lock()`, `game()`, `world()` | snapshots |
+| `loadSave(obj) → S.v` | stores a save object and Continues it (migrate + normalize; an older one leaves its backup), from the title or in play |
+| `flags.get(k)`, `flags.set(k, v)`, `flags.all()` | the story flags (`S.flags`): `set` → the new value, `false` for a key that fails `FLAG_KEY` or a value that is not `true` / a finite number; `v === null` deletes (debug only) |
+| `scene.skip() → bool` | calls `game.skipScene` (null by default; a skippable running scene registers it) and returns `true`, else `false` |
 | `test.run(name = 'all', opts)`, `test.list()` | §18 |
 
 Namespaces added by modules:

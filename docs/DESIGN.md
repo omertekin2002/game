@@ -387,6 +387,10 @@ treats a v5 save as newer: to roll the rematches back, keep the v4 → v5 step a
 `MIGRATIONS[5]` (v5 → v6, the landmark secrets) keeps every v5 field and adds `secrets: {}` (keepsake id → true once
 found); `normalize` keeps only `SECRETS` ids set to `true`. A build from before v6 treats a v6 save as newer, so as no
 save: to roll the secrets back, keep the v5 → v6 step and drop only the gameplay.
+`MIGRATIONS[6]` (v6 → v7, the story flags) keeps every v6 field and adds `flags` (key → `true` or a finite number):
+`bloom` when the ending was seen, and `calm:<id>` (1, 2, 3 in `SEED_ORDER` order) plus `handover:<id>` for each guardian
+already beaten. Continue backs the older save's raw string up to `starseed-isle-save-v2-bak` before migrating it. A
+build from before v7 treats a v7 save as newer, so as no save.
 
 The first-person build adds two optional fields without a version bump (`normalize` keeps unknown fields): `pitch`,
 the look angle, which `Game.startSession` restores clamped; and `controlsV`, the version of the controls card the

@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 // Headless-browser smoke test: serve the repo, boot the game in Chromium (software WebGL via SwiftShader),
 // start a New Game (checking the completion tracker on the pause menu and the map), then continue a valid, a corrupt
-// and a newer-version save from localStorage. The same loads carry stored settings (valid, wrong-typed, not JSON at
-// all) and check that they are applied, repaired and saved. Rebound keys and controller buttons (a stubbed standard
-// pad) are checked in play, in the menus and across a reload. Running from the repo registers no service worker and never
-// requests sw.js (only the Pages build has one; tests/pwa.mjs). Fails on any page error, console error or failed request.
+// and a newer-version save from localStorage, and the v6 bloomed fixture (migrated to v7, backed up first). The same
+// loads carry stored settings (valid, wrong-typed, not JSON at all) and check that they are applied, repaired and saved.
+// Rebound keys and controller buttons (a stubbed standard pad) are checked in play, in the menus and across a reload.
+// Running from the repo registers no service worker and never requests sw.js (only the Pages build has one;
+// tests/pwa.mjs). Fails on any page error, console error or failed request.
 // Usage: node tests/smoke.mjs   (or `bun run test:smoke`). On failure a screenshot lands in test-results/.
 import { mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
-import { LAUNCH, SAVE_KEY, SETTINGS_KEY, startServer } from './lib/browser.mjs';
+import { readFileSync } from 'node:fs';
+import { LAUNCH, SAVE_BAK_KEY, SAVE_KEY, SETTINGS_KEY, startServer } from './lib/browser.mjs';
 const BOOT_TIMEOUT = Number(process.env.SMOKE_BOOT_TIMEOUT || 120_000);
 // Starting a session compiles every shader on its first frame; in software WebGL on a two-core runner that frame
 // alone takes around 10 s.
@@ -216,13 +218,15 @@ async function main() {
     }
     if (Math.hypot(resumed.pos.x - save.px, resumed.pos.z - save.pz) > 0.5) fail(`resumed at ${JSON.stringify(resumed.pos)}, saved at ${save.px}, ${save.pz}`);
     if (resumed.liveBosses.includes('woods') || resumed.liveBosses.length !== 2) fail(`unexpected live bosses after continue: ${resumed.liveBosses}`);
-    // migrated to v6 on load (MIGRATIONS[2]–[5] in js/save.js): no errand started, no rainbow shell out, no plushie, no
-    // rematch won, no keepsake found (all four still in the world)
-    if (resumed.S.v !== 6 || JSON.stringify(resumed.S.errands) !== '{}' || JSON.stringify(resumed.S.shells) !== '{}' || JSON.stringify(resumed.S.plushies) !== '{}' || JSON.stringify(resumed.S.rematches) !== '{}' || JSON.stringify(resumed.S.secrets) !== '{}') fail(`the v2 save was not migrated to v6: ${JSON.stringify({ v: resumed.S.v, errands: resumed.S.errands, shells: resumed.S.shells, plushies: resumed.S.plushies, rematches: resumed.S.rematches, secrets: resumed.S.secrets })}`);
+    // migrated to v7 on load (MIGRATIONS[2]–[6] in js/save.js): no errand started, no rainbow shell out, no plushie, no
+    // rematch won, no keepsake found (all four still in the world); the Woods guardian beaten gives calm:woods and its handover
+    const v7flags = JSON.stringify({ 'calm:woods': 1, 'handover:woods': true });
+    if (resumed.S.v !== 7 || JSON.stringify(resumed.S.errands) !== '{}' || JSON.stringify(resumed.S.shells) !== '{}' || JSON.stringify(resumed.S.plushies) !== '{}' || JSON.stringify(resumed.S.rematches) !== '{}' || JSON.stringify(resumed.S.secrets) !== '{}' || JSON.stringify(resumed.S.flags) !== v7flags) fail(`the v2 save was not migrated to v7: ${JSON.stringify({ v: resumed.S.v, errands: resumed.S.errands, shells: resumed.S.shells, plushies: resumed.S.plushies, rematches: resumed.S.rematches, secrets: resumed.S.secrets, flags: resumed.S.flags })}`);
+    if (JSON.parse(await page.evaluate((k) => localStorage.getItem(k), SAVE_BAK_KEY) || 'null')?.v !== 2) fail('Continue of the v2 save did not back it up first');
     if (await page.evaluate(() => [...window.G.game.scenery.secrets.values()].filter((o) => o.shown).length) !== 4) fail('the four landmark keepsakes are not in the world after continuing a save without any found');
     if (await page.evaluate(() => [...window.G.game.scenery.plushies.values()].some((o) => o.visible))) fail('plushies on Miso\'s counter after continuing a save without any');
     if (problems.length) fail('errors after continuing a valid save');
-    step('valid v2 save continued (migrated to v6) with the same chests, bosses, seeds and position');
+    step('valid v2 save continued (migrated to v7, backed up) with the same chests, bosses, seeds and position');
 
     // 2b. The stored settings are in effect (Low: the small shadow map; motion comfort: the calm HUD), and a change
     // made now is written back next to the ones that were there, the unknown key included.
@@ -284,6 +288,26 @@ async function main() {
     if (!(fresh.quality === 'auto' && fresh.sens === 1 && fresh.invertX === false)) fail(`unreadable settings did not give the defaults: ${JSON.stringify(fresh)}`);
     if (problems.length) fail('errors with a newer-version save');
     step('newer-version save ignored, unreadable settings replaced by the defaults');
+
+    // 4b. The v6 bloomed fixture: Continue migrates it to v7 (S.flags, the bloom kept) and first backs up the v6 string.
+    const v6Bloomed = JSON.parse(readFileSync(new URL('./fixtures/saves/v6-bloomed.json', import.meta.url), 'utf8'));
+    await openGame(v6Bloomed);
+    if (!(await continueVisible())) fail('Continue is hidden for the v6 bloomed fixture');
+    await page.keyboard.press('Enter');
+    await waitFor("G.game.state === 'play' after Continue on the v6 bloomed fixture", () => window.G.game.state === 'play', STEP_TIMEOUT);
+    const bloomed = await page.evaluate((k) => {
+      const g = window.G.game, T = g.scenery.greatTree;
+      // the bloomed tree: the blossom model when the tree is the GLB pair, else the built canopy's bloom group
+      const bloom = T.glb ? (T.glb.b ? T.glb.b.visible && !T.glb.a.visible : null) : T.bloom.visible && !T.canopy.visible;
+      return { v: g.S.v, flags: g.S.flags, ending: g.S.ending, bloom, treeSeeds: g.treeSeedsWanted() ? g.treeSeeds.every((m) => m.visible) : null, bak: localStorage.getItem(k) };
+    }, SAVE_BAK_KEY);
+    if (bloomed.v !== 7 || bloomed.flags.bloom !== true || bloomed.ending !== true) fail(`the v6 bloomed fixture did not migrate to v7 with the bloom flag: ${JSON.stringify(bloomed)}`);
+    if (bloomed.bloom === false || (bloomed.bloom === null && bloomed.treeSeeds !== true)) fail(`the Great Tree is not bloomed after continuing the v6 bloomed fixture: ${JSON.stringify(bloomed)}`);
+    let bak = null;
+    try { bak = JSON.parse(bloomed.bak); } catch (e) { /* reported below */ }
+    if (!bak || bak.v !== 6 || bloomed.bak !== JSON.stringify(v6Bloomed)) fail(`the v6 save was not backed up untouched: ${bloomed.bak}`);
+    if (problems.length) fail('errors after continuing the v6 bloomed fixture');
+    step('v6 bloomed fixture continued: v7, flags.bloom, the tree in bloom, the v6 string backed up');
 
     // 5. Rebound keys. Continue with Hop stored on T: the controls card shows T, T hops and Space no longer does.
     await openGame(save, { v: 1, keys: { jump: 'KeyT' } });

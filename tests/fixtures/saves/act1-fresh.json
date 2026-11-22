@@ -1,0 +1,33 @@
+{
+  "v": 7,
+  "seed": 7151,
+  "hp": 6,
+  "maxHp": 6,
+  "coins": 0,
+  "potions": 0,
+  "swordLevel": 1,
+  "seeds": {
+    "woods": 0,
+    "peaks": 0,
+    "shores": 0
+  },
+  "chests": {},
+  "bosses": {},
+  "shopHeart": false,
+  "ending": false,
+  "tod": 0.4,
+  "visited": {},
+  "introDone": true,
+  "controlsSeen": true,
+  "playTime": 0,
+  "px": 0,
+  "pz": 13,
+  "facing": 3.141592653589793,
+  "errands": {},
+  "shells": {},
+  "plushies": {},
+  "rematches": {},
+  "secrets": {},
+  "flags": {},
+  "controlsV": 2
+}

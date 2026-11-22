@@ -373,7 +373,7 @@ async function main() {
       e = await clickRow(5);
       if (e.coins !== 0 || e.plushies.join() !== 'peaks,shores,woods' || e.shown.join() !== 'peaks,shores,woods' || e.rows.slice(3).some((r) => r.price !== 'SOLD OUT')) fail(`a click did not buy the Frostbun plushie: ${JSON.stringify(e)}`);
       e = await shopKey('Escape');
-      if (e.open || !e.saved || e.saved.v !== 6 || e.saved.plushies.join() !== 'peaks,shores,woods' || e.saved.coins !== 0) fail(`leaving the shop did not save the plushies: ${JSON.stringify(e)}`);
+      if (e.open || !e.saved || e.saved.v !== 7 || e.saved.plushies.join() !== 'peaks,shores,woods' || e.saved.coins !== 0) fail(`leaving the shop did not save the plushies: ${JSON.stringify(e)}`);
       await frames(2);
       // Miso is still the Use target with three plushies on her counter, and she talks about them
       await talkToNpc('miso', 'after the plushies');
@@ -461,7 +461,7 @@ async function main() {
       let r = await winRematch('first');
       e = r.won;
       if (e.coins !== c0 + 40 || e.rematches[RID] !== true || JSON.stringify(e.seeds) !== seeds0 || JSON.stringify(e.bosses) !== bosses0 || e.seedPickups) fail(`the first rematch win is wrong (expected +40 gems, no Starseed, S.rematches.${RID}): ${JSON.stringify({ c0, ...e })}`);
-      if (!e.saved || e.saved.v !== 6 || !e.saved.rematches || e.saved.rematches[RID] !== true || e.saved.coins !== e.coins) fail(`the rematch win was not saved: ${JSON.stringify(e.saved)}`);
+      if (!e.saved || e.saved.v !== 7 || !e.saved.rematches || e.saved.rematches[RID] !== true || e.saved.coins !== e.coins) fail(`the rematch win was not saved: ${JSON.stringify(e.saved)}`);
       step(`rematch 1: walking into ${RNAME}'s arena started nothing; "Wake · ${RNAME}" + Use started a sealed rematch (60 HP, "· Rematch" card); won: +40 gems (${e.coins}), no Starseed, saved; napping again`);
       // 2: dizzy in a rematch → it resets: the guardian naps again, Pip wakes by the Great Tree, nothing gained
       await wakeGuardian('dizzy');
@@ -525,7 +525,7 @@ async function main() {
         const dlg = await page.evaluate(() => window.G.ui.dlg && { name: window.G.ui.dlg.name, lines: window.G.ui.dlg.lines.length });
         e = await secretState();
         if (!dlg || !dlg.name || !(dlg.lines >= 1)) fail(`Use on keepsake ${id} showed no lines: ${JSON.stringify(dlg)}`);
-        if (e.coins !== c0 + 25 || !e.found.includes(id) || !e.saved || !e.saved.found.includes(id) || e.saved.coins !== e.coins || e.saved.v !== 6) fail(`Use on keepsake ${id} did not give 25 gems and save: ${JSON.stringify({ c0, ...e })}`);
+        if (e.coins !== c0 + 25 || !e.found.includes(id) || !e.saved || !e.saved.found.includes(id) || e.saved.coins !== e.coins || e.saved.v !== 7) fail(`Use on keepsake ${id} did not give 25 gems and save: ${JSON.stringify({ c0, ...e })}`);
         if (id === 'bottle' ? !e.shown.includes(id) || e.lids.includes(id) : e.shown.includes(id)) fail(`keepsake ${id} not gone (or the bottle not opened) once found: ${JSON.stringify(e)}`);
         await readDialogue(`keepsake ${id}'s lines`);
         await frames(4);
@@ -666,7 +666,7 @@ async function main() {
       // the bloomed tree: the blossom model when the tree is the GLB pair, else the built canopy's bloom group
       const bloom = T.glb ? (T.glb.b ? T.glb.b.visible && !T.glb.a.visible : null) : T.bloom.visible && !T.canopy.visible;
       return {
-        ending: S.ending, seeds: S.seeds, bosses: S.bosses, bloom, liveBosses: Object.keys(g.bosses), errands: S.errands, shells: S.shells, rematches: S.rematches,
+        ending: S.ending, flags: S.flags, seeds: S.seeds, bosses: S.bosses, bloom, liveBosses: Object.keys(g.bosses), errands: S.errands, shells: S.shells, rematches: S.rematches,
         napping: Object.keys(g.bosses).filter((q) => g.bosses[q].rematch && g.bosses[q].state === 'sleep').sort(), fight: !!g.fight,
         shellsShown: [...g.scenery.shells.values()].filter((q) => q.shown).length,
         lanternsLit: [...g.scenery.lanterns.values()].filter((q) => q.shown && q.lit && q.glow === 1).length, ribbitFollows: g.npcs.find((n) => n.id === 'ribbit').follow,
@@ -676,6 +676,7 @@ async function main() {
       };
     });
     if (back.ending !== true) fail('S.ending is not restored by Continue');
+    if (back.flags.bloom !== true) fail(`the bloom flag (set by the ending) is not restored by Continue: ${JSON.stringify(back.flags)}`);
     if (!GUARDIANS.every((id) => back.seeds[id] === 2 && back.bosses[id] === true)) fail(`seeds or guardians not restored: ${JSON.stringify(back)}`);
     // the guardians are back only as napping rematch guardians (nothing awake, no fight)
     if (back.liveBosses.length !== 3 || back.napping.join() !== 'peaks,shores,woods' || back.fight) fail(`after Continue the guardians are not all napping for a rematch: ${JSON.stringify({ live: back.liveBosses, napping: back.napping, fight: back.fight })}`);
@@ -685,7 +686,7 @@ async function main() {
     if (!back.pedSeeds.every(Boolean)) fail(`pedestal seeds not shown after Continue: ${JSON.stringify(back.pedSeeds)}`);
     if (back.errands.clover !== 2 || Object.keys(back.shells).filter((k) => k.startsWith('shell')).length !== 5 || back.shellsShown !== 0) fail(`Clover's errand not restored: ${JSON.stringify({ errands: back.errands, shells: back.shells, shown: back.shellsShown })}`);
     if (back.errands.ribbit !== 2 || ['lantern1', 'lantern2', 'lantern3', 'lantern4'].some((k) => back.shells[k] !== true) || back.lanternsLit !== 4 || back.ribbitFollows) fail(`Ribbit's parade not restored: ${JSON.stringify({ errands: back.errands, shells: back.shells, lit: back.lanternsLit, follows: back.ribbitFollows })}`);
-    if (JSON.stringify(back.plushies) !== JSON.stringify({ woods: true, shores: true, peaks: true }) || back.plushiesShown.join() !== 'peaks,shores,woods' || back.v !== 6) fail(`Miso's plushies not restored: ${JSON.stringify({ plushies: back.plushies, shown: back.plushiesShown, v: back.v })}`);
+    if (JSON.stringify(back.plushies) !== JSON.stringify({ woods: true, shores: true, peaks: true }) || back.plushiesShown.join() !== 'peaks,shores,woods' || back.v !== 7) fail(`Miso's plushies not restored: ${JSON.stringify({ plushies: back.plushies, shown: back.plushiesShown, v: back.v })}`);
     if (JSON.stringify(back.secrets) !== JSON.stringify({ acorn: true, stone: true, bottle: true, pouch: true }) || back.secretsShown.join() !== 'bottle' || back.secretLids !== 0) fail(`the keepsakes are not restored after Continue: ${JSON.stringify({ secrets: back.secrets, shown: back.secretsShown, lids: back.secretLids })}`);
     if (problems.length) fail('errors after Continue');
     step(`Continue restored the ending: bloomed tree, ${back.pedSeeds.length} seeds on the pedestal, the guardians napping for rematches (${RNAME}'s won), Clover's errand done, Ribbit's parade done with 4 lanterns lit, 3 plushies on Miso's counter, 4 keepsakes found (the bottle left opened)`);
