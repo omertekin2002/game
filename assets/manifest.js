@@ -117,6 +117,8 @@ window.ASSET_MANIFEST = {
     fx_raysburst: { src: 'assets/sprites/fx_raysburst.webp' },         // additive rays behind a held-up item
     fx_footprint: { src: 'assets/sprites/fx_footprint.webp' },
     fx_crack: { src: 'assets/sprites/fx_crack.webp' },
+    reason_tally: { src: 'assets/sprites/reason_tally.webp' },             // S-004: the chalk tally on the lighthouse door (drawn on a 0.5 × 0.7 m quad: authored 1.4× wide)
+    decal_snow_cradle: { src: 'assets/sprites/decal_snow_cradle.webp' },   // S-004: the hollow of Frostbun's snow cradle (seen from above)
   },
   models: {
     hero: { src: 'assets/models/hero.glb', height: 1.0 },
@@ -127,6 +129,11 @@ window.ASSET_MANIFEST = {
     great_tree_bloom: { src: 'assets/models/great_tree_bloom.glb', height: 9.5 },
     npc_turtle: { src: 'assets/models/npc_turtle.glb', height: 1.15 },
     npc_cat: { src: 'assets/models/npc_cat.glb', height: 1.1 },
+    // S-004 reason props (code-built in js/props.js until a GLB from the ART BRIEF lands here):
+    // reason_nightlight: { src: 'assets/models/reason_nightlight.glb', height: 0.42 },
+    // reason_spyglass: { src: 'assets/models/reason_spyglass.glb', height: 0.7 },
+    // reason_scarf: { src: 'assets/models/reason_scarf.glb', height: 0.45 },
+    // reason_cradle: { src: 'assets/models/reason_cradle.glb', height: 0.25 },
   },
   ui: {
     title: { src: 'assets/ui/title.jpg' },

@@ -1,0 +1,10 @@
+# Art prompt log
+
+One row per generated asset (docs/roadmap/bible/art-audio.md §2.3), so a prompt can be rerun later. Raw generations
+are never committed; only the processed files under `assets/` are. "Preamble" is the image-prompt preamble of
+art-audio.md §1.1, copied exactly; the kind suffix follows it, then the subject, each part separated by a blank line.
+
+| key | step | generator | prompt (full text) | processing commands | date |
+|---|---|---|---|---|---|
+| `reason_tally` | S-004 | GPT Sol (Codex `image_gen.imagegen`), 1024² PNG | Preamble<br><br>A single flat motif painted as if inlaid in stone, centred, symmetric where possible, on a plain flat pure magenta (#ff00ff) background, no perspective.<br><br>White chalk tally marks, thirty-seven marks in groups of five (four upright strokes crossed by one diagonal), arranged in neat rows, with a tiny friendly crab doodle beside them, drawn in white chalk lines only, nothing else on the magenta. Palette: #ffffff #3f6fa8 #e8604a. | Magenta key (white-key is wrong for white chalk): alpha = clamp((‖rgb − bg‖ − 30) / 90, 0, 1) with bg the median corner colour, RGB un-premultiplied toward the paint, then RGB set to pure white (chalk; drops the magenta fringe) → `python3 -I tools/slice_sheet.py raw/reason_tally_a.png work/tally/ --alpha 40 --down 8 --grow 14 --min 2000` (one part) → `python3 -I tools/export_sprites.py work/tally work/tally/out part_00=reason_tally:512` → fitted into 256² stretched 1.4× wide (the door quad is 0.5 × 0.7 m), webp q 85, lossless alpha: 12 KB | 2026-11-23 |
+| `decal_snow_cradle` | S-004 | GPT Sol (Codex `image_gen.imagegen`), 1024² PNG | Preamble<br><br>A single flat motif painted as if inlaid in stone, centred, symmetric where possible, on a plain flat pure magenta (#ff00ff) background, no perspective.<br><br>A small round hollow pressed in soft snow shaped like a cradle, blue shadows inside, seen from directly above. Palette: #ffffff #cfe6ff #9fdcff. | Magenta key as above (white-key is wrong on light blue) → crop the hollow (x 215–795, y 225–805) → Lanczos to 256² → round alpha edge (r 128 px, 8 % soft) → webp q 85: 7 KB | 2026-11-23 |
