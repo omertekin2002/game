@@ -14,6 +14,9 @@ Great Tree; with all three home, the tree blooms, the ending plays, and free roa
 Tone: kind and gentle. Enemies "poof", Pip gets "dizzy", nobody is hurt for real. Regular enemies are easy on purpose;
 the three bosses ask for some respect without being hard.
 
+The game is growing into an 80-120 hour storied open world, built step by step from docs/roadmap/INDEX.md. The tone
+charter in docs/roadmap/bible/charter.md#tone binds every addition.
+
 ## 2. Look
 
 A toy-like storybook diorama seen from a 1 m tall hero's eye: chunky rounded low-poly shapes, soft toon shading, bold
@@ -189,8 +192,10 @@ rematch in under 20 s (wp5-heavy "rematch balance"; measured: downed in every ru
   shells appear: rainbow-striped, glowing, turning and twinkling, so they stand apart from the plain pink shells on the
   sand. Use picks one up (the prompt reads `Pick up · Rainbow shell`), a feed line counts "Rainbow shell 2/5" and it is
   saved at once. With fewer than five Clover cheers Pip on with the count and the hint; with all five she thanks him and
-  gives 50 gems, once, and from then on looks back on it (and on the bloom, after the ending). No quest log: the
-  tracker's Errands chip is the only UI.
+  gives 50 gems, once, and from then on looks back on it (and on the bloom, after the ending). The tracker's Errands
+  chip shows both errands. A journal, Professor Hoot's Field Notes (Quests, Items, Bestiary, Lore, Map and Completion
+  tabs, key L), replaces the old "no quest log" rule as the game grows past one island; see
+  docs/roadmap/bible/systems.md#journal. Until it ships the Errands chip stays the only quest UI.
   The second is **Mayor Ribbit's bloom parade**: after the ending, his old "This calls for a parade. You lead, I will hop
   behind" is the start of it. Talking to him puts out **4 paper lanterns** around Sprout Village (one beside the walk up
   to the Great Tree's altar, one by the plaza signpost, one in front of Miso's shop, one at the village edge on the Meadow
