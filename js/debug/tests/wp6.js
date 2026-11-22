@@ -317,6 +317,45 @@ export default function register(suite) {
         t.ok(nd <= b.width / 2 - bw + 1, 'the N badge orbits inside the rim', { outer: +nd.toFixed(1), rim: b.width / 2 - bw });
       } finally { delete game.S.waypoint; ui.markersDirty = true; settings.set('minimap', 'heading'); t.frames(1); }
     }],
+    ['minimap: every marker kind has a shape of its own (readable without colour); a beaten guardian differs from an unbeaten one in shape, not only colour and size; the objective ring shows around each', (t) => {
+      const { ui } = t;
+      // one .mdot per kind in the real marker layer (it carries --msc); the non-colour computed properties of each
+      const kinds = [['tree', 'k-tree'], ['arena', 'k-arena'], ['arena.beaten', 'k-arena beaten'], ['shop', 'k-shop'], ['altar', 'k-altar'], ['landmark', 'k-landmark'], ['waypoint', 'k-waypoint']];
+      const made = [];
+      try {
+        const shape = (cls) => {
+          const e = document.createElement('i'); e.className = 'mdot ' + cls; ui.minimap.dots.appendChild(e); made.push(e);
+          const b = getComputedStyle(e, '::before'), a = getComputedStyle(e, '::after');
+          return { clip: b.clipPath, radius: [b.borderTopLeftRadius, b.borderTopRightRadius, b.borderBottomRightRadius, b.borderBottomLeftRadius].join(' '),
+            w: parseFloat(b.width), h: parseFloat(b.height), before: b.content, after: a.content, e };
+        };
+        const S = Object.fromEntries(kinds.map(([k, cls]) => [k, shape(cls)]));
+        t.note('shapes', Object.fromEntries(kinds.map(([k]) => { const { e, ...r } = S[k]; return [k, r]; })));
+        /** the non-colour properties that tell a and b apart (size counts only when it differs by 30 % or more) */
+        const diff = (a, b, size = true) => {
+          const d = [];
+          if (a.clip !== b.clip) d.push('clip-path');
+          if (a.radius !== b.radius) d.push('border-radius');
+          if (a.before !== b.before) d.push('::before content');
+          if (a.after !== b.after) d.push('::after content');
+          if (size && (Math.max(a.w, b.w) / Math.min(a.w, b.w) >= 1.3 || Math.max(a.h, b.h) / Math.min(a.h, b.h) >= 1.3)) d.push('size');
+          return d;
+        };
+        t.ok(kinds.every(([k]) => S[k].w > 0 && S[k].h > 0), 'every kind draws a marker', kinds.map(([k]) => [k, S[k].w, S[k].h]));
+        const same = [];
+        for (let i = 0; i < kinds.length; i++) for (let j = i + 1; j < kinds.length; j++) {
+          const a = kinds[i][0], b = kinds[j][0];
+          if (!diff(S[a], S[b]).length) same.push(a + ' ~ ' + b);
+        }
+        t.ok(!same.length, 'every pair of kinds differs in a non-colour property (clip-path, border-radius, size ≥ 30 % or glyph)', same);
+        const ab = diff(S.arena, S['arena.beaten'], false);
+        t.ok(ab.length > 0, 'unbeaten and beaten guardians differ in shape or glyph, not only colour and size', ab);
+        t.eq(S.waypoint.clip.replace(/(^|[ (,])0px/g, (m, p) => p + '0%'), 'polygon(50% 0%, 62% 35%, 98% 36%, 69% 58%, 80% 93%, 50% 72%, 20% 93%, 31% 58%, 2% 36%, 38% 35%)', 'the waypoint keeps its star');
+        // the objective's gold ring: drawn around every kind and larger than the marker inside it
+        const ring = kinds.map(([k, cls]) => { const r = shape(cls + ' obj'), a = getComputedStyle(r.e, '::after'); return [k, a.content !== 'none' && a.content !== 'normal', parseFloat(a.width), Math.max(r.w, r.h)]; });
+        t.ok(ring.every(([, on, rw, mw]) => on && rw > mw), 'the objective ring shows around every kind, outside the marker', ring);
+      } finally { for (const e of made) e.remove(); }
+    }],
     ['C9 speed lines follow view.speedFx (WP1\'s feel module writes it every frame: driven by a real dash)', (t) => {
       const { ui, view, D } = t;
       clean(t);

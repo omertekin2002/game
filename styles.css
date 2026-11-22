@@ -218,16 +218,25 @@ kbd.kp.a { background: #6cc35a; } kbd.kp.b { background: #ef7a6a; } kbd.kp.x { b
 #minimap .mrot { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
 #minimap .mimg { position: absolute; left: 0; top: 0; display: block; }
 #minimap .mdots { position: absolute; left: 0; top: 0; }
-/* minimap markers are plain dots (they turn with the map): tree green, guardian coral (beaten: small green), shop gold, landmark lilac, your marker a star */
+/* minimap markers (they turn with the map, so every shape reads at any angle): each kind has a silhouette no other kind
+   uses, so the minimap reads the same without colour; the colours stay as a second cue. Tree: a big green disc; guardian:
+   a coral triangle (danger), beaten: a small green ring with a cream centre; shop: a gold square; altar: a gold
+   four-point sparkle; landmark: a lilac plus; your marker: a gold five-point star. Clip-path shapes take their brown
+   outline from a drop-shadow on the 0 × 0 parent (a border would be clipped away) */
 .mdot { position: absolute; left: 0; top: 0; width: 0; height: 0; }
 .mdot::before { content: ''; position: absolute; --d: calc(11px / var(--msc)); width: var(--d); height: var(--d); left: calc(var(--d) / -2); top: calc(var(--d) / -2); border-radius: 50%;
   background: var(--cream); border: calc(2px / var(--msc)) solid var(--brown-d); box-sizing: border-box; }
-.mdot.k-tree::before { --d: calc(14px / var(--msc)); background: #6fae3a; }
-.mdot.k-arena::before { background: var(--danger); }
-.mdot.k-arena.beaten::before { --d: calc(9px / var(--msc)); background: var(--green); }
-.mdot.k-shop::before { --d: calc(9px / var(--msc)); background: var(--gold); }
-.mdot.k-landmark::before { --d: calc(8px / var(--msc)); background: #c9a6e8; }
-.mdot.k-altar::before { --d: calc(10px / var(--msc)); background: var(--gold); }
+.mdot.k-tree::before { --d: calc(15px / var(--msc)); background: #6fae3a; }
+.mdot.k-arena:not(.beaten), .mdot.k-altar, .mdot.k-landmark { --o: calc(1.5px / var(--msc));
+  filter: drop-shadow(var(--o) 0 0 var(--brown-d)) drop-shadow(calc(var(--o) * -1) 0 0 var(--brown-d)) drop-shadow(0 var(--o) 0 var(--brown-d)) drop-shadow(0 calc(var(--o) * -1) 0 var(--brown-d)); }
+.mdot.k-arena:not(.beaten)::before { --d: calc(14px / var(--msc)); border: 0; border-radius: 0; background: var(--danger); clip-path: polygon(50% 2%, 100% 90%, 0 90%); }
+.mdot.k-arena.beaten::before { background: var(--cream); border-color: var(--green); border-width: calc(2.5px / var(--msc));
+  box-shadow: 0 0 0 calc(1.5px / var(--msc)) var(--brown-d), inset 0 0 0 calc(1px / var(--msc)) var(--brown-d); }
+.mdot.k-shop::before { --d: calc(10px / var(--msc)); border-radius: calc(1.5px / var(--msc)); background: var(--gold); }
+.mdot.k-altar::before { --d: calc(15px / var(--msc)); border: 0; border-radius: 0; background: var(--gold);
+  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%); }
+.mdot.k-landmark::before { --d: calc(11px / var(--msc)); border: 0; border-radius: 0; background: #c9a6e8;
+  clip-path: polygon(32% 0, 68% 0, 68% 32%, 100% 32%, 100% 68%, 68% 68%, 68% 100%, 32% 100%, 32% 68%, 0 68%, 0 32%, 32% 32%); }
 .mdot.k-waypoint::before { --d: calc(16px / var(--msc)); border: 0; background: var(--gold); clip-path: polygon(50% 0, 62% 35%, 98% 36%, 69% 58%, 80% 93%, 50% 72%, 20% 93%, 31% 58%, 2% 36%, 38% 35%); }
 .mdot.obj::after { content: ''; position: absolute; --d: calc(20px / var(--msc)); width: var(--d); height: var(--d); left: calc(var(--d) / -2); top: calc(var(--d) / -2); border-radius: 50%;
   border: calc(3px / var(--msc)) solid var(--gold); box-sizing: border-box; box-shadow: 0 0 0 calc(1px / var(--msc)) var(--brown-d); }
