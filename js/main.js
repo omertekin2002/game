@@ -198,6 +198,9 @@ async function boot() {
     game.afterRender(0);
   };
   let last = performance.now(), fpsAcc = 0, fpsN = 0;
+  // (the first reading needs 0.5 s of frames, and a software-WebGL frame can take seconds: until then 0, so the test
+  // surface (RULINGS §2.4: G.game.fps is a number) holds from boot, #58)
+  game.fps = 0; game.frameMs = 0;
   function loop(now) {
     requestAnimationFrame(loop);
     const rawDt = Math.max(0, (now - last) / 1000);
