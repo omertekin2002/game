@@ -631,22 +631,27 @@ export default function register(suite) {
       } finally { if (ui.menu) ui.closeMenu(true); t.frames(1); }
     }],
     ['r4: the "more ▾" chip takes taps on itself (and the gap under it) only, never on the row of buttons it sits on', async (t) => {
-      const { ui } = t, card = ui.settingsCard, b = card.body, chip = ui.settingsEl.querySelector('.smore');
+      const { ui, D, game } = t, card = ui.settingsCard, b = card.body, se = ui.settingsEl, chip = se.querySelector('.smore');
+      // the overlay gets .show on the next animation frame (ui.showOverlay), and with the manual clock's redraw each
+      // animation frame waits for a software-WebGL frame of the island: seconds in headless Chromium (CI's wp6 once saw
+      // none in 5 s, #58). No redraw here (nothing below reads the 3D view), then wait for that frame itself
+      const redraw = game.clock.redraw;
+      D.clock({ redraw: false });
       ui.openPause(); ui.onPauseChoice(1); t.frames(1);
       try {
         b.style.maxHeight = '160px'; card.setTab('view'); b.scrollTop = 0; card.cue();
-        // the overlay gets .show on the next animation frame (ui.showOverlay), which a slow software-WebGL frame can hold
-        // back past a fixed wait (headless CI, tests/inpage.mjs): wait for it, then for the opening animation to settle
-        let w = 0; for (; w < 100 && !ui.settingsEl.classList.contains('show'); w++) await t.wait(50);
-        t.note('showWait', w * 50);
-        await t.wait(400);
+        const f0 = performance.now();
+        const framed = await t.nextFrame();
+        t.settle();                                   // the opening fade and pop, as a player sees them once settled
+        t.note('opened', { framed, frameMs: Math.round(performance.now() - f0), menu: ui.menu, want: se.want, show: se.classList.contains('show'), hidden: se.classList.contains('hidden'), vis: document.visibilityState });
+        t.ok(ui.menu === 'settings' && se.classList.contains('show'), 'Settings is open and shown after one frame', { menu: ui.menu, cls: se.className });
         const c = R(chip), at = (x, y) => document.elementFromPoint(x, y), hit = (x, y) => { const e = at(x, y); return !!(e && (e === chip || chip.contains(e))); };
         const r = { on: hit(c.left + c.width / 2, c.top + c.height / 2), above: hit(c.left + c.width / 2, c.top - 3), left: hit(c.left - 4, c.top + c.height / 2), right: hit(c.right + 4, c.top + c.height / 2), under: hit(c.left + c.width / 2, c.bottom + 6) };
         const e0 = at(c.left + c.width / 2, c.top + c.height / 2);
         t.note('chip', { rect: [c.left, c.top, c.right, c.bottom].map(Math.round), ...r, centre: e0 && (e0.id || e0.className || e0.tagName) });
         t.ok(r.on && r.under, 'the chip and the gap under it take the tap', r);
         t.ok(!r.above && !r.left && !r.right, 'beside / above it the row underneath does (was a −10 / −12 px ring)', r);
-      } finally { b.style.maxHeight = ''; ui.closeMenu(true); t.frames(1); }
+      } finally { b.style.maxHeight = ''; ui.closeMenu(true); t.frames(1); D.clock({ redraw }); }
     }],
     ['settings card is generated from SCHEMA: every key has a control, except the ones nothing reads (no dead switches)', (t) => {
       const { ui, input } = t;
@@ -1055,8 +1060,9 @@ export default function register(suite) {
       clean(t);
       // the timeline only advances with rendered frames: on a loaded machine a 380 ms wait can still see a fade halfway,
       // so finite CSS transitions are finished before measuring (the state a player sees once they settle)
-      const settle = () => { for (const a of document.getAnimations ? document.getAnimations() : []) if (typeof CSSTransition !== 'undefined' && a instanceof CSSTransition) try { a.finish(); } catch (e) { /* ignore */ } };
-      const out = [], A = async (name) => { await t.wait(380); settle(); const a = audit(); out.push([name, a.count, a.list]); };
+      // (and an overlay opened just before gets its .show on the next animation frame, which waits for a software-WebGL
+      // frame: one frame is waited for, not assumed within the 380 ms)
+      const out = [], A = async (name) => { await t.wait(380); await t.nextFrame(); t.settle(); const a = audit(); out.push([name, a.count, a.list]); };
       D.pose('plaza-S'); t.frames(2); await A('play');
       D.standAt('sign'); t.frames(4); await A('prompt');
       t.press('interact'); t.frames(30); await A('dialogue');
