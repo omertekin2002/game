@@ -163,6 +163,16 @@ export const SECRETS = [
     lines: ['A tiny seed pouch, tucked against the windmill\'s stone footing. The stitching says "For Spring".', 'The seeds inside are the same gold as the Great Tree\'s blossoms. Someone has been planting little bits of the Tree all over the meadow.'],
   },
 ];
+/** the Catchers' kind reasons, seen beside their arenas before the fight (S-004, world.js placeReasons; story.md #I.2):
+ *  the `[E] Look` text on each Catcher's main prop. `kind` is the W.reasons item that answers Look (the middle
+ *  night-light, the door tally, the snow cradle); `t` is the text id. Reading sets no flag and gives nothing */
+export const REASONS = [
+  { id: 'grumble', boss: 'woods', kind: 'nightlight', name: 'Night-lights', t: 'home.reason.grumble', text: 'Three tiny night-lights, none of them lit. Somebody small must sleep near here.' },
+  { id: 'pinch', boss: 'shores', kind: 'tally', name: 'Chalk marks', t: 'home.reason.pinch', text: 'Chalk marks on the door, one for every night. Somebody is counting.' },
+  { id: 'frost', boss: 'peaks', kind: 'cradle', name: 'Snow cradle', t: 'home.reason.frost', text: 'A little nest of snow, smoothed round like a cradle. It\'s still warm in the middle.' },
+];
+/** the REASONS entry a W.reasons item answers Look with (only the middle night-light of Grumble's three), or null */
+export const reasonFor = (it) => (it && (it.kind !== 'nightlight' || it.id === 'home:reason-grumble-2') ? REASONS.find((r) => r.kind === it.kind) || null : null);
 /** landmark keepsake rules, pure so `bun test` covers them (interact.js applies a find) */
 export const secrets = {
   /** the SECRETS entry with this id, or null */
