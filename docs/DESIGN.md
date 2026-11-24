@@ -14,6 +14,9 @@ Great Tree; with all three home, the tree blooms, the ending plays, and free roa
 Tone: kind and gentle. Enemies "poof", Pip gets "dizzy", nobody is hurt for real. Regular enemies are easy on purpose;
 the three bosses ask for some respect without being hard.
 
+The game is growing into an 80-120 hour storied open world, built step by step from docs/roadmap/INDEX.md. The tone
+charter in docs/roadmap/bible/charter.md#tone binds every addition.
+
 ## 2. Look
 
 A toy-like storybook diorama seen from a 1 m tall hero's eye: chunky rounded low-poly shapes, soft toon shading, bold
@@ -189,8 +192,10 @@ rematch in under 20 s (wp5-heavy "rematch balance"; measured: downed in every ru
   shells appear: rainbow-striped, glowing, turning and twinkling, so they stand apart from the plain pink shells on the
   sand. Use picks one up (the prompt reads `Pick up · Rainbow shell`), a feed line counts "Rainbow shell 2/5" and it is
   saved at once. With fewer than five Clover cheers Pip on with the count and the hint; with all five she thanks him and
-  gives 50 gems, once, and from then on looks back on it (and on the bloom, after the ending). No quest log: the
-  tracker's Errands chip is the only UI.
+  gives 50 gems, once, and from then on looks back on it (and on the bloom, after the ending). The tracker's Errands
+  chip shows both errands. A journal, Professor Hoot's Field Notes (Quests, Items, Bestiary, Lore, Map and Completion
+  tabs, key L), replaces the old "no quest log" rule as the game grows past one island; see
+  docs/roadmap/bible/systems.md#journal. Until it ships the Errands chip stays the only quest UI.
   The second is **Mayor Ribbit's bloom parade**: after the ending, his old "This calls for a parade. You lead, I will hop
   behind" is the start of it. Talking to him puts out **4 paper lanterns** around Sprout Village (one beside the walk up
   to the Great Tree's altar, one by the plaza signpost, one in front of Miso's shop, one at the village edge on the Meadow
@@ -251,7 +256,10 @@ generated icons that each have a drawn fallback.
   while you carry a Starseed, with its distance; the
   Great Tree, the shop, landmarks and your map marker; the goal, the marker and the tree stay pinned at its edge when
   behind you), the seed tray and the objective line, the boss bar during fights, the region card on arrival.
-- **Top right** (desktop): a minimap that turns with you, or north-up, or off. Phones show the compass only.
+- **Top right** (desktop): a minimap that turns with you, or north-up, or off. Phones show the compass only. Its markers
+  don't rely on colour alone: each kind has its own shape (the Great Tree a big disc, a guardian a triangle and a beaten
+  one a ring, the shop a square, the altar a four-point sparkle, a landmark a plus, your marker a star), so the minimap
+  reads the same in greyscale; the colours stay as a second cue.
 - **Danger and targets**: damage petals point at whoever hit Pip; coral chevrons at the screen edge warn of wind-ups off
   screen, with a "look up" caret for threats above; gold corners frame the locked enemy (off screen: a reticle at the
   edge with an arrow the way to turn); small heart pips show the health of the locked, aimed or last-hit enemy. At low
@@ -379,6 +387,10 @@ treats a v5 save as newer: to roll the rematches back, keep the v4 → v5 step a
 `MIGRATIONS[5]` (v5 → v6, the landmark secrets) keeps every v5 field and adds `secrets: {}` (keepsake id → true once
 found); `normalize` keeps only `SECRETS` ids set to `true`. A build from before v6 treats a v6 save as newer, so as no
 save: to roll the secrets back, keep the v5 → v6 step and drop only the gameplay.
+`MIGRATIONS[6]` (v6 → v7, the story flags) keeps every v6 field and adds `flags` (key → `true` or a finite number):
+`bloom` when the ending was seen, and `calm:<id>` (1, 2, 3 in `SEED_ORDER` order) plus `handover:<id>` for each guardian
+already beaten. Continue backs the older save's raw string up to `starseed-isle-save-v2-bak` before migrating it. A
+build from before v7 treats a v7 save as newer, so as no save.
 
 The first-person build adds two optional fields without a version bump (`normalize` keeps unknown fields): `pitch`,
 the look angle, which `Game.startSession` restores clamped; and `controlsV`, the version of the controls card the

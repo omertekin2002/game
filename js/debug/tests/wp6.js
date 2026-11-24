@@ -317,6 +317,45 @@ export default function register(suite) {
         t.ok(nd <= b.width / 2 - bw + 1, 'the N badge orbits inside the rim', { outer: +nd.toFixed(1), rim: b.width / 2 - bw });
       } finally { delete game.S.waypoint; ui.markersDirty = true; settings.set('minimap', 'heading'); t.frames(1); }
     }],
+    ['minimap: every marker kind has a shape of its own (readable without colour); a beaten guardian differs from an unbeaten one in shape, not only colour and size; the objective ring shows around each', (t) => {
+      const { ui } = t;
+      // one .mdot per kind in the real marker layer (it carries --msc); the non-colour computed properties of each
+      const kinds = [['tree', 'k-tree'], ['arena', 'k-arena'], ['arena.beaten', 'k-arena beaten'], ['shop', 'k-shop'], ['altar', 'k-altar'], ['landmark', 'k-landmark'], ['waypoint', 'k-waypoint']];
+      const made = [];
+      try {
+        const shape = (cls) => {
+          const e = document.createElement('i'); e.className = 'mdot ' + cls; ui.minimap.dots.appendChild(e); made.push(e);
+          const b = getComputedStyle(e, '::before'), a = getComputedStyle(e, '::after');
+          return { clip: b.clipPath, radius: [b.borderTopLeftRadius, b.borderTopRightRadius, b.borderBottomRightRadius, b.borderBottomLeftRadius].join(' '),
+            w: parseFloat(b.width), h: parseFloat(b.height), before: b.content, after: a.content, e };
+        };
+        const S = Object.fromEntries(kinds.map(([k, cls]) => [k, shape(cls)]));
+        t.note('shapes', Object.fromEntries(kinds.map(([k]) => { const { e, ...r } = S[k]; return [k, r]; })));
+        /** the non-colour properties that tell a and b apart (size counts only when it differs by 30 % or more) */
+        const diff = (a, b, size = true) => {
+          const d = [];
+          if (a.clip !== b.clip) d.push('clip-path');
+          if (a.radius !== b.radius) d.push('border-radius');
+          if (a.before !== b.before) d.push('::before content');
+          if (a.after !== b.after) d.push('::after content');
+          if (size && (Math.max(a.w, b.w) / Math.min(a.w, b.w) >= 1.3 || Math.max(a.h, b.h) / Math.min(a.h, b.h) >= 1.3)) d.push('size');
+          return d;
+        };
+        t.ok(kinds.every(([k]) => S[k].w > 0 && S[k].h > 0), 'every kind draws a marker', kinds.map(([k]) => [k, S[k].w, S[k].h]));
+        const same = [];
+        for (let i = 0; i < kinds.length; i++) for (let j = i + 1; j < kinds.length; j++) {
+          const a = kinds[i][0], b = kinds[j][0];
+          if (!diff(S[a], S[b]).length) same.push(a + ' ~ ' + b);
+        }
+        t.ok(!same.length, 'every pair of kinds differs in a non-colour property (clip-path, border-radius, size ≥ 30 % or glyph)', same);
+        const ab = diff(S.arena, S['arena.beaten'], false);
+        t.ok(ab.length > 0, 'unbeaten and beaten guardians differ in shape or glyph, not only colour and size', ab);
+        t.eq(S.waypoint.clip.replace(/(^|[ (,])0px/g, (m, p) => p + '0%'), 'polygon(50% 0%, 62% 35%, 98% 36%, 69% 58%, 80% 93%, 50% 72%, 20% 93%, 31% 58%, 2% 36%, 38% 35%)', 'the waypoint keeps its star');
+        // the objective's gold ring: drawn around every kind and larger than the marker inside it
+        const ring = kinds.map(([k, cls]) => { const r = shape(cls + ' obj'), a = getComputedStyle(r.e, '::after'); return [k, a.content !== 'none' && a.content !== 'normal', parseFloat(a.width), Math.max(r.w, r.h)]; });
+        t.ok(ring.every(([, on, rw, mw]) => on && rw > mw), 'the objective ring shows around every kind, outside the marker', ring);
+      } finally { for (const e of made) e.remove(); }
+    }],
     ['C9 speed lines follow view.speedFx (WP1\'s feel module writes it every frame: driven by a real dash)', (t) => {
       const { ui, view, D } = t;
       clean(t);
@@ -592,22 +631,27 @@ export default function register(suite) {
       } finally { if (ui.menu) ui.closeMenu(true); t.frames(1); }
     }],
     ['r4: the "more ▾" chip takes taps on itself (and the gap under it) only, never on the row of buttons it sits on', async (t) => {
-      const { ui } = t, card = ui.settingsCard, b = card.body, chip = ui.settingsEl.querySelector('.smore');
+      const { ui, D, game } = t, card = ui.settingsCard, b = card.body, se = ui.settingsEl, chip = se.querySelector('.smore');
+      // the overlay gets .show on the next animation frame (ui.showOverlay), and with the manual clock's redraw each
+      // animation frame waits for a software-WebGL frame of the island: seconds in headless Chromium (CI's wp6 once saw
+      // none in 5 s, #58). No redraw here (nothing below reads the 3D view), then wait for that frame itself
+      const redraw = game.clock.redraw;
+      D.clock({ redraw: false });
       ui.openPause(); ui.onPauseChoice(1); t.frames(1);
       try {
         b.style.maxHeight = '160px'; card.setTab('view'); b.scrollTop = 0; card.cue();
-        // the overlay gets .show on the next animation frame (ui.showOverlay), which a slow software-WebGL frame can hold
-        // back past a fixed wait (headless CI, tests/inpage.mjs): wait for it, then for the opening animation to settle
-        let w = 0; for (; w < 100 && !ui.settingsEl.classList.contains('show'); w++) await t.wait(50);
-        t.note('showWait', w * 50);
-        await t.wait(400);
+        const f0 = performance.now();
+        const framed = await t.nextFrame();
+        t.settle();                                   // the opening fade and pop, as a player sees them once settled
+        t.note('opened', { framed, frameMs: Math.round(performance.now() - f0), menu: ui.menu, want: se.want, show: se.classList.contains('show'), hidden: se.classList.contains('hidden'), vis: document.visibilityState });
+        t.ok(ui.menu === 'settings' && se.classList.contains('show'), 'Settings is open and shown after one frame', { menu: ui.menu, cls: se.className });
         const c = R(chip), at = (x, y) => document.elementFromPoint(x, y), hit = (x, y) => { const e = at(x, y); return !!(e && (e === chip || chip.contains(e))); };
         const r = { on: hit(c.left + c.width / 2, c.top + c.height / 2), above: hit(c.left + c.width / 2, c.top - 3), left: hit(c.left - 4, c.top + c.height / 2), right: hit(c.right + 4, c.top + c.height / 2), under: hit(c.left + c.width / 2, c.bottom + 6) };
         const e0 = at(c.left + c.width / 2, c.top + c.height / 2);
         t.note('chip', { rect: [c.left, c.top, c.right, c.bottom].map(Math.round), ...r, centre: e0 && (e0.id || e0.className || e0.tagName) });
         t.ok(r.on && r.under, 'the chip and the gap under it take the tap', r);
         t.ok(!r.above && !r.left && !r.right, 'beside / above it the row underneath does (was a −10 / −12 px ring)', r);
-      } finally { b.style.maxHeight = ''; ui.closeMenu(true); t.frames(1); }
+      } finally { b.style.maxHeight = ''; ui.closeMenu(true); t.frames(1); D.clock({ redraw }); }
     }],
     ['settings card is generated from SCHEMA: every key has a control, except the ones nothing reads (no dead switches)', (t) => {
       const { ui, input } = t;
@@ -1016,8 +1060,9 @@ export default function register(suite) {
       clean(t);
       // the timeline only advances with rendered frames: on a loaded machine a 380 ms wait can still see a fade halfway,
       // so finite CSS transitions are finished before measuring (the state a player sees once they settle)
-      const settle = () => { for (const a of document.getAnimations ? document.getAnimations() : []) if (typeof CSSTransition !== 'undefined' && a instanceof CSSTransition) try { a.finish(); } catch (e) { /* ignore */ } };
-      const out = [], A = async (name) => { await t.wait(380); settle(); const a = audit(); out.push([name, a.count, a.list]); };
+      // (and an overlay opened just before gets its .show on the next animation frame, which waits for a software-WebGL
+      // frame: one frame is waited for, not assumed within the 380 ms)
+      const out = [], A = async (name) => { await t.wait(380); await t.nextFrame(); t.settle(); const a = audit(); out.push([name, a.count, a.list]); };
       D.pose('plaza-S'); t.frames(2); await A('play');
       D.standAt('sign'); t.frames(4); await A('prompt');
       t.press('interact'); t.frames(30); await A('dialogue');

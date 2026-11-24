@@ -1,7 +1,8 @@
 // G.debug API, debug keys, collider gizmos, overlay text (Game mixin) + registerDebug for modules.
 import * as THREE from 'three';
-import { G } from '../core.js';
-import { REGIONS, SEED_ORDER } from '../data.js';
+import { G, store } from '../core.js';
+import { REGIONS, SAVE_KEY, SEED_ORDER } from '../data.js';
+import { FLAG_KEY } from '../save.js';
 import { Enemy } from '../entities.js';
 import { EV } from '../events.js';
 import { TAU, len2, mulberry32, yawOf, wrapAngle, dir3, rightXZ, clamp } from '../util.js';
@@ -40,7 +41,7 @@ export function perfLocations(W) {
   return (W._perfLocs = L);
 }
 // natural standing distance from each kind of interactable's aim point (debug standAt)
-const STAND = { npc: 1.3, sign: 1.4, door: 1.1, chest: 1.3, pedestal: 2.1, well: 2.2, shell: 1.1, secret: 1.1 };
+const STAND = { npc: 1.3, sign: 1.4, door: 1.1, chest: 1.3, pedestal: 2.1, well: 2.2, shell: 1.1, secret: 1.1, reason: 1.2 };
 
 /** expose a namespace of debug helpers as G.debug[ns] (modules call this from attach). An existing namespace is never
  *  lost: an object merges its members into it (registerDebug('cam', {…}) keeps G.debug.cam() callable and adds cam.*);
@@ -155,7 +156,8 @@ export const DebugMixin = {
       /** stand at a natural spot in front of an interactable and aim at it: kind 'npc' (id), 'sign' | 'door' | 'chest' |
        *  'well' | 'pedestal' (index n among that kind, nearest first from the spawn), 'shell' (Clover's rainbow shell n in
        *  W.shells order, picked up or not), 'secret' (landmark keepsake n in W.secrets order, found or not; from the side
-       *  away from its landmark); returns { x, z, kind, point } */
+       *  away from its landmark), 'reason' (a Catcher's reason item by id, or n among the placed W.reasons); returns
+       *  { x, z, kind, point } */
       standAt(kind, n = 0, o = {}) {
         const W = game.world;
         let pt = null, front = null;
@@ -167,6 +169,11 @@ export const DebugMixin = {
           if (!it) return null;
           pt = { x: it.x, y: it.y + (TC.aimPts.shell || [0.25])[0], z: it.z };
           front = yawOf(W.spawn.x - it.x, W.spawn.z - it.z);
+        } else if (kind === 'reason') {
+          const it = typeof n === 'string' ? (W.reasons || []).find((q) => q.id === n) : (W.reasons || []).filter((q) => q.x != null)[n | 0];
+          if (!it || it.x == null) return null;
+          pt = { x: it.x, y: it.kind === 'tally' ? it.y : it.y + 0.3, z: it.z };
+          front = it.rot || 0;   // the night-lights face the path, the tally out from the door
         } else if (kind === 'secret') {
           const it = (W.secrets || [])[n | 0];
           if (!it) return null;
@@ -359,6 +366,28 @@ export const DebugMixin = {
           return T.run(name, o);
         },
         async list() { if (!G.debugAllowed) return []; const T = await import('./tests.js'); return T.list(); },
+      },
+      /** store a save object and Continue it (migrate + normalize; an older one leaves its backup), from the title or in
+       *  play → the loaded S.v */
+      loadSave(obj) { game.resetEntities(); store.set(SAVE_KEY, obj); game.continueGame(); return game.S.v; },
+      /** the story flags (S.flags, save v7): get(k) → value or undefined; set(k, v) → the new value, false for a key that
+       *  fails FLAG_KEY or a value that is not true / a finite number; v === null deletes the key (debug only: no game
+       *  effect clears a flag); all() → a copy of the map */
+      flags: {
+        get(k) { const F = game.S && game.S.flags; return F && Object.hasOwn(F, k) ? F[k] : undefined; },
+        set(k, v) {
+          const F = game.S && game.S.flags;
+          if (!F || typeof k !== 'string' || !FLAG_KEY.test(k)) return false;
+          if (v === null) { delete F[k]; return undefined; }
+          if (v !== true && !(typeof v === 'number' && Number.isFinite(v))) return false;
+          F[k] = v;
+          return v;
+        },
+        all() { return { ...((game.S && game.S.flags) || {}) }; },
+      },
+      /** the running scene: skip() calls game.skipScene (registered by a cutscene that can be skipped) → true, else false */
+      scene: {
+        skip() { if (typeof game.skipScene !== 'function') return false; game.skipScene(); return true; },
       },
     };
     this.gpuT = null;

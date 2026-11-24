@@ -270,6 +270,7 @@ export const CutsceneMixin = {
     this.player.state = 'normal';
     this.ui.showHud(true);
     this.S.ending = true;
+    this.S.flags.bloom = true;   // story I.5: the bloom (S.flags, save v7)
     this.spawnRematches(true);   // the guardians nap in their arenas again, for a friendly rematch (fight.js)
     this.events.emit(EV.CUTSCENE_END, { type: 'ending' });
     this.save(false);

@@ -306,6 +306,98 @@ export function secretModel(id) {
   const k = 'secret_' + id;
   return cache[k] || (SECRET_MODELS[id] ? (cache[k] = SECRET_MODELS[id]()) : null);
 }
+// ---------------------------------------------------------------- the Catchers' reasons (S-004, world.js placeReasons)
+// Code-built fallbacks for the reason_* model slots (assets/manifest.js); model units ≈ m, standing on the origin and
+// facing +Z. ART BRIEFs: docs/roadmap/bible/atlas-home.md #placeReasons
+const D2R = Math.PI / 180;
+/** Grumble's night-lights: a toadstool-shaped glass night-light on a twig stake, 0.42 m tall, cap 0.22 m. Unlit: a
+ *  dusty lilac cap with no glow; lit (side story 11, S-195): warm gold, glow 0.9. ≤ 120 tris */
+function nightLight(lit) {
+  const b = new GB();
+  b.cyl(0.02, 0.02, 0.3, 0x8a5a32, { y: 0.14, seg: 5 });                          // the twig stake (0.01 m in the ground)
+  b.cyl(0.028, 0.038, 0.08, 0xf4ead8, { y: 0.33, seg: 6 });                       // the stem
+  b.sphere(0.11, lit ? 0xffd27a : 0xb9a6c8, { y: 0.36, sy: 0.55, t1: Math.PI / 2, ws: 8, hs: 4, glow: lit ? 0.9 : 0 });   // the cap: a half sphere
+  return b.build();
+}
+export function nightLightModel(lit = false) { const k = 'nightLight' + (lit ? 1 : 0); return cache[k] || (cache[k] = nightLight(lit)); }
+/** Pinch's spyglass: a brass tube 0.55 m long on a three-leg wooden tripod, 0.7 m tall, tilted 6° down toward +Z (the
+ *  sea). ≤ 160 tris */
+function spyglass() {
+  const b = new GB(), top = 0.6, foot = 0.22, lean = Math.atan2(foot, top), leg = Math.hypot(foot, top);
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * TAU + Math.PI / 3;
+    b.box(0.03, leg, 0.03, 0x6e4526, { x: Math.sin(a) * foot / 2, y: top / 2, z: Math.cos(a) * foot / 2, rx: -lean, ry: a, order: 'YXZ' });
+  }
+  b.box(0.08, 0.04, 0.08, 0x6e4526, { y: top + 0.01 });                            // the tripod head
+  const tilt = Math.PI / 2 + 6 * D2R, dy = Math.cos(tilt), dz = Math.sin(tilt), y0 = top + 0.04;
+  b.cyl(0.04, 0.032, 0.55, 0xc9a14a, { y: y0, rx: tilt, seg: 8 });                // the brass tube (wider at the lens)
+  b.cyl(0.05, 0.05, 0.04, 0x2a3a5a, { x: 0, y: y0 + dy * 0.28, z: dz * 0.28, rx: tilt, seg: 8 });     // the lens rim
+  b.cyl(0.024, 0.024, 0.06, 0xc9a14a, { y: y0 - dy * 0.3, z: -dz * 0.3, rx: tilt, seg: 6 });          // the eyepiece
+  return b.build();
+}
+export function spyglassModel() { return cache.spyglass || (cache.spyglass = spyglass()); }
+/** Frostbun's scarf: a knee-high round grey rock with a tiny knitted scarf (sky blue, white stripes) folded over it.
+ *  Two parts so the scarf can sway: { rock, scarf, pivot } (pivot: the scarf's fold axis, model space). ≤ 220 tris */
+function scarfRock() {
+  const r = new GB(), cy = 0.2, R = 0.37;
+  r.ico(0.35, 0, { y: cy, sy: 0.8, detail: 1, jitter: 0.12, seed: 7, colorFn: (x, y, z, nx, ny) => (ny > 0.6 ? 0xf2f6fa : 0xa8a096) });
+  // the scarf: a box strip 1.1 m × 0.2 m bent over the rock's crown (arc radius R about the x axis through the rock)
+  const g = new THREE.BoxGeometry(0.2, 0.02, 1.1, 1, 1, 12), p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const th = p.getZ(i) / R, rr = R + 0.008 + p.getY(i);
+    p.setXYZ(i, p.getX(i) + Math.sin(th * 3) * 0.015, cy + rr * Math.cos(th) * 0.8 + 0.01, rr * Math.sin(th));
+  }
+  const s = new GB();
+  s.add(g, 0, { flat: true });
+  faceColor(s, (x, y, z) => (Math.floor((Math.atan2(z, (y - cy) / 0.8) / (1.1 / R)) * 9 + 4.5) % 2 ? 0xffffff : 0x9fdcff));
+  for (const k of [-1, 1]) s.ico(0.035, 0xffffff, { x: 0.05 * k, y: cy + R * 0.8 * Math.cos(1.49) - 0.03, z: k * R * Math.sin(1.49), detail: 0 });   // the pom-pom fringe
+  return { rock: r.build(), scarf: s.build(), pivot: [0, cy, 0] };
+}
+export function scarfRockModel() { return cache.scarfRock || (cache.scarfRock = scarfRock()); }
+/** Frostbun's snow cradle: an oval nest of packed snow, 1.4 × 0.9 × 0.25 m, raised rounded walls round a pale-blue
+ *  hollow (the decal_snow_cradle texture goes on the hollow when it is loaded). { nest, hollow (a disc with UVs),
+ *  hollowColor }. ≤ 200 tris */
+function snowCradle() {
+  const b = new GB(), shade = (x, y, z, nx, ny) => (ny > 0.35 ? 0xf6faff : 0xdde6ee);
+  b.lathe([[0.71, 0.0], [0.68, 0.17], [0.6, 0.25], [0.5, 0.17], [0.42, 0.02]], 0, { seg: 14, sz: 0.9 / 1.4, colorFn: shade });
+  // the hollow keeps its UVs for the decal (GB drops them): a plain disc, its colour from the material
+  const hollow = new THREE.CircleGeometry(0.46, 14);
+  hollow.rotateX(-Math.PI / 2); hollow.scale(1, 1, 0.9 / 1.4); hollow.translate(0, 0.05, 0);
+  return { nest: b.build(), hollow, hollowColor: 0xcfe8ff };
+}
+export function snowCradleModel() { return cache.snowCradle || (cache.snowCradle = snowCradle()); }
+/** the chalk tally's quad on the lighthouse door (m) */
+export const TALLY_SIZE = { w: 0.5, h: 0.7 };
+/** the F-canvas fallback of the reason_tally decal: 37 white chalk strokes in groups of five (four upright, one across)
+ *  and a tiny crab doodle, on transparency, 256 × 256. Drawn 1.4× wide (the quad is 0.5 × 0.7 m), like the webp */
+export function tallyCanvas(size = 256) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d'), u = size / 256, wide = TALLY_SIZE.h / TALLY_SIZE.w;
+  g.scale(u * wide, u);   // drawn in true proportions on a 183 × 256 page: the quad's 0.5 × 0.7 m undoes the 1.4× width
+  g.strokeStyle = '#ffffff'; g.fillStyle = '#ffffff'; g.lineCap = 'round'; g.lineWidth = 4;
+  const wob = (i) => Math.sin(i * 12.9898) * 1.6;       // a little hand wobble, deterministic
+  const line = (x0, y0, x1, y1) => { g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); };
+  let n = 0;
+  const per = [5, 5, 5, 5, 5, 5, 5, 2], rows = [[0, 1, 2], [3, 4, 5], [6, 7]];
+  rows.forEach((grp, ri) => grp.forEach((gi, ci) => {
+    const x0 = 16 + ci * 56, y0 = 46 + ri * 58, k = per[gi];
+    for (let s = 0; s < Math.min(k, 4); s++, n++) line(x0 + s * 9 + wob(n), y0 + wob(n + 7), x0 + s * 9 + wob(n + 3), y0 + 34 + wob(n + 9));
+    if (k === 5) { line(x0 - 5, y0 + 26, x0 + 34, y0 + 9); n++; }
+  }));
+  // the crab: a round body, two claws, little legs and a smile
+  const cx = 144, cy = 182;
+  g.lineWidth = 3;
+  g.beginPath(); g.ellipse(cx, cy, 15, 10, 0, 0, TAU); g.stroke();
+  for (const k of [-1, 1]) {
+    line(cx + k * 12, cy - 6, cx + k * 20, cy - 17);
+    g.beginPath(); g.arc(cx + k * 22, cy - 22, 5.5, 0, TAU * 0.8); g.stroke();
+    for (let i = 0; i < 3; i++) line(cx + k * (6 + i * 4), cy + 8, cx + k * (10 + i * 5), cy + 16);
+  }
+  g.beginPath(); g.arc(cx, cy - 1, 5, 0.2, Math.PI - 0.2); g.stroke();
+  for (const k of [-1, 1]) { g.beginPath(); g.arc(cx + k * 5, cy - 4, 1.8, 0, TAU); g.fill(); }
+  return c;
+}
 function crystal() {
   const b = new GB();
   b.add(new THREE.OctahedronGeometry(0.16, 0), 0xa8e4ff, { y: 0.22, sy: 1.8, glow: 0.35, flat: true, outline: false });
@@ -905,6 +997,10 @@ export function chestParts(heart) {
 // collider radius per landmark (m) at height H: the stem flare / stone stack / base plinth at eye height plus a margin, so
 // neither Pip's body nor the FP eye ever enters the model (decor stays inside this ring). world.js declares them
 export const LANDMARK_R = { woods: (H) => 2.35 * (H / 15), peaks: (H) => 2.75 * (H / 15), shores: (H) => 2.1 * (H / 16), meadow: (H) => 2.3 * (H / 13) };
+/** the lighthouse model (landmarkParts 'shores', authored at H = 16 m and scaled by height / 16; its group sits `sink` m
+ *  into the ground): the gallery deck's top (tTop + 0.1 + 0.11) and the door's front face (rbox at z 1.52, 0.16 deep;
+ *  y the middle of the 0.8–2.25 m leaf). world.js placeReasons puts the spyglass and the chalk tally on them */
+export const LIGHTHOUSE = { H: 16, sink: 0.25, deck: 16 * 0.72 + 0.21, door: { z: 1.6, y: 1.55 } };
 /** uniform scale of a landmarkParts result (geometry, outline hull, pivot / lamp / beam points) */
 function scaleParts(p, k) {
   if (k === 1) return p;

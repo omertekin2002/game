@@ -38,7 +38,7 @@ names use it too.
 | Layers | `LAYER = { WORLD: 0, BODY: 1, PRESENT: 2, DEBUG: 3 }` (`PRESENT` is unused now); scatter's `LAYER_SHADOW = 4` (shadow-only casters); layer 30 only during the boot warm-up. Layers are not inherited: `setLayer(obj, layer, skip)` sets every descendant |
 | FOV | settings store horizontal degrees at 16:9; the camera uses vertical degrees, Hor+ (`vFovFor(hDeg, aspect)`); a narrow screen keeps ≥ 70° horizontal up to a 100° vertical cap |
 | Tunables | new numbers go into `js/tune.js` (`TUNE`, §16), never into `CFG` (`js/data.js` keeps the original game constants and content) |
-| Storage | only through `store.get / set / del` (`core.js`, wrapped in try/catch). Keys: save `starseed-isle-save-v2`, settings `starseed-isle-settings-v1` (object-valued `keys` and `pad` inside it), HUD memory `starseed-isle-hud-v1`, mute `starseed-isle-muted` |
+| Storage | only through `store.get / set / del` (`core.js`, wrapped in try/catch). Keys: save `starseed-isle-save-v2` (and its pre-migration backup `starseed-isle-save-v2-bak`, which `Game.backupOldSave` writes raw through `localStorage` because the copy must stay byte-identical), settings `starseed-isle-settings-v1` (object-valued `keys` and `pad` inside it), HUD memory `starseed-isle-hud-v1`, mute `starseed-isle-muted` |
 
 Grep rules (must stay empty): `grep -rnE "\.yawTarget|cam\.bias|cam\.yaw" js` and
 `grep -rnE "player\.facing\s*=|pl\.facing\s*=" js` (the body facing is written only inside `player.js`, or through
@@ -54,7 +54,7 @@ Grep rules (must stay empty): `grep -rnE "\.yawTarget|cam\.bias|cam\.yaw" js` an
 | `js/core.js`, `js/util.js` | `G`, guarded audio calls, `store`, `spriteUrl`; maths, RNG, noise, easing, conventions, `LAYER` | §1 |
 | `js/tune.js`, `js/settings.js` | `TUNE` groups; settings schema and persistence | §16, §12 |
 | `js/game.js` | session, save, transitions, input routing, step and render orchestration, module host | §3, §6 |
-| `js/save.js` | save schema: `SAVE_VERSION`, `freshState`, `migrate`, `normalize`, `loadSave` (pure; unit-tested in `tests/save.test.js`) | §12 |
+| `js/save.js` | save schema: `SAVE_VERSION`, `FLAG_KEY`, `freshState`, `migrate`, `v7Flags`, `normalize`, `loadSave` (pure; unit-tested in `tests/save.test.js`) | §12 |
 | `js/completion.js` | completion tally `completion(W, S)` for the tracker on the pause menu and map card (`js/hud/tracker.js`); pure, unit-tested in `tests/completion.test.js` | §12 |
 | `js/view/view.js` | `ViewController`: look, camera pose, FOV, near plane, layers, shots | §7, [WP1](wp/WP1.md) |
 | `js/view/rig-fp.js`, `rig-tp.js`, `lockon.js`, `shots.js`, `shake.js`, `comfort.js`, `feel.js` | FP eye rig and feel layers, TP spring arm, lock-on camera, cinematics, trauma shake, comfort factors, module `wp1-feel` | §7, [WP1](wp/WP1.md) |
@@ -386,6 +386,7 @@ streams, so the main stream (and with it the scatter) of a seed stays stable.
 | `W.shells [{ id: 'shell1'…'shell5', kind: 'shell', x, y, z, at }]` | Clover's rainbow shells (`at`: `lighthouse`, `islet1`, `islet2`, `cove`, `path`). `placeShells()` runs after everything else in `generate()` on its own RNG (`seed × 41 + 29`), adds nothing to any other list and restores `W.walk` / `W.reach`, so no existing placement moves on any seed (`tests/world.test.js` compares with `tests/fixtures/world-prints.json`). Each spot is dry Shores sand (an islet counts as Shores), flat, ≥ 3 m off the path, clear of solids, colliders, reservations (bar the islets' own), bridges, chests and NPC spots, outside the arena ring and reachable. A spot is tried 160 times at random in its ring, then the whole ring is scanned every 0.5 m, so the shell is where Clover says (seeds 1–300 checked; `tests/world.test.js` checks 1–40); only then does it widen. `generateWorld(seed, { shells: false })` skips the pass. Not in `W.interact`: `interactables()` (`js/targeting.js`) offers the ones that are out |
 | `W.lanterns [{ id: 'lantern1'…'lantern4', kind: 'lantern', x, y, z, rot, paper: { x, y, z }, at }]` | Mayor Ribbit's parade lanterns (`at`: `altar`, `signpost`, `shop`, `meadow`). `placeLanterns()` runs last in `generate()`, after `placeShells()`, on its own RNG (`seed × 53 + 7`) with the same guarantees: nothing added to any other list (a lantern has no collider), `W.walk` / `W.reach` restored. Each spot is inside `TUNE.world.paradeR − 6` of the plaza centre, flat (slope < 0.45), ≥ 2.2 m off the paths and off the z = 9 test line, clear of solids, colliders, bridges, chests, interactables, NPC spots and the spawn, ≥ 8 m from the others and reachable; 160 random tries per centre, then a 0.5 m scan (the Meadow spot tries four points along its path). `generateWorld(seed, { lanterns: false })` skips the pass. Not interactables: `tickErrands` lights them |
 | `W.secrets [{ id, landmark, kind: 'secret', x, y, z, rot, at }]` | The landmark keepsakes (`SECRETS` in `js/data.js`: `acorn` woods, `stone` peaks, `bottle` shores, `pouch` meadow; none at the Great Tree). `placeSecrets()` runs last in `generate()`, after `placeLanterns()`, as a pure scan with no RNG draws and the same guarantees: nothing added to any other list (a keepsake has no collider), `W.walk` / `W.reach` restored. Each spot is on rings 0.6–3 m outside its landmark's collider (`prop.r`), every 5°: dry, walkable (slope < 0.7), off bridges and arenas, clear of every solid and collider but its own landmark's (by 0.5 m), of chests, interactables, NPC spots, rainbow shells and parade lanterns, and reachable. The lowest cost wins: the angle (`at`, rad) off the side away from the region's path (the lighthouse: toward the nearest sea), then 0.35 per metre out. Only with nothing valid within 3 m (the cairn's needle summit, unreachable on most seeds) does it widen out to 40 m (`SECRET_RING`), so the stone lies as close below the cairn as Pip can stand. `rot`: facing out from the landmark. `generateWorld(seed, { secrets: false })` skips the pass. Not in `W.interact`: `interactables()` offers the ones not found |
+| `W.reasons [{ id, kind, x, y, z, rot, attach?, local?, solid?, rings? }]` | The Catchers' kind reasons (S-004, `docs/roadmap/bible/atlas-home.md#placeReasons`), in this save-stable order: `home:reason-grumble-2`, `-1`, `-3` (`nightlight`: three unlit night-lights 1.2 m apart along the Woods arena sign's facing, the middle one 1.5–3.5 m from the sign on its side away from the path), `home:reason-rings` (`rings`: per woods clearing, the indices of the `glowshroom` deco within 2.2 m of its fairy ring; data only until S-011), `home:reason-pinch-spyglass` and `-tally` (`attach: 'shores'`: on the lighthouse gallery at r 1.3 m, bearing 200°, and on its door; positions go through the landmark's model transform, `LIGHTHOUSE` in `js/props.js`), `home:reason-frost-scarf` (`solid: { r: 0.5 }`) and `-cradle`, ≥ 20 m from the Peaks arena centre. `placeReasons()` runs after `placeSecrets()` on its own stream `RNG(seed × 67 + 13)` with the atlas default rule (dry, walkable, slope < 0.5, off the path band, off bridges and arenas, clear of solids, colliders, chests, interactables, NPC spots and every earlier pass item, reachable); nothing added to any other list, `W.walk` / `W.reach` restored. `generateWorld(seed, { reasons: false })` skips it. `attachPost(W)` (`js/world-post.js`, called by `main.js` only) adds the scarf rock's circle collider (kind `post`) after generation, so prints and walk are unchanged. The middle night-light, the tally and the cradle are interactables of kind `reason` (`Look`, `REASONS` in `js/data.js`) |
 
 **9.3 Colliders.** `W.colliders`, hashed in 4 m cells: `{ x, z, r (bounding), kind, shape: 'circle'|'obb'|'star', hx, hz,
 rot, y0, y1, camTop, rEye, stand, over, canopy, body, … }`. Heights are baked from `COLLIDER_H` (per kind) unless a prop
@@ -597,13 +598,16 @@ from `META` (`js/hud/menus.js`); a key without `META` still gets a row.
 | `hudScale`, `minimap` | 1 (0.8–1.2), `heading` (`heading`, `north`, `off`) | HUD |
 | `quality`, `dynRes` | `auto` (`auto`, `low`, `high`), true | perf (DPR, grass, shadow map, dynamic resolution), assets (HD / lo, anisotropy), atmosphere (terrain layers) |
 
-Save (`game.S`, key `starseed-isle-save-v2`, `v: 6`): seed, position, facing, hp, maxHp, coins, potions, swordLevel,
+Save (`game.S`, key `starseed-isle-save-v2`, `v: 7`): seed, position, facing, hp, maxHp, coins, potions, swordLevel,
 seeds (0 none, 1 carried, 2 placed), chests, bosses, shopHeart, ending, time of day, visited regions, playTime, intro and
 controls flags, `errands` (errand id → 1 started, 2 done; `ERRANDS` and the `errands` helpers in `js/data.js`), `shells`
 (the errand item flags: item id → true, a rainbow shell picked up `shell1`… or a parade lantern lit `lantern1`…; no two
 errands share an id), `plushies` (v4: Miso's guardian plushies bought, guardian id → true), `rematches` (v5: guardian
 rematches won after the bloom, guardian id → true; `REMATCH` and the `rematch` helpers in `js/data.js`), `secrets` (v6:
-landmark keepsakes found, keepsake id → true; `SECRETS` and the `secrets` helpers in `js/data.js`), plus the optional `pitch` (restored clamped ±0.6 rad), `controlsV` (< 2 → the first-run coach marks once)
+landmark keepsakes found, keepsake id → true; `SECRETS` and the `secrets` helpers in `js/data.js`), `flags` (v7: story
+flags, seen lines, gates and choices, key → `true` or a finite number; keys match `FLAG_KEY`
+`/^[A-Za-z0-9:_.-]{1,48}$/`; docs/roadmap/bible/systems.md#flags), plus the optional `pitch` (restored clamped ±0.6
+rad), `controlsV` (< 2 → the first-run coach marks once)
 and `waypoint { x, z }` (the map marker). Non-numeric optional fields fall back to defaults. Autosave every 30 s outside
 fights and at key events. `wp9-world.onSession` moves a Continue whose saved spot is now inside a collider to the
 nearest free spot.
@@ -614,7 +618,13 @@ and fills, clamps or coerces the known fields; unknown fields such as `pitch`, `
 `js/save.js` imports only `js/data.js`, so `bun test` can load it. To change the layout, bump `SAVE_VERSION` and add a
 `MIGRATIONS[old]` step with a test (`docs/DESIGN.md` §15). `MIGRATIONS[2]` (v2 → v3) adds `errands: {}` and
 `shells: {}` and keeps every v2 field; `MIGRATIONS[3]` (v3 → v4) adds `plushies: {}`; `MIGRATIONS[4]` (v4 → v5) adds
-`rematches: {}`; `MIGRATIONS[5]` (v5 → v6) adds `secrets: {}`.
+`rematches: {}`; `MIGRATIONS[5]` (v5 → v6) adds `secrets: {}`; `MIGRATIONS[6]` (v6 → v7) adds `flags` from
+`v7Flags`: `bloom: true` when `ending`, and for each guardian beaten, numbered in `SEED_ORDER` order, `calm:<id>` = n and
+`handover:<id>` = true. `normalize` keeps a flag only for a `FLAG_KEY` key with `true` or a finite number (0 included).
+Before `loadSave`, `Game.continueGame` copies the raw string of a save whose `v` is below `SAVE_VERSION` to
+`SAVE_BAK_KEY` (`starseed-isle-save-v2-bak`, `js/data.js`), overwriting an older backup; nothing reads it yet. Save
+fixtures for tests are in `tests/fixtures/saves/` (`v6-bloomed`, and the Act I chain `act1-fresh`, `act1-1seed`,
+`act1-2seed`, `act1-3carried`, `act1-bloomed`).
 
 Errands (`js/interact.js`), driven by their `ERRANDS` entry (`js/data.js`): `item` (the id prefix and the scenery kind),
 `list` (the world list of its spots), `how` (`'use'`: picked up with Use; `'walk'`: lit by walking past), `keep` (a found
@@ -885,7 +895,7 @@ comparison only).
 
 | Helper | |
 |---|---|
-| `teleport(x, z, yaw = null, pitch = 0) → [x, y, z]`, `pose(name)`, `standAt(kind \| npcId, n, { dist })` (`kind` `'shell'`: rainbow shell n of `W.shells`; `'secret'`: landmark keepsake n of `W.secrets`, from outside its landmark) | `pose`: `spawn`, `plaza-N`, `plaza-S`, `tree`, `village`, `woods`, `peaks`, `shores`, `meadow`, `hilltop`, `arena-woods / peaks / shores` (an unknown name lists them) |
+| `teleport(x, z, yaw = null, pitch = 0) → [x, y, z]`, `pose(name)`, `standAt(kind \| npcId, n, { dist })` (`kind` `'shell'`: rainbow shell n of `W.shells`; `'secret'`: landmark keepsake n of `W.secrets`, from outside its landmark; `'reason'`: a `W.reasons` item by id or n) | `pose`: `spawn`, `plaza-N`, `plaza-S`, `tree`, `village`, `woods`, `peaks`, `shores`, `meadow`, `hilltop`, `arena-woods / peaks / shores` (an unknown name lists them) |
 | `spawn(type, dist = 4, relDeg = null, { alt, face, state, st })`, `last`, `enemies()`, `freezeAI(on)`, `freezeTime(on)`, `god(on)`, `hurt(dmg, relDeg)`, `down()` | `relDeg` from the view yaw (+ = left); the new enemy is `G.debug.last` |
 | `setTime(h)`, `giveSeeds()`, `toBoss(id)`, `killBoss()`, `cutscene(name, id)` | `cutscene`: `'place'`, `'ending'`, `'bossIntro'`, `'itemGet'` |
 | `aim()`, `target()`, `aimAt(x, y, z)` | what a full swing would hit now; the interaction target; aim the crosshair at a point (TP: from the camera the rig settles at for that look, which it runs the live rig to; where a slide flips shoulders with the aim it keeps the best look) |
@@ -896,6 +906,9 @@ comparison only).
 | `armProbe(x, z, yaw, pitch)` | the TP spring arm as a pure query |
 | `perf({ ms }) → Promise<{ fps, frames, cpuMs, gpuMain, gpuVm, gpuTimer, gpuDropped, calls, tris, dpr, size, view, tod }>` | real frames, GPU per pass via `EXT_disjoint_timer_query_webgl2` (null when unavailable); pin the hour with `setTime` + `freezeTime` |
 | `info()`, `cam()`, `player()`, `lock()`, `game()`, `world()` | snapshots |
+| `loadSave(obj) → S.v` | stores a save object and Continues it (migrate + normalize; an older one leaves its backup), from the title or in play |
+| `flags.get(k)`, `flags.set(k, v)`, `flags.all()` | the story flags (`S.flags`): `set` → the new value, `false` for a key that fails `FLAG_KEY` or a value that is not `true` / a finite number; `v === null` deletes (debug only) |
+| `scene.skip() → bool` | calls `game.skipScene` (null by default; a skippable running scene registers it) and returns `true`, else `false` |
 | `test.run(name = 'all', opts)`, `test.list()` | §18 |
 
 Namespaces added by modules:

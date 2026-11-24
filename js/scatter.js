@@ -16,12 +16,14 @@ import * as THREE from 'three';
 import { HALF, CHUNK, NCH } from './world.js';
 import { toonMat, sharedOutline, outlineMat, meshWithOutline, outlineGeometry, radialProfile, setHullProfile } from './toon.js';
 import { makeModel, Assets } from './assets.js';
-import { propModel, PROP_KIND, houseA, houseB, shopModel, greatTreeParts, bridgeGeo, chestParts, rainbowShellModel, paradeLanternModels, secretModel, SHOP_COUNTER, PLUSHIE_SPOTS, PLUSHIE_SIZE } from './props.js';
+import { propModel, PROP_KIND, houseA, houseB, shopModel, greatTreeParts, bridgeGeo, chestParts, rainbowShellModel, paradeLanternModels, secretModel, SHOP_COUNTER, PLUSHIE_SPOTS, PLUSHIE_SIZE, nightLightModel, spyglassModel, scarfRockModel, snowCradleModel, tallyCanvas, TALLY_SIZE } from './props.js';
 import { hash2 } from './util.js';
 import { perf as TP } from './tune.js';
 import { proxyGeometry } from './perf/lod.js';
 
 export const LAYER_SHADOW = 4;   // WP7: shadow-only casters (enabled on the sun's shadow camera by the perf module)
+const TAU_ = Math.PI * 2;
+const REASON_GLB = { nightlight: 'reason_nightlight', spyglass: 'reason_spyglass', scarf: 'reason_scarf', cradle: 'reason_cradle' };   // S-004 model slots
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _e = new THREE.Euler(), _c = new THREE.Color();
 
 // material kinds: toon options, outline (shared kind name or px options), shadow casting
@@ -117,6 +119,7 @@ export class Scenery {
     this.lanterns = new Map();       // Ribbit's parade lanterns (W.lanterns): hidden until the parade starts, then unlit / lit
     this.plushies = new Map();       // Miso's guardian plushies on her counter (guardian id → mesh): hidden until bought
     this.secrets = new Map();        // the landmark keepsakes (W.secrets): shown until found (an opened bottle stays)
+    this.reasons = new Map();        // the Catchers' reasons by their arenas (W.reasons, S-004): always shown
     this.cullOff = false;            // G.debug.perf.cull(false): everything packed, full models only (base for A/B)
     this.packs = 0; this.packMs = 0; // stats
     this._v = null; this.dirty = true;
@@ -133,6 +136,7 @@ export class Scenery {
     this.buildLanterns();
     this.buildPlushies();
     this.buildSecrets();
+    this.buildReasons();
   }
   buildInstanced(list) {
     const byType = new Map();
@@ -557,6 +561,64 @@ export class Scenery {
       this.secrets.set(it.id, { group: g, lid, data: it, found: false, shown: true });
     }
   }
+  /** the Catchers' reasons (W.reasons, world.js placeReasons, S-004): one group per placed item, code-built (props.js),
+   *  culled beyond 90 m. The fairy rings are data only here (S-011 draws their glow). The tally is a decal quad on the
+   *  lighthouse door (the reason_tally webp, else the tallyCanvas fallback); the cradle's hollow wears decal_snow_cradle
+   *  when it is loaded. The night-lights stay unlit until side story 11 (S-195) */
+  buildReasons() {
+    const list = (this.W.reasons || []).filter((it) => it.x != null);
+    if (!list.length) return;
+    const mat = toonMat({ glow: true }), ol = mats().solid.ol;
+    const flat = (map, color) => toonMat({ vc: false, map, color, glow: true });   // a decal / textured disc (no vertex colours)
+    for (const it of list) {
+      const g = new THREE.Group();
+      g.name = 'reason_' + it.id;
+      const R = { group: g, data: it };
+      // an owner GLB in its manifest slot (reason_<kind>) replaces the code-built model; the scarf sways by its `scarf` node
+      const glb = REASON_GLB[it.kind] && Assets.has('models', REASON_GLB[it.kind]) ? makeModel(REASON_GLB[it.kind], { outline: 'prop' }) : null;
+      if (glb) {
+        g.add(glb.group);
+        const sw = glb.group.getObjectByName('scarf');
+        if (sw) { R.sway = sw; R.ph = (it.x * 0.37 + it.z * 0.11) % TAU_; }
+      } else if (it.kind === 'nightlight') g.add(meshWithOutline(nightLightModel(false), mat, ol, { cast: false }));
+      else if (it.kind === 'spyglass') g.add(meshWithOutline(spyglassModel(), mat, ol, { cast: false }));
+      else if (it.kind === 'scarf') {
+        const m = scarfRockModel();
+        g.add(meshWithOutline(m.rock, mat, ol, { cast: true }));
+        const piv = new THREE.Group();
+        piv.position.set(...m.pivot);
+        const sc = meshWithOutline(m.scarf, mat, ol, { cast: false });
+        sc.position.set(-m.pivot[0], -m.pivot[1], -m.pivot[2]);
+        piv.add(sc); g.add(piv);
+        R.sway = piv; R.ph = (it.x * 0.37 + it.z * 0.11) % TAU_;
+      } else if (it.kind === 'cradle') {
+        const m = snowCradleModel(), tex = Assets.billboards.decal_snow_cradle || null;
+        g.add(meshWithOutline(m.nest, mat, ol, { cast: false }));
+        const h = new THREE.Mesh(m.hollow, flat(tex, tex ? 0xffffff : m.hollowColor));
+        h.receiveShadow = true;
+        g.add(h);
+      } else if (it.kind === 'tally') {
+        let tex = Assets.billboards.reason_tally || null;
+        if (!tex) { tex = new THREE.CanvasTexture(tallyCanvas()); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4; }
+        const m = flat(tex, 0xffffff);
+        m.transparent = true; m.depthWrite = false; m.polygonOffset = true; m.polygonOffsetFactor = -2; m.polygonOffsetUnits = -2;
+        const q = new THREE.Mesh(new THREE.PlaneGeometry(TALLY_SIZE.w, TALLY_SIZE.h), m);
+        q.renderOrder = 2;
+        g.add(q);
+      } else continue;
+      g.position.set(it.x, it.kind === 'tally' || it.kind === 'spyglass' ? it.y : it.y - 0.02, it.z);
+      g.rotation.y = it.rot || 0;
+      if (it.kind === 'cradle') {   // the snow nest lies on its slope (the hollow would sink into the uphill side)
+        const W = this.W, e = 0.5, n = _p.set(W.hAt(it.x - e, it.z) - W.hAt(it.x + e, it.z), 2 * e, W.hAt(it.x, it.z - e) - W.hAt(it.x, it.z + e)).normalize();
+        g.quaternion.setFromUnitVectors(_s.set(0, 1, 0), n).multiply(_q.setFromAxisAngle(_s.set(0, 1, 0), it.rot || 0));
+      }
+      if (it.s) g.scale.setScalar(it.s);   // an attached prop scales with its landmark
+      g.userData.cull = { dist: 90 };
+      g.userData.reason = it.id;
+      this.root.add(g);
+      this.reasons.set(it.id, R);
+    }
+  }
   /** a keepsake found (data.js SECRETS): it goes, or for a `keep` one (the bottle) only its lid goes (opened). `shown`
    *  is the game's wish; group.visible also reads false while the distance culler (perf.js, C10) hides it */
   setSecret(id, found, keep = false) {
@@ -605,6 +667,8 @@ export class Scenery {
       s.spin.rotation.y = t * 0.9 + s.ph;
       s.spin.position.y = 0.05 + Math.sin(t * 2.2 + s.ph) * 0.05;
     }
+    // Frostbun's scarf sways in the mountain air: its ends move 0.05 m at 0.4 Hz (held still with Motion comfort)
+    for (const R of this.reasons.values()) if (R.sway) R.sway.rotation.x = this.calm ? 0 : Math.sin(t * TAU_ * 0.4 + R.ph) * 0.09;
     for (const L of this.lanterns.values()) {
       if (!L.shown) continue;
       if (L.lit && L.glow < 1) { L.glow = Math.min(1, L.glow + dt * 1.25); this.tintLantern(L); }   // a soft warm-up

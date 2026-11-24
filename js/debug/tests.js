@@ -16,6 +16,9 @@
 //   ok(cond, msg, data), eq(a, b, msg), near(a, b, tol, msg), note(key, value) (→ result.data),
 //   frames(n, { dt = 1/60 | dt[], draw = false }) (whole frames through the real loop body), press(action) (edge),
 //   hold(action) / release(action?), move(x, y), wait(ms) (real time; gameplay ignores attack 120 ms after a modal),
+//   nextFrame(ms = 20000) (one real animation frame → true: every rAF callback queued before it has run, e.g.
+//   ui.showOverlay's .show; false if none came within ms), settle() (finishes the running CSS transitions: their timeline
+//   only moves with rendered frames),
 //   dlgDone() (advances dialogue to its end), events(type) (payloads from the event log), clearEnemies(), resetPlayer(),
 //   swing(o) (one deterministic swing at a spawned enemy → { hit, dmg, stop, clink, kinds }) }.
 // A test with no checks fails ('no checks'); a throw fails it with the message.
@@ -69,6 +72,15 @@ function ctx(res, opts = {}) {
     },
     press(a) { D.press(a, 0); }, hold(a) { D.hold(a); }, release(a) { D.release(a); }, move(x, y) { D.move(x, y); },
     wait(ms) { return new Promise((r) => setTimeout(r, ms)); },
+    // (callbacks requested earlier run first in the same frame, so no fixed wait is needed. The rAF frame waits for the
+    // GPU: with the manual clock's redraw, a software-WebGL frame of the island can take seconds in headless Chromium)
+    nextFrame(ms = 20000) {
+      return new Promise((r) => { const to = setTimeout(() => r(false), ms); requestAnimationFrame(() => { clearTimeout(to); r(true); }); });
+    },
+    settle() {
+      document.documentElement.getBoundingClientRect();           // style changes made since the last frame start theirs
+      for (const a of document.getAnimations ? document.getAnimations() : []) if (typeof CSSTransition !== 'undefined' && a instanceof CSSTransition) try { a.finish(); } catch (e) { /* ignore */ }
+    },
     dlgDone(max = 80) { for (let i = 0; i < max && game.ui.dlg; i++) { D.press('interact', 0); t.frames(3); } return !game.ui.dlg; },
     events(type) { return game.events.log.filter((r) => r.type === type).map((r) => r.payload); },
     clearEnemies() {

@@ -6,7 +6,7 @@ import { REGION, SIGNS, DOOR_LINES, SECRETS } from './data.js';
 import { world as TW } from './tune.js';
 import { WorldCollide, shapeDist } from './world-collide.js';
 import { SIZE, HALF, N, CHUNK, NCH } from './world-const.js';
-import { HOUSE_DRESSING, LANDMARK_R, PARADE_PAPER } from './props.js';
+import { HOUSE_DRESSING, LANDMARK_R, PARADE_PAPER, LIGHTHOUSE } from './props.js';
 
 export { SIZE, HALF, N, CHUNK, NCH };
 
@@ -57,6 +57,7 @@ export class World {
     this.shells = [];     // rainbow shells for Clover's errand (placeShells, a post-pass)
     this.lanterns = [];   // paper lanterns for Mayor Ribbit's parade (placeLanterns, a post-pass)
     this.secrets = [];    // the landmark keepsakes (placeSecrets, a post-pass)
+    this.reasons = [];    // the Catchers' kind reasons by their arenas (placeReasons, a post-pass)
     this.carved = 0;
     // WP9 foundation shadow (scatter()): what the foundation had and WP9 does not (ghost solids and colliders, reservations
     // tagged t = 2) and its terrain before WP9's own edits, so the main stream draws exactly what the foundation drew
@@ -95,8 +96,8 @@ export class World {
   }
 
   // ------------------------------------------------------------------ generation
-  /** o.shells = false skips the rainbow-shell post-pass, o.lanterns = false the parade-lantern one and o.secrets = false
-   *  the landmark-keepsake one (tests compare the island with and without them) */
+  /** o.shells = false skips the rainbow-shell post-pass, o.lanterns = false the parade-lantern one, o.secrets = false
+   *  the landmark-keepsake one and o.reasons = false the Catchers' reasons (tests compare the island with and without them) */
   generate(o = {}) {
     const t0 = performance.now();
     const T = (this.genT = {});
@@ -130,6 +131,7 @@ export class World {
     if (o.shells !== false) { this.placeShells(); lap('shells'); }
     if (o.lanterns !== false) { this.placeLanterns(); lap('lanterns'); }
     if (o.secrets !== false) { this.placeSecrets(); lap('secrets'); }
+    if (o.reasons !== false) { this.placeReasons(); lap('reasons'); }
     this.genMs = performance.now() - t0;
   }
 
@@ -1743,6 +1745,114 @@ export class World {
       out.push({ id: s.id, landmark: s.landmark, kind: 'secret', x: got.x, y: this.hAt(got.x, got.z), z: got.z, rot: +got.a.toFixed(4), at: +got.off.toFixed(3) });
     }
     this.secrets = out;
+  }
+
+  /** the Catchers' kind reasons, seen beside their arenas before the fight (S-004; docs/roadmap/bible/atlas-home.md
+   *  #placeReasons, pass row 1): W.reasons = [{ id, kind, x, y, z, rot?, attach?, local?, solid?, rings? }] in the order
+   *  below (ids are save-stable). A post-pass like placeShells: its own RNG stream, nothing added to the world's lists
+   *  (the scarf rock's collider is added at runtime by world-post.js attachPost) and W.walk / W.reach put back. A spot
+   *  obeys the atlas default rule (section 1.3): dry, walkable, slope < 0.5, off the path band (night-lights 1.2 m, else
+   *  2.2 m), off bridges, outside every arena and its 5 m ring, ≥ 1 m from solids and colliders, ≥ 2.5 m from chests,
+   *  interactables and NPC spots, ≥ 2 m from every shell, parade lantern, keepsake and earlier reason item (the three
+   *  night-lights stand 1.2 m apart in their row), and reachable from the spawn. The lighthouse items are attached to
+   *  the landmark (no draws, no ok): their world positions go through its model transform (props.js LIGHTHOUSE) */
+  placeReasons() {
+    const R = new RNG(this.seed * 67 + 13), keep = [this.walk, this.reach];
+    const reach = this.bfs(this.buildWalk());
+    this.walk = keep[0]; this.reach = keep[1];
+    const out = [], earlier = (this.shells || []).concat(this.lanterns || [], this.secrets || []);
+    const row = new Set(['nightlight']);   // items of one row may stand closer than 2 m to each other
+    const ok = (x, z, kind, pd = 2.2) => this.hAt(x, z) > 0.3 && this.walkable(x, z) && this.slopeAt(x, z) < 0.5 && this.pathDAt(x, z) >= pd
+      && this.bridgeAt(x, z) === null && !this.inArena(x, z, 5) && !this.solidNear(x, z, 1.0) && !this.colliders.some((c) => shapeDist(c, x, z) < 1.0)
+      && !this.chests.some((c) => len2(c.x - x, c.z - z) < 2.5) && !this.interact.some((it) => len2(it.x - x, it.z - z) < 2.5)
+      && !Object.values(this.npcSpots).some((q) => len2(q.x - x, q.z - z) < 2.5) && !earlier.some((q) => len2(q.x - x, q.z - z) < 2)
+      && !out.some((q) => q.x != null && !(row.has(kind) && q.kind === kind) && len2(q.x - x, q.z - z) < 2) && this.isReached(reach, x, z, false);
+    const r3 = (v) => +v.toFixed(3);
+    // nearest valid to (ax, az) in the ring r0..r1: 160 random tries, a 0.5 m scan nearest the centre, then the ring
+    // doubled (r1 * 2 + 4) the same way. Positions are checked as stored (rounded to 0.001 m)
+    const near = (ax, az, r0, r1, valid) => {
+      const scan = (lo, hi) => {
+        let best = null, bd = Infinity;
+        for (let dz = -hi; dz <= hi; dz += 0.5) for (let dx = -hi; dx <= hi; dx += 0.5) {
+          const d = Math.hypot(dx, dz), x = r3(ax + dx), z = r3(az + dz);
+          if (d < lo || d > hi || d >= bd || !valid(x, z)) continue;
+          best = { x, z }; bd = d;
+        }
+        return best;
+      };
+      for (const hi of [r1, r1 * 2 + 4]) {
+        for (let t = 0; t < 160; t++) {
+          const ang = R.range(0, TAU), d = Math.sqrt(R.range(r0 * r0, hi * hi));
+          const x = r3(ax + Math.sin(ang) * d), z = r3(az + Math.cos(ang) * d);
+          if (valid(x, z)) return { x, z };
+        }
+        const q = scan(r0, hi);
+        if (q) return q;
+      }
+      return null;
+    };
+    // the nearest valid point within 0.6 m of (x, z) on a 0.1 m grid (draws nothing)
+    const nudge = (x, z, valid) => {
+      let best = null, bd = Infinity;
+      for (let dz = -0.6; dz <= 0.6 + 1e-9; dz += 0.1) for (let dx = -0.6; dx <= 0.6 + 1e-9; dx += 0.1) {
+        const d = Math.hypot(dx, dz), xx = r3(x + dx), zz = r3(z + dz);
+        if (d > 0.6 + 1e-9 || d >= bd || !valid(xx, zz)) continue;
+        best = { x: xx, z: zz }; bd = d;
+      }
+      return best;
+    };
+    const item = (id, kind, x, z, o = {}) => ({ id, kind, x, y: this.hAt(x, z), z, ...o });
+    // 1-3 Grumble Shroom: three unlit night-lights in a row beside the Woods arena sign, on its side away from the path,
+    // 1.2 m apart along the sign's facing, the row facing the path (the middle one first: it is the one Pip reads)
+    const sign = this.interact.find((it) => it.kind === 'sign' && it.lines === SIGNS.arena_woods);
+    if (sign) {
+      const sr = sign.prop ? sign.prop.rot || 0 : 0, fx = Math.sin(sr), fz = Math.cos(sr), sd = this.pathDAt(sign.x, sign.z);
+      const lit = (x, z) => ok(x, z, 'nightlight', 1.2);
+      // the middle one, with room for both neighbours (each must pass ok on its own)
+      const mid = near(sign.x, sign.z, 1.5, 3.5, (x, z) => this.pathDAt(x, z) > sd && lit(x, z) && lit(r3(x - fx * 1.2), r3(z - fz * 1.2)) && lit(r3(x + fx * 1.2), r3(z + fz * 1.2)))
+        || near(sign.x, sign.z, 1.5, 3.5, (x, z) => this.pathDAt(x, z) > sd && lit(x, z));
+      if (mid) {
+        const pts = this.paths.woods || [];
+        let q = null, qd = Infinity;
+        for (const p of pts) { const d = len2(p.x - mid.x, p.z - mid.z); if (d < qd) { qd = d; q = p; } }
+        const rot = q ? +Math.atan2(q.x - mid.x, q.z - mid.z).toFixed(4) : +sr.toFixed(4);
+        out.push(item('home:reason-grumble-2', 'nightlight', mid.x, mid.z, { rot }));
+        for (const [id, k] of [['home:reason-grumble-1', -1], ['home:reason-grumble-3', 1]]) {
+          const x = r3(mid.x + fx * 1.2 * k), z = r3(mid.z + fz * 1.2 * k);
+          const p = lit(x, z) ? { x, z } : nudge(x, z, lit);
+          if (p) out.push(item(id, 'nightlight', p.x, p.z, { rot }));
+        }
+      }
+    }
+    // 4 the three fairy rings near the Hollow (dark until the Woods Starseed is placed, S-011): data only
+    const deco = this.deco, rings = ((this.woodsGaps && this.woodsGaps.clearings) || []).map((c) => {
+      const ids = [];
+      if (c.ring) for (let i = 0; i < deco.length; i++) if (deco[i].type === 'glowshroom' && len2(deco[i].x - c.ring.x, deco[i].z - c.ring.z) <= 2.2) ids.push(i);
+      return ids;
+    });
+    out.push({ id: 'home:reason-rings', kind: 'rings', rings });
+    // 5-6 Captain Pinch: a spyglass on the lighthouse gallery pointing out to sea (bearing 200°) and a chalk tally on its
+    // door. Attached to the lighthouse: model units × height / 16, turned with the landmark, its group sunk 0.25 m
+    const lm = this.landmarks.find((l) => l.id === 'shores');
+    if (lm) {
+      const k = lm.height / LIGHTHOUSE.H, rot = lm.rot || 0, y0 = lm.y - LIGHTHOUSE.sink;
+      const az = Math.PI - (200 * Math.PI) / 180, gy = r3(LIGHTHOUSE.deck * k - LIGHTHOUSE.sink);
+      out.push({ id: 'home:reason-pinch-spyglass', kind: 'spyglass', attach: 'shores', local: { r: 1.3, y: gy, bearing: 200 },
+        x: r3(lm.x + Math.sin(az) * 1.3), y: lm.y + gy, z: r3(lm.z + Math.cos(az) * 1.3), rot: +az.toFixed(4), s: r3(k) });   // s: scaled with the lighthouse (its tube clears the rail)
+      const D = LIGHTHOUSE.door, dz = (D.z + 0.01) * k;
+      out.push({ id: 'home:reason-pinch-tally', kind: 'tally', attach: 'shores', local: { z: D.z + 0.01, y: D.y },
+        x: r3(lm.x + Math.sin(rot) * dz), y: y0 + D.y * k, z: r3(lm.z + Math.cos(rot) * dz), rot: +rot.toFixed(4) });
+    }
+    // 7-8 Frostbun: a tiny scarf on a knee-high rock and a snow cradle by the Peaks arena, ≥ 20 m from its centre (the
+    // anchors are offsets from the arena: (92, −22) and (93, −13) on 7151)
+    const a = this.arenas.peaks, ps = this.interact.find((it) => it.kind === 'sign' && it.lines === SIGNS.arena_peaks);
+    const far = (x, z) => len2(x - a.x, z - a.z) >= 20;
+    const turn = (p) => +(hash2(Math.round(p.x * 10), Math.round(p.z * 10), 67) * TAU).toFixed(4);
+    const scarf = near(a.x - 22, a.z - 3, 0, 6, (x, z) => far(x, z) && ok(x, z, 'scarf'));
+    if (scarf) out.push(item('home:reason-frost-scarf', 'scarf', scarf.x, scarf.z, { rot: turn(scarf), solid: { r: 0.5 } }));
+    const cradle = near(a.x - 21, a.z + 6, 1.5, 6, (x, z) => far(x, z) && (!ps || len2(x - ps.x, z - ps.z) >= 2.5) && ok(x, z, 'cradle'));
+    if (cradle) out.push(item('home:reason-frost-cradle', 'cradle', cradle.x, cradle.z, { rot: turn(cradle) }));
+    this.reasons = out;
   }
 
   // ------------------------------------------------------------------ reachability
