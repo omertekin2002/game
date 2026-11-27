@@ -189,10 +189,13 @@ async function main() {
     const v2 = await build(false);
     if (v2.version === v1.version) fail('changing styles.css did not change the service worker version');
     step(`rebuilt with a changed styles.css: version ${v2.version}`);
+    // Clear the log before the server is back, not after: Chromium's own update check for the open page's worker is
+    // not covered by setOffline() and can fetch sw.js (then the changed file, for the install) as soon as the port
+    // answers, before this step goes online or navigates. Everything the server sees from here on is the update.
+    site.requests = [];
     await site.start(site.port);
     await page.context().setOffline(false);
-    site.requests = [];
-    await open(`${BASE}?nolock=1`);   // load 1: still the old version's files; the browser finds the new sw.js
+    await open(`${BASE}?nolock=1`);   // load 1: the browser finds the new sw.js, unless its own update check already did
     await cacheReady(v2.version);
     const fetched = [...new Set(site.requests)].sort();
     const expected = [BASE + 'styles.css', BASE + SW_FILE].sort();
