@@ -150,8 +150,45 @@ wall, a landing or a slide the boss is open: it pulses gold and the boss bar say
 hits land. Outside an opening, hits worth 3 damage in a row (the
 third wooden-sword hit, the second with the Shiny Sword) make it shrug Pip off (a harmless shove out of reach) and
 answer with an attack, never sooner than 1.2 s after it starts walking; a hit while it winds up lands, then it shoves
-Pip off and finishes the attack. Below half health a boss is enraged: faster, with bigger volleys. Victory: a burst,
-the Starseed floats out, pick it up for a fanfare.
+Pip off and finishes the attack. Below half health a boss is enraged: faster, with bigger volleys. The guardians are
+the Catchers: each caught a falling Starseed and kept it for a kind reason, and the first win is a handover, not a
+defeat (below).
+
+**Kind reasons.** Each Catcher's reason can be seen beside its arena before the fight, and read with Use (`Look`):
+
+- Grumble Shroom: three tiny unlit night-lights in a row by the "Grumble Shroom's Hollow" arena sign
+  (`Look · Night-lights`: "Three tiny night-lights, none of them lit. Somebody small must sleep near here.").
+- Captain Pinch: a brass spyglass on the lighthouse gallery, pointing out to sea, and a chalk tally on the lighthouse
+  door (`Look · Chalk marks`: "Chalk marks on the door, one for every night. Somebody is counting.").
+- Frostbun: a striped knitted scarf on a rock (it blocks Pip) and a smoothed snow cradle by the Summit, both at least
+  20 m from his arena (`Look · Snow cradle`: "A little nest of snow, smoothed round like a cradle. It's still warm in
+  the middle.").
+
+Reading one gives nothing and sets nothing, and works before and after the bloom. They are placed by their own
+post-pass (`placeReasons`, ARCHITECTURE §9) and never move anything else on the island.
+
+**The handover** (first win only). Instead of a burst, the Catcher sits down over 1 s (lowered and tilted back, five
+dizzy stars, a soft thump and a "phew"). The camera takes a wide shot, then a two-shot over Pip's shoulder (first
+person: the view turns to its face); it says two lines, holds the Starseed out, says a third line, and Pip gets the
+seed with the usual item-get text and fanfare. Lines (`HANDOVER` in `js/data.js`):
+
+| Catcher | Why it kept the seed (line 2) |
+|---|---|
+| Grumble Shroom | "The little ones were scared of the dark, you know. Since she went droopy, the woods stopped glowing. That seed lit them right up." |
+| Captain Pinch | "My lamp went dark the night she wilted, and Nell Pelliwick's boat is still out past the reef. A skipper doesn't let a lamp go out with a boat at sea." |
+| Frostbun | "It was shivering when it landed. Seeds catch cold. Everyone knows that. I hugged it all night." |
+
+The scene can be skipped (hold Use 0.8 s) and leaves the same save state as a watched one: the seed, plus the flags
+`calm:<id>` (1, 2, 3 in the order the Catchers were calmed) and `handover:<id>`. No seed is left lying in the arena;
+the vines drop as before. After it, the Catcher stays sitting in its arena, 3 m from the centre toward the entrance,
+until the bloom, and Use on it reads `Talk · Grumble Shroom`: two "before" lines in turn while its seed is carried, one
+"placed" line once the seed is in the pedestal (`CATCHER_TALK`). Continue puts it back sitting; a save written in the middle of the scene
+replays the scene on Talk, so nothing is missable.
+
+**The watchers.** At the bloom the three Catchers watch from the plaza edge (Grumble at (−9, −2), Frostbun at (11, 4),
+Pinch at (−8, 18), each nudged to a clear spot), at 0.6 × their size, facing the Tree. When the Tree blooms Grumble
+bobs twice ("one small clap"), Frostbun hops once and Pinch tips forward ("doffs his hat"). They leave with the ending
+card; the guardians then nap in their arenas for the rematches.
 
 | Boss | Region, HP | Attacks |
 |---|---|---|
@@ -346,7 +383,7 @@ Settings are stored per device, separate from the save, and survive a new game.
 |---|---|---|
 | Frame rate, worst eye-level view | ≥ 60 fps | 60 fps in all 72 sweep views (36 per view mode) |
 | Main-pass GPU time | ≤ 8.5 ms median, ≤ 11 ms 90th percentile | median view 5.6 ms (first person) / 6.2 ms (third person); worst view 7.9 ms, worst 90th percentile 8.8 ms |
-| Draw calls (+ viewmodel + shadow) | ≤ 350 | ≤ 223 |
+| Draw calls (+ viewmodel + shadow) | ≤ 350 | ≤ 223 in the sweep; ≤ 231 in the M01 arena views during a fight (`docs/roadmap/progress.md`) |
 | Triangles | ≤ 1.3 M | ≤ 1.19 M |
 | HUD CPU per frame | ≤ 0.3 ms (95th percentile) | in-page test `wp6` |
 | Viewmodel pass GPU | ≤ 0.3 ms at rest and swinging | in-page test `wp2-heavy` |
@@ -362,11 +399,11 @@ One save slot in the browser (`starseed-isle-save-v2`): autosave every 30 s outs
 chests, purchases, defeats). It keeps the island seed, Pip's place and look, hearts, gems, potions, sword, Starseeds
 (found and placed), chests, defeated bosses, the shop heart, the ending, the time of day, visited regions, errands
 (started or done) and their items found (rainbow shells picked up, parade lanterns lit), Miso's guardian plushies bought,
-the guardian rematches won, the landmark secrets found, and your map marker. A save made mid-fight (a first fight or a rematch) resumes outside the
+the guardian rematches won, the landmark secrets found, the story flags (`flags`, below) and your map marker. A save made mid-fight (a first fight or a rematch) resumes outside the
 arena. Continue resumes there; Save & Quit returns to the title.
 
 The schema lives in `js/save.js` (pure, unit-tested in `tests/save.test.js`). Every save carries a `v` field,
-`SAVE_VERSION` (currently 6); the version comes from `v`, not from the storage key, which stays
+`SAVE_VERSION` (currently 7); the version comes from `v`, not from the storage key, which stays
 `starseed-isle-save-v2`. Loading runs `loadSave(raw, seed)`: `migrate` applies the `MIGRATIONS[n]` steps
 (version n → n + 1) up to `SAVE_VERSION` and rejects non-objects, saves without `seed`, saves newer than
 `SAVE_VERSION` or with no migration path; then `normalize` fills missing fields from `freshState` and
@@ -389,8 +426,14 @@ found); `normalize` keeps only `SECRETS` ids set to `true`. A build from before 
 save: to roll the secrets back, keep the v5 → v6 step and drop only the gameplay.
 `MIGRATIONS[6]` (v6 → v7, the story flags) keeps every v6 field and adds `flags` (key → `true` or a finite number):
 `bloom` when the ending was seen, and `calm:<id>` (1, 2, 3 in `SEED_ORDER` order) plus `handover:<id>` for each guardian
-already beaten. Continue backs the older save's raw string up to `starseed-isle-save-v2-bak` before migrating it. A
-build from before v7 treats a v7 save as newer, so as no save.
+already beaten. `normalize` keeps a flag only when its key matches `FLAG_KEY` (`/^[A-Za-z0-9:_.-]{1,48}$/`, upper
+case allowed for camelCase story flags) and its value is `true` or a finite number (0 kept); anything else is dropped.
+The flags map is the one store every later story beat, seen line, gate and choice writes into, so they need no version
+bump of their own; so far the game sets `calm:<id>` and `handover:<id>` at each handover (§8) and `bloom` when the ending
+finishes. Before migrating an older save, Continue copies its raw string, byte for byte, to a second key,
+`starseed-isle-save-v2-bak` (overwriting any older backup), so a bad migration never loses the only copy; nothing reads
+the backup yet. A build from before v7 treats a v7 save as newer, so as no save: do not revert v7 once released, ship
+a fix forward.
 
 The first-person build adds two optional fields without a version bump (`normalize` keeps unknown fields): `pitch`,
 the look angle, which `Game.startSession` restores clamped; and `controlsV`, the version of the controls card the

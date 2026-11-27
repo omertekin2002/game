@@ -340,7 +340,10 @@ to 3, `swordLevel` to 1 or 2, and keeps only `BOSSES` ids in `plushies`/`rematch
 
 ### v7: the generic flags map (S-003)
 
-- `MIGRATIONS[6] = (s) => ({ ...s, flags: {} })`.
+- `MIGRATIONS[6] = (s) => ({ ...s, flags: v7Flags(s) })` (reconciliation R2, closed in S-007). `v7Flags(s)` starts
+  from `{}` and sets `bloom: true` when `s.ending === true` (story `#flags`: `bloom` mirrors the shipped `ending`), and
+  for each id of `SEED_ORDER` with `s.bosses[id] === true`, numbered from 1 in `SEED_ORDER` order, `calm:<id>` = that
+  number and `handover:<id>` = `true` (a v6 save beat them before the handover existed; the real order is unknown).
 - `S.flags { key: true | finite number }`. `normalize` keeps an entry only if its key matches
   **`/^[A-Za-z0-9:_.-]{1,48}$/`** and its value is `true` or a finite number (0 kept). Anything else is dropped.
   (Upper case is allowed because the story milestone flags are camelCase: `wennaAwake`, `moteNamed`.)
