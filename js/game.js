@@ -3,7 +3,7 @@
 // combat.js, targeting.js, interact.js, fight.js, cutscenes.js, ambient.js, spawn.js and debug/debug.js.
 import * as THREE from 'three';
 import { G, music, audioInit, store } from './core.js';
-import { CFG, SAVE_KEY, SAVE_BAK_KEY, REGIONS, NPCS, SEED_ORDER, SEEDS } from './data.js';
+import { CFG, SAVE_KEY, SAVE_BAK_KEY, REGIONS, NPCS, SEED_ORDER, SEEDS, HANDOVER } from './data.js';
 import { SAVE_VERSION, freshState, loadSave } from './save.js';
 import { Player } from './player.js';
 import { NPC } from './npcs.js';
@@ -188,6 +188,8 @@ export class Game {
     this.pedSeeds.forEach((g, i) => (g.visible = S.seeds[SEED_ORDER[i]] === 2));
     this.resetEntities();
     for (const id of SEED_ORDER) if (!S.bosses[id]) this.bosses[id] = new Boss(id, W.arenas[id]);
+    // a Catcher beaten before the bloom sits in its arena after its handover (S-005), 3 m from the centre toward the entrance
+    for (const id of SEED_ORDER) if (S.bosses[id] && !S.ending && HANDOVER[id]) this.bosses[id] = this.satBoss(id);
     this.spawnRematches(true);   // after the bloom, the beaten guardians nap in their arenas for a rematch (fight.js)
     this.spawnMissingSeeds();
     // player + look (facing = look yaw, facing convention; pitch is an optional save field). A corrupted optional field
@@ -232,8 +234,19 @@ export class Game {
     this.ui.bossBar(null);
     for (const id in this.vines) { const v = this.vines[id]; v.k = v.target = 0; v.g.visible = false; }
   }
+  /** a Catcher sitting after its handover (S-005; Continue before the bloom): the arena centre moved 3 m toward its entrance */
+  satBoss(id) {
+    const a = this.world.arenas[id], b = new Boss(id, a, { sat: true });
+    const dx = a.outside.x - a.x, dz = a.outside.z - a.z, l = Math.hypot(dx, dz) || 1;
+    b.pos.set(a.x + (dx / l) * 3, a.h, a.z + (dz / l) * 3);
+    b.prev.copy(b.pos);
+    b.root.position.copy(b.pos);
+    return b;
+  }
   spawnMissingSeeds() {
     for (const id of SEED_ORDER) {
+      // a Catcher with a handover gives its seed by hand (Talk replays a handover cut short), never as a pickup
+      if (HANDOVER[id]) continue;
       if (this.S.bosses[id] && !this.S.seeds[id] && !this.pickups.some((p) => p.kind === 'seed' && p.seedId === id)) {
         const a = this.world.arenas[id];
         this.pickups.push(new Pickup('seed', a.x, a.z, { seedId: id, color: SEEDS[id].color, vy: 6, spread: 0, y0: 1 }));
@@ -298,7 +311,7 @@ export class Game {
     // r2 actors: the boss body stays solid while it dies (until it is gone), sized to keep the FP eye out of its mesh
     const fb = this.fight && this.fight.boss;
     if (fb && !fb.dead && fb.lift < 1) out.push({ x: fb.pos.x, z: fb.pos.z, r: fb.colliderR ?? fb.r * 0.85 });
-    for (const id in this.bosses) { const b = this.bosses[id]; if (b.state === 'sleep') out.push({ x: b.pos.x, z: b.pos.z, r: b.r }); }
+    for (const id in this.bosses) { const b = this.bosses[id]; if ((b.state === 'sleep' || b.sat) && b !== fb) out.push({ x: b.pos.x, z: b.pos.z, r: b.r }); }
     return out;
   }
   enemyColliders(e) {

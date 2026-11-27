@@ -9,12 +9,16 @@
 // height }, W.shots.{ place, endingCrane }) with today's fields as the fallback, never from literals; a cutscene reads them once.
 // The moving parts (a seed's flight, the crane) advance in the sim but are posed per render frame (renderCutscene, called
 // by the wp1-feel module before the camera): the seed from its interpolated flight time, the crane from render time.
+// - handover (S-005, story.md #I.2 'handover-woods'): a Catcher's first win ends with it sitting down (bosses.js); this
+//   cutscene runs the script's steps in order (HANDOVER_STEPS, so S-034 can port it to the scene runner): wide shot,
+//   the sit, a two shot over Pip's shoulder, its lines with the Starseed held out, the pov hand-back, the calm flags and
+//   the shipped seed item-get. Skippable (G.debug.scene.skip, or {interact} held 0.8 s) to the same save state.
 import * as THREE from 'three';
 import { sfx, music } from './core.js';
-import { SEED_ORDER, SEEDS, progress } from './data.js';
+import { SEED_ORDER, SEEDS, BOSSES, HANDOVER, progress } from './data.js';
 import { toonMat, sharedOutline, meshWithOutline } from './toon.js';
 import { seedBuilt } from './models.js';
-import { rand, pick, Ease, clamp, lerp, yawOf, wrapAngle, angDiff, fwdXZ, rightXZ } from './util.js';
+import { rand, pick, Ease, clamp, lerp, yawOf, wrapAngle, angDiff, dampAngle, fwdXZ, rightXZ } from './util.js';
 import { EV } from './events.js';
 import { view as TV } from './tune.js';
 import { STEP } from './clock.js';
@@ -42,6 +46,12 @@ function socket(A, i, out) {
   if (s && Number.isFinite(s.x)) return out.set(s.x, (s.y ?? A.ped.y + A.ped.top) + TV.place.seat, s.z);
   return out.set(A.ped.x + (i - 1) * 0.58, A.ped.y + A.ped.top + TV.place.seat, A.ped.z + 0.05);
 }
+/** the handover's staging (S-005): the wide shot from `wide` m back toward Pip and `wideUp` m up; the two shot over Pip's
+ *  shoulder (`twoBack` m behind him, `twoUp` m up, `twoSide` m to his right); the seed held out `seedOut` m in front of
+ *  the Catcher at `seedH` m over its floor, risen over `seedT` s; Use held `skipHold` s skips */
+const HO = { sit: 1.0, wide: 6, wideUp: 3, wideIn: 0.6, wideFovH: 62, two: 2.4, twoUp: 1.4, twoSide: 0.55, twoIn: 0.5, twoFovH: 56, povOut: 0.4, seedOut: 0.6, seedH: 1.4, seedT: 0.6, skipHold: 0.8 };
+/** the handover script's step names, in order (story.md #I.2 'handover-woods'); c.step is the index of the running one */
+export const HANDOVER_STEPS = ['wide', 'sit', 'two', 'say12', 'holdOut', 'say3', 'pov', 'flags', 'item'];
 const shotPose = (s) => (s && Array.isArray(s.pos) && Array.isArray(s.look) ? { pos: new THREE.Vector3(...s.pos), look: new THREE.Vector3(...s.look) } : null);
 
 export const CutsceneMixin = {
@@ -133,6 +143,11 @@ export const CutsceneMixin = {
       cu.mesh.rotation.y = t * 8;
       cu.mesh.scale.setScalar(K.seedScale + (cu.s0 - K.seedScale) * Math.exp(-3 * t));
     } else if (c.type === 'ending' && c.shot) this.moveCrane(dt);
+    else if (c.type === 'handover' && c.seed) {
+      const t = clamp(c.seedT - (1 - clamp(alpha, 0, 1)) * STEP, 0, HO.seedT);
+      this.handoverSeedAt(c, t, c.seed.position);
+      c.seed.rotation.y = this.time * 1.2;
+    }
   },
   updateCutscene(dt) {
     const c = this.cutscene;
@@ -184,6 +199,126 @@ export const CutsceneMixin = {
         }
       }
     } else if (c.type === 'ending') this.updateEnding(dt);
+    else if (c.type === 'handover') this.updateHandover(dt);
+  },
+  // ------------------------------------------------------------------ the Catchers' handover (S-005)
+  /** start the handover of Catcher `b` (sat, fight.js onBossDefeated); `replay`: a Talk after a save written mid-scene
+   *  (beaten, no seed, no handover flag) starts it at the two shot and its first line */
+  startHandover(b, { replay = false } = {}) {
+    const id = b.id;
+    if (!HANDOVER[id] || this.cutscene) return false;
+    const pl = this.player, view = this.view;
+    const c = (this.cutscene = { type: 'handover', id, b, t: 0, step: 0, shot: 0, mode: view.mode, seed: null, seedT: 0, holdT: 0, flagged: false, done: false });
+    pl.state = 'frozen'; pl.vel.set(0, 0); pl.autoMove = null; pl.endSwing();
+    this.skipScene = () => this.skipHandover();
+    this.events.emit(EV.CUTSCENE_START, { type: 'handover', id });
+    // 1 wide: TP a shot from wide m back toward Pip and wideUp m up, looking at the Catcher; FP the eye eases onto it
+    const face = this.bossFace(b);
+    if (c.mode === 'fp') view.faceTo(face.x, face.y, face.z, { dur: 0.6, lock: true, hold: 99 });
+    else if (!replay) c.shot = view.setShot(this.handoverShot(c, 'wide'));
+    if (replay) this.handoverStep(c, 2);   // straight to the two shot and the lines
+    else c.step = 1;                       // 2 sit: the sit plays (bosses.js updateSitting), held for HO.sit s
+    return true;
+  },
+  /** the handover's camera shots (TP): 'wide' or 'two' → setShot options */
+  handoverShot(c, kind) {
+    const b = c.b, P = this.player.pos, a = b.arena, cine = this.view.feel && this.view.feel.cine;
+    let ux = P.x - b.pos.x, uz = P.z - b.pos.z;
+    const l = Math.hypot(ux, uz) || 1;
+    ux /= l; uz /= l;
+    const look = new THREE.Vector3(b.pos.x, a.h + b.height * (kind === 'wide' ? 0.45 : 0.55), b.pos.z);
+    let pos, from;
+    if (kind === 'wide') {
+      pos = new THREE.Vector3(b.pos.x + ux * HO.wide, a.h + HO.wideUp, b.pos.z + uz * HO.wide);
+      from = new THREE.Vector3(b.pos.x + ux * (b.r + 0.5), a.h + HO.wideUp, b.pos.z + uz * (b.r + 0.5));
+    } else {
+      // over Pip's shoulder: behind him (away from the Catcher), up, a little to his right
+      pos = new THREE.Vector3(P.x + ux * HO.two - uz * HO.twoSide, P.y + HO.twoUp, P.z + uz * HO.two + ux * HO.twoSide);
+      from = new THREE.Vector3(P.x, P.y + HO.twoUp, P.z);
+    }
+    if (cine && cine.safe) cine.safe(from, pos.clone(), pos);   // never through a tree, a rock or the vine wall
+    const fov = cine ? cine.shotFov(kind === 'wide' ? HO.wideFovH : HO.twoFovH) : 50;
+    return { pos, look, fov, speed: 1 / (0.6 * (kind === 'wide' ? HO.wideIn : HO.twoIn)), priority: 3 };
+  },
+  /** where the held-out seed is t s into its rise: from the Catcher's centre to seedOut m in front of it at seedH m */
+  handoverSeedAt(c, t, out) {
+    const b = c.b, k = Ease.outCubic(clamp(t / HO.seedT, 0, 1)), f = fwdXZ(b.facing), h = b.arena.h;
+    const x0 = b.pos.x, y0 = h + b.height * 0.5, z0 = b.pos.z, x1 = b.pos.x + f.x * (b.r + HO.seedOut), z1 = b.pos.z + f.z * (b.r + HO.seedOut);
+    return out.set(lerp(x0, x1, k), lerp(y0, h + HO.seedH, k), lerp(z0, z1, k));
+  },
+  /** run handover step i (HANDOVER_STEPS[i]) */
+  handoverStep(c, i) {
+    c.step = i;
+    const id = c.id, lines = HANDOVER[id], who = { name: BOSSES[id].name, portrait: BOSSES[id].key }, view = this.view;
+    const then = (j) => () => { if (this.cutscene === c && !c.done) this.handoverStep(c, j); };
+    const name = HANDOVER_STEPS[i];
+    if (name === 'two') {
+      // 3 two: TP over Pip's shoulder; FP unchanged
+      if (c.mode === 'tp') c.shot = view.setShot(this.handoverShot(c, 'two'));
+      return this.handoverStep(c, 3);
+    }
+    if (name === 'say12') { this.ui.say([lines[0].text, lines[1].text], { ...who, onDone: then(4) }); return; }
+    if (name === 'holdOut') {
+      // 5 holdOut: the Starseed rises out of the Catcher and is held out in front of it (posed in renderCutscene)
+      const mesh = meshWithOutline(seedBuilt(SEEDS[id].color), toonMat({ glow: true }), sharedOutline('char'));
+      this.handoverSeedAt(c, 0, mesh.position);
+      this.scene.add(mesh);
+      c.seed = mesh; c.seedT = 0;
+      return;                              // updateHandover moves on to say3 once it is held out
+    }
+    if (name === 'say3') { this.ui.say([lines[2].text], { ...who, onDone: then(6) }); return; }
+    if (name === 'pov') return this.finishHandover(c);
+  },
+  updateHandover(dt) {
+    const c = this.cutscene;   // (c.t is advanced by updateCutscene)
+    // the Catcher turns (slowly) to face Pip while it talks (its own update rests while it is sat)
+    const b = c.b;
+    b.prevFacing = b.facing;
+    b.facing = dampAngle(b.facing, yawOf(this.player.pos.x - b.pos.x, this.player.pos.z - b.pos.z), 3, dt);
+    // {interact} held for HO.skipHold s skips the scene (a press still reads the lines)
+    c.holdT = this.input.held('interact') ? c.holdT + dt : 0;
+    if (c.holdT >= HO.skipHold) return this.skipHandover();
+    if (c.step === 1 && c.t >= HO.sit) return this.handoverStep(c, 2);
+    if (c.step === 4 && c.seed) {
+      c.seedT += dt;
+      if (Math.random() < 0.5) { const q = this.handoverSeedAt(c, c.seedT, _v); this.fx.sparkle(q.x, q.y, q.z, SEEDS[c.id].glow, 1, 0.2); }
+      if (c.seedT >= HO.seedT) this.handoverStep(c, 5);
+    }
+  },
+  /** skip: close the open line, then the same end as a watched handover (flags, the item-get), so the save state matches */
+  skipHandover() {
+    const c = this.cutscene;
+    if (!c || c.type !== 'handover' || c.done) return false;
+    this.ui.closeDialogue();
+    this.finishHandover(c);
+    return true;
+  },
+  /** 7 pov: drop the shot (FP: the locked look); 8 flags; 9 the shipped seed item-get; 10 on its close, control back */
+  finishHandover(c) {
+    if (c.done) return;
+    c.done = true;
+    const id = c.id, view = this.view, b = c.b;
+    this.cutscene = null;
+    this.skipScene = null;
+    if (c.seed) { this.scene.remove(c.seed); c.seed = null; }
+    c.step = 6;
+    const face = this.bossFace(b);
+    if (c.shot) view.clearShot(c.shot, { face, speed: 1 / (0.8 * HO.povOut) });
+    else view.setLook(view.yaw, view.pitch);   // FP: drop the locked look assist where it is (on the Catcher)
+    c.step = 7;
+    this.calmFlags(id);
+    c.step = 8;
+    this.giveSeed(id, () => {
+      this.player.state = 'normal';
+      this.events.emit(EV.CUTSCENE_END, { type: 'handover', id });
+      this.save(true);
+    });
+  },
+  /** the handover's flags (story.md flag table): calm:<id> = the order this Catcher was calmed in (1-3), handover:<id> */
+  calmFlags(id) {
+    const F = this.S.flags;
+    if (!Number.isFinite(F['calm:' + id])) F['calm:' + id] = 1 + Object.keys(F).filter((k) => k.startsWith('calm:')).length;
+    F['handover:' + id] = true;
   },
   startEnding() {
     const A = anchors(this), Tr = A.tree, E = TV.ending, view = this.view;
@@ -271,6 +406,8 @@ export const CutsceneMixin = {
     this.ui.showHud(true);
     this.S.ending = true;
     this.S.flags.bloom = true;   // story I.5: the bloom (S.flags, save v7)
+    // the sitting Catchers (S-005) go: the shipped rematch nap takes over unchanged
+    for (const id in this.bosses) { const b = this.bosses[id]; if (b.sat) { b.remove(); delete this.bosses[id]; } }
     this.spawnRematches(true);   // the guardians nap in their arenas again, for a friendly rematch (fight.js)
     this.events.emit(EV.CUTSCENE_END, { type: 'ending' });
     this.save(false);

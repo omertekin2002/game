@@ -66,6 +66,28 @@ export const BOSSES = {
   peaks: { name: 'Frostbun', title: 'Chilly Champion of Frostcap Peaks', key: 'boss_frost', hp: 50 },
 };
 
+// The Catchers' handover (S-005, story.md #I.2): a guardian with an entry here sits down after its first win instead of
+// bursting, says these lines and hands its Starseed over (cutscenes.js startHandover); `t` is the text id. Without an
+// entry (Pinch and Frostbun until S-006) the shipped burst and seed pick-up stay
+export const HANDOVER = {
+  woods: [
+    { t: 'home.handover.woods.1', text: 'Hmph. Fine. FINE. Take it.' },
+    { t: 'home.handover.woods.2', text: 'The little ones were scared of the dark, you know. Since she went droopy, the woods stopped glowing. That seed lit them right up.' },
+    { t: 'home.handover.woods.3', text: 'Bring it home. Tell her Grumble kept it warm.' },
+  ],
+};
+// What a sitting Catcher says to Talk until the bloom (interact.js talkCatcher): `placed` once its seed is in the
+// pedestal, else the `before` lines in turn (a runtime counter, not saved)
+export const CATCHER_TALK = {
+  woods: {
+    placed: [{ t: 'home.catcher.woods.placed', text: 'Look. They glow on their own again. I am still grumpy. On principle.' }],
+    before: [
+      { t: 'home.catcher.woods.before.1', text: 'Still here. Don\'t make a thing of it.' },
+      { t: 'home.catcher.woods.before.2', text: 'The little ones keep asking where the glow went. I told them a kind hand has it. Hmph.' },
+    ],
+  },
+};
+
 // Guardian rematches after the bloom (opt-in: a napping guardian is woken with Use, never by walking in). Harder, still
 // fair: hpK × its first-fight HP (rounded: 48 → 60, Frostbun 50 → 63), enraged from `enrage` of its HP (first fights:
 // half), the same moves and wind-ups. The first rematch win per guardian gives `gems` once (S.rematches[id], save v5);

@@ -537,6 +537,8 @@
     slide: function (t) { N({ t: t, d: 0.5, v: 0.12, a: 0.03, type: 'bandpass', f: 3200, f1: 1400, q: 0.9 }); return 0.55; },
     bonk: function (t) { T({ t: t, f: 170, f1: 85, d: 0.2, v: 0.3 }); T({ t: t, f: 560, f1: 920, d: 0.09, v: 0.07, vib: [25, 30] }); return 0.25; },
     bossPop: function (t) { var p = rv(0.1); T({ t: t, f: 520 * p, f1: 150, d: 0.26, v: 0.18 }); N({ t: t, d: 0.2, v: 0.16, type: 'lowpass', f: 1600, f1: 280 }); return 0.3; },
+    // the handover sit (S-005): a soft low thump, then a descending "phew"
+    bossSit: function (t) { T({ t: t, f: 110, f1: 70, d: 0.25, v: 0.22 }); T({ t: t + 0.15, f: 520, f1: 260, d: 0.4, v: 0.05, type: 'triangle' }); return 0.6; },
     bossIntro: function (t) { T({ t: t, f: 98, f1: 60, d: 0.3, v: 0.32 }); T({ t: t + 0.05, f: 196, d: 0.4, h: 0.3, v: 0.08, type: 'triangle', lp: 900 }); T({ t: t + 0.5, f: 262, d: 0.7, h: 0.5, v: 0.09, type: 'triangle', lp: 1200, rev: 0.3 }); T({ t: t + 0.5, f: 392, d: 0.7, h: 0.5, v: 0.05, type: 'triangle', rev: 0.3 }); return 1.3; },
     // ---- player / pickups / UI names other packages may call (C8)
     pickupGem: function (t, o) { var p = rv(0.03); T({ t: t, f: 1318.5 * p, d: 0.09, v: 0.2, type: 'triangle', a: 0.002 }); T({ t: t + 0.06, f: 1975.5 * p, d: 0.26, v: 0.2, type: 'triangle', a: 0.002, rev: 0.12 }); if ((o.value || 1) > 1) T({ t: t + 0.12, f: 2637 * p, d: 0.3, v: 0.12, type: 'triangle', a: 0.002, rev: 0.15 }); return 0.4; },

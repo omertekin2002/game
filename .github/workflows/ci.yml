@@ -131,6 +131,7 @@ jobs:
           - { id: wp8-2, args: 'wp8:2/3' }
           - { id: wp8-3, args: 'wp8:3/3' }
           - { id: wp9, args: wp9 }
+          - { id: act1, args: act1 }
           - { id: core, args: smoke look feel-basic combat-basic interact-basic save-migrate }
     steps:
       - uses: actions/checkout@v5

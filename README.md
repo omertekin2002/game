@@ -119,6 +119,10 @@ Open Settings from the pause menu or the title.
   past four paper lanterns, which light up as they pass and stay lit.
 - Something to spend spare gems on: once the Heart Container and the Shiny Sword are sold, Miso stocks a plushie of each
   guardian Pip has beaten (80 gems each), and every one bought sits on her counter.
+- The Catchers' handover: the first win over Grumble Shroom ends with him sitting down, dizzy, to say why he kept the
+  Woods Starseed and hand it over (the seed item-get follows). He stays sitting in his open arena until the bloom, with
+  `Talk · Grumble Shroom` for a word or two; the scene can be skipped by holding Use. (Captain Pinch and Frostbun still
+  burst and drop their seeds.)
 - Guardian rematches after the bloom: the three guardians nap in their arenas again. Walking in wakes nobody; aim at one
   and press Use (`Wake`) for a friendly but harder rematch: 1.25× HP, enraged sooner, the same moves. The first win
   against each gives 40 gems; no Starseed drops.
@@ -156,7 +160,7 @@ bun run test:inpage [suite[:k/n] …]  # headless Chromium: the in-page suites (
 The browser tests need Playwright's Chromium once: `bunx playwright install chromium`. On failure they save a
 screenshot to `test-results/` (the PWA test builds its site into `test-results/pwa-site/`). CI
 (`.github/workflows/ci.yml`) runs all of them on pushes and pull requests, the in-page suites as one job per suite
-(`wp1` … `wp9`, `wp2` and `wp8` in three shards each, plus `core` for the regular suites in `js/debug/tests.js`);
+(`wp1` … `wp9`, `wp2` and `wp8` in three shards each, `act1`, plus `core` for the regular suites in `js/debug/tests.js`);
 heavy suites stay out of CI.
 
 `test:inpage` runs the in-page tests described in the next section, which also run by hand from the browser console.
@@ -195,7 +199,7 @@ await G.debug.test.run('wp6')       // one suite
 await G.debug.test.list()           // suite names, test counts, which are heavy
 ```
 
-`'all'` runs `smoke`, `look`, `feel-basic`, `combat-basic`, `interact-basic`, `save-migrate` and `wp1` … `wp9`. Heavy
+`'all'` runs `smoke`, `look`, `feel-basic`, `combat-basic`, `interact-basic`, `save-migrate`, `wp1` … `wp9` and `act1`. Heavy
 suites run only by name: `probe`, `sweep`, `wp1-heavy`, `wp2-heavy`, `wp3-heavy`, `wp4-matrix`, `wp5-heavy`,
 `wp6-heavy`, `wp7-hitch` (first thing in a fresh page), `wp7-sweep`, `wp8-perf`, `wp9-heavy`; the GPU ones are meant
 for a 1920×1080 window. The tests restore your save and settings when they finish. A few timing checks (HUD frame time,
