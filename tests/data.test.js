@@ -1,6 +1,6 @@
 // Sanity checks for the content tables in js/data.js. Run with `bun test`.
 import { expect, test } from 'bun:test';
-import { BOSSES, CFG, ENEMY, ERRANDS, NPCS, REASONS, REGIONS, SEED_ORDER, SEEDS, SHOP, errands, reasonFor } from '../js/data.js';
+import { BOSSES, CATCHER_TALK, CFG, ENEMY, ERRANDS, HANDOVER, NPCS, REASONS, REGIONS, SEED_ORDER, SEEDS, SHOP, errands, reasonFor } from '../js/data.js';
 import { freshState } from '../js/save.js';
 
 test('every enemy in a region spawn table exists in ENEMY', () => {
@@ -250,4 +250,26 @@ test('the Catchers\' reasons (REASONS): three Look lines, one per Catcher, each 
   expect(reasonFor({ id: 'home:reason-pinch-tally', kind: 'tally' })).toBe(REASONS[1]);
   expect(reasonFor({ id: 'home:reason-frost-cradle', kind: 'cradle' })).toBe(REASONS[2]);
   for (const kind of ['rings', 'spyglass', 'scarf']) expect(reasonFor({ id: 'x', kind })).toBeNull();
+});
+
+// the key tokens a player-facing line may carry (js/hud/keys.js header, contract C7)
+const KEY_TOKENS = ['move', 'look', 'attack', 'jump', 'dash', 'sprint', 'interact', 'potion', 'view', 'shoulder', 'lock', 'map', 'pause', 'roll', 'lockon', 'use', 'swing', 'hop', 'zoom', 'camera', 'ok', 'back', 'tabPrev', 'tabNext'];
+test('the Catchers\' handover (HANDOVER, CATCHER_TALK): Grumble\'s three lines and his Talk lines, each ≤ 220 characters with its text id and known tokens only', () => {
+  expect(Object.keys(HANDOVER)).toEqual(['woods']);   // Pinch and Frostbun keep the shipped burst until S-006
+  expect(Object.keys(CATCHER_TALK)).toEqual(['woods']);
+  expect(HANDOVER.woods.map((l) => l.t)).toEqual(['home.handover.woods.1', 'home.handover.woods.2', 'home.handover.woods.3']);
+  expect(CATCHER_TALK.woods.placed.map((l) => l.t)).toEqual(['home.catcher.woods.placed']);
+  expect(CATCHER_TALK.woods.before.map((l) => l.t)).toEqual(['home.catcher.woods.before.1', 'home.catcher.woods.before.2']);
+  const lines = [...HANDOVER.woods, ...CATCHER_TALK.woods.placed, ...CATCHER_TALK.woods.before];
+  for (const id of Object.keys(HANDOVER)) expect(BOSSES[id]).toBeDefined();
+  for (const l of lines) {
+    expect(typeof l.text === 'string' && l.text.length > 0).toBe(true);
+    expect(l.text.length).toBeLessThanOrEqual(220);
+    // braces only as known key tokens (contract C7, js/hud/keys.js); no "defeat" (Tone)
+    for (const m of l.text.matchAll(/\{([a-zA-Z]*)\}/g)) expect(KEY_TOKENS).toContain(m[1]);
+    expect(l.text.replace(/\{[a-zA-Z]+\}/g, '')).not.toMatch(/[{}]/);
+    expect(l.text).not.toMatch(/defeat/i);
+  }
+  expect(HANDOVER.woods[0].text).toBe('Hmph. Fine. FINE. Take it.');
+  expect(HANDOVER.woods[2].text).toBe('Bring it home. Tell her Grumble kept it warm.');
 });

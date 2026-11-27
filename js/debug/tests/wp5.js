@@ -33,6 +33,7 @@ function fight(t, id, dist = 6, rematch = false) {
   const { game, D } = t;
   // an earlier test may have beaten this boss (smoke's 'place' gives its seed): bring it back for this run (the runner
   // restores the save afterwards)
+  if (game.bosses[id] && game.bosses[id].sat) { game.bosses[id].remove(); delete game.bosses[id]; }   // a Catcher sitting after its handover (S-005)
   if (game.S.bosses[id] || !game.bosses[id]) {
     game.S.bosses[id] = false; game.S.seeds[id] = 0;
     for (const p of game.pickups) if (p.kind === 'seed' && p.seedId === id) p.remove();
@@ -450,7 +451,8 @@ export default function register(suite) {
         D.killBoss(); t.frames(1);
         t.ok(b.dying, id + ': dying');
         let min = 9, coll = 0, n = 0;
-        for (let i = 0; i < 125 && !b.dead; i++) {     // 2.1 s of the 2.2 s death, holding forward at it
+        // 2.1 s of the 2.2 s death, holding forward at it (Grumble's handover sit: its 1.0 s, then the scene starts)
+        for (let i = 0; i < 125 && !b.dead && !b.sat; i++) {
           D.lookAt(b.pos.x, b.pos.y + 1, b.pos.z); D.move(0, 1); t.frames(1); n++;
           min = Math.min(min, Math.hypot(pl.pos.x - b.pos.x, pl.pos.z - b.pos.z));
           if (game.dynamicColliders(pl).some((c) => c.x === b.pos.x && c.z === b.pos.z && Math.abs(c.r - b.colliderR) < 1e-9)) coll++;
@@ -459,6 +461,7 @@ export default function register(suite) {
         rows[id] = { min: +min.toFixed(3), room: b.room, keepOut: b.keepOut, coll, n };
         t.ok(min > b.room - 0.15, id + ': held at its room while it dies (was 0.04 m: inside the body)', rows[id]);
         t.eq(coll, n, id + ': its body collider stays while it dies');
+        if (b.sat) { t.ok(game.cutscene && game.cutscene.type === 'handover', id + ': sat down, the handover started'); D.scene.skip(); t.dlgDone(); }
         game.endFight(true); D.pose('spawn'); t.frames(2);
       }
       t.note('dying', rows);

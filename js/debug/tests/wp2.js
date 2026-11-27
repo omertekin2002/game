@@ -10,6 +10,7 @@ import { bladeGeometry } from '../../toon.js';
 import { swordCol } from '../../models.js';
 /** r4: an earlier test may have beaten this boss (smoke's 'place' gives its seed): bring it back (the runner restores the save) */
 function reviveBoss(game, id) {
+  if (game.bosses[id] && game.bosses[id].sat) { game.bosses[id].remove(); delete game.bosses[id]; }   // a Catcher sitting after its handover (S-005)
   if (!game.S.bosses[id] && game.bosses[id]) return;
   game.S.bosses[id] = false; game.S.seeds[id] = 0;
   for (const p of game.pickups) if (p.kind === 'seed' && p.seedId === id) p.remove();
