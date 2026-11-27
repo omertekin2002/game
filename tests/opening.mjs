@@ -9,7 +9,7 @@
 //  - portrait phone 390×844 (hasTouch, isMobile): a tap on New Adventure; taps read the intro through; a swipe turns the
 //    view, the floating stick walks Pip, the Swing button swings. The objective line under the compass never leaves the
 //    distance unit ("m") on a line of its own, at the distance on screen and at a few others.
-// Both: the intro has at most 3 pages and every page fits its box, S.introDone is set, and no page error, console error
+// Both: the intro has at most 4 pages and every page fits its box, S.introDone is set, and no page error, console error
 // or failed request. The simulation is stepped through the real frame loop (game.runFrame with the manual clock), as in
 // tests/playthrough.mjs: the input events are real, only the clock is the test's.
 // Usage: node tests/opening.mjs   (or `bun run test:opening`). Screenshots land in test-results/ (opening-*.png).
@@ -25,7 +25,8 @@ const STEP_TIMEOUT = 60_000;
 const QUERY = '?debug=1&nolock=1';
 const OUT = new URL('../test-results/', import.meta.url);
 const STEP = 1 / 60;                    // one frame = one fixed step (STEP in js/clock.js)
-const MAX_PAGES = 3;                    // Shellby's intro (js/data.js NPCS[0].intro)
+const MAX_PAGES = 4;                    // Shellby's intro (js/data.js NPCS[0].intro)
+// story.md#I.1 adds a fourth box (S-008)
 
 const T0 = Date.now();
 const step = (msg) => console.log(`[opening] ${((Date.now() - T0) / 1000).toFixed(0).padStart(4)} s  ${msg}`);

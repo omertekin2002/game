@@ -1,10 +1,11 @@
-// Act I in-page suite (registered by js/debug/tests.js; only loaded with ?debug=1): the Catchers' handover (S-005, S-006).
+// Act I in-page suite (registered by js/debug/tests.js; only loaded with ?debug=1): the Catchers' handover (S-005, S-006)
+// and Shellby's myth instalments (S-008).
 //   act1   each Catcher's first win (Grumble Shroom, Captain Pinch, Frostbun): it sits down, says its three lines, holds
 //          its Starseed out and the shipped item-get gives it; skipping leaves the same save; Talk until the bloom;
 //          Continue keeps him sitting; a save written mid-scene replays it; the bloom shows the three as watchers at their
-//          plaza marks (S-006) and then sends them to nap for the shipped rematch
+//          plaza marks (S-006) and then sends them to nap for the shipped rematch; Shellby tells inst:1 once (S-008)
 // The saves come from tests/fixtures/saves/ (act1-fresh, act1-1seed, act1-3carried), loaded with G.debug.loadSave.
-import { SAVE_KEY, HANDOVER, CATCHER_TALK, SEEDS, BOSSES, SEED_ORDER } from '../../data.js';
+import { SAVE_KEY, HANDOVER, CATCHER_TALK, SEEDS, BOSSES, SEED_ORDER, INSTALMENTS, NPCS } from '../../data.js';
 import { WATCH, watchPose } from '../../cutscenes.js';
 import { store } from '../../core.js';
 import { combat as TC } from '../../tune.js';
@@ -308,5 +309,25 @@ export default function register(suite) {
       t.ok(!Object.values(game.bosses).some((q) => q.sat), 'no Catcher sits after the bloom');
       D.setView('fp', { instant: true });
     }],
-  ], { desc: 'Act I: the Catchers\' handover and the bloom watchers (S-005, S-006)', prepare: { view: 'fp', pose: 'spawn', god: true } });
+    ['instalment once: Shellby tells inst:1 on the first Talk, never again', async (t) => {
+      const { game, D, ui } = t;
+      load(t, await fixture('act1-1seed'));
+      t.ok(!game.S.flags['inst:1'], 'act1-1seed: inst:1 not heard yet', game.S.flags);
+      const sh = NPCS.find((n) => n.id === 'shellby'), talk = () => {
+        D.standAt('shellby'); t.frames(3);
+        t.eq(game.target && game.target.label, 'Talk · Elder Shellby', 'the prompt');
+        t.press('interact'); t.frames(2);
+        t.ok(ui.dlg && ui.dlg.name === 'Elder Shellby', 'his dialogue box');
+        return readLines(t);
+      };
+      const first = talk();
+      t.eq(first[0], INSTALMENTS[0].text, 'the first box is inst:1');
+      t.eq(JSON.stringify(first.slice(1)), JSON.stringify(sh.lines(game.S)), 'then his shipped lines');
+      t.ok(game.S.flags['inst:1'] === true, 'S.flags[inst:1] set', game.S.flags);
+      t.ok(store.get(SAVE_KEY).flags['inst:1'] === true, 'saved');
+      t.frames(10);
+      const second = talk();
+      t.eq(JSON.stringify(second), JSON.stringify(sh.lines(game.S)), 'a second Talk: no instalment box');
+    }],
+  ], { desc: 'Act I: the Catchers\' handover, the bloom watchers and Shellby\'s instalments (S-005, S-006, S-008)', prepare: { view: 'fp', pose: 'spawn', god: true } });
 }

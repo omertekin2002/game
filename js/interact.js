@@ -3,7 +3,7 @@
 // freeze) run on sim time (later / tickLater), so they hold while a menu or the shop pauses the world.
 import * as THREE from 'three';
 import { sfx } from './core.js';
-import { BOSSES, CFG, SEED_ORDER, SEEDS, ERRANDS, SECRETS, HANDOVER, CATCHER_TALK, progress, errands, secrets, reasonFor } from './data.js';
+import { BOSSES, CFG, SEED_ORDER, SEEDS, ERRANDS, SECRETS, HANDOVER, CATCHER_TALK, progress, errands, secrets, reasonFor, shellbyInstalment } from './data.js';
 import { NPC } from './npcs.js';
 import { Boss } from './bosses.js';
 import { Pickup } from './entities.js';
@@ -168,10 +168,13 @@ export const InteractMixin = {
     npc.talkStart();
     this.events.emit(EV.TALK_START, { npc });
     const S = this.S;
-    const lines = npc.def.lines(S);
+    // Shellby tells one myth instalment per Talk at most, before his lines, and marks it heard (data.js INSTALMENTS)
+    const inst = npc.id === 'shellby' ? shellbyInstalment(S) : null;
+    const lines = inst ? [inst.text, ...npc.def.lines(S)] : npc.def.lines(S);
     this.ui.say(lines, {
       name: npc.name, portrait: npc.key,
       onDone: () => {
+        if (inst) { S.flags[inst.key] = true; this.save(true); }
         if (npc.def.shop) {
           this.ui.openShop(S, (it) => this.buy(it), () => { npc.talkEnd(); this.events.emit(EV.SHOP_CLOSE, {}); this.events.emit(EV.TALK_END, { npc }); this.ui.updateHud(S); this.save(true); });
           this.events.emit(EV.SHOP_OPEN, {});
