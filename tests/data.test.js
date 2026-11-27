@@ -1,6 +1,6 @@
 // Sanity checks for the content tables in js/data.js. Run with `bun test`.
 import { expect, test } from 'bun:test';
-import { BOSSES, CFG, ENEMY, ERRANDS, NPCS, REASONS, REGIONS, SEED_ORDER, SEEDS, SHOP, errands, reasonFor } from '../js/data.js';
+import { BOSSES, CATCHER_TALK, CFG, ENEMY, ERRANDS, HANDOVER, INSTALMENTS, NPCS, REASONS, REGIONS, SEED_ORDER, SEEDS, SHOP, errands, reasonFor, shellbyInstalment } from '../js/data.js';
 import { freshState } from '../js/save.js';
 
 test('every enemy in a region spawn table exists in ENEMY', () => {
@@ -222,14 +222,15 @@ test("Elder Shellby's intro is short and keeps its story; his first hints keep w
   const sh = NPCS.find((n) => n.id === 'shellby');
   const intro = sh.intro.join(' ');
   expect(sh.intro.length).toBeGreaterThan(0);
-  expect(sh.intro.length).toBeLessThanOrEqual(3);
+  expect(sh.intro.length).toBeLessThanOrEqual(4);   // story.md #I.1: three pages and a fourth box (S-008)
   expect(intro).toContain('sneeze');
   for (const [boss, region, dir] of [['Grumble Shroom', 'Whispering Woods', 'north'], ['Frostbun', 'Frostcap Peaks', 'east'], ['Captain Pinch', 'Sunny Shores', 'south']]) {
     expect(intro).toContain(boss);
     expect(intro).toContain(region);
     expect(intro).toContain(dir);
   }
-  expect(sh.intro[sh.intro.length - 1]).toEndWith('Off you sprout!');
+  expect(sh.intro[2]).toEndWith('Off you sprout!');
+  expect(sh.intro[3]).toBe('The guardians are older than they look. Be gentle, and they\'ll be gentle back.');   // home.npc.shellby.intro.4
   // the cut pages' facts, in his lines before any Starseed is found: the Great Tree to steer by, the compass, the
   // signpost, Miso's potions
   const first = sh.lines(freshState(CFG.seed)).join(' ');
@@ -250,4 +251,93 @@ test('the Catchers\' reasons (REASONS): three Look lines, one per Catcher, each 
   expect(reasonFor({ id: 'home:reason-pinch-tally', kind: 'tally' })).toBe(REASONS[1]);
   expect(reasonFor({ id: 'home:reason-frost-cradle', kind: 'cradle' })).toBe(REASONS[2]);
   for (const kind of ['rings', 'spyglass', 'scarf']) expect(reasonFor({ id: 'x', kind })).toBeNull();
+});
+
+// the key tokens a player-facing line may carry (js/hud/keys.js header, contract C7)
+const KEY_TOKENS = ['move', 'look', 'attack', 'jump', 'dash', 'sprint', 'interact', 'potion', 'view', 'shoulder', 'lock', 'map', 'pause', 'roll', 'lockon', 'use', 'swing', 'hop', 'zoom', 'camera', 'ok', 'back', 'tabPrev', 'tabNext'];
+test('the Catchers\' handover (HANDOVER, CATCHER_TALK): three lines and the Talk lines per Catcher, each ≤ 220 characters with its text id and known tokens only', () => {
+  // all three Catchers hand their Starseed over (S-005 Grumble, S-006 Pinch and Frostbun)
+  expect(Object.keys(HANDOVER).sort()).toEqual([...SEED_ORDER].sort());
+  expect(Object.keys(CATCHER_TALK).sort()).toEqual([...SEED_ORDER].sort());
+  const lines = [];
+  for (const id of SEED_ORDER) {
+    expect(BOSSES[id]).toBeDefined();
+    expect(HANDOVER[id].map((l) => l.t)).toEqual([1, 2, 3].map((n) => `home.handover.${id}.${n}`));
+    expect(CATCHER_TALK[id].placed.map((l) => l.t)).toEqual([`home.catcher.${id}.placed`]);
+    expect(CATCHER_TALK[id].before.map((l) => l.t)).toEqual([`home.catcher.${id}.before.1`, `home.catcher.${id}.before.2`]);
+    lines.push(...HANDOVER[id], ...CATCHER_TALK[id].placed, ...CATCHER_TALK[id].before);
+  }
+  expect(new Set(lines.map((l) => l.t)).size).toBe(lines.length);
+  for (const l of lines) {
+    expect(typeof l.text === 'string' && l.text.length > 0).toBe(true);
+    expect(l.text.length).toBeLessThanOrEqual(220);
+    // braces only as known key tokens (contract C7, js/hud/keys.js); no "defeat" (Tone); no "~" (Machine)
+    for (const m of l.text.matchAll(/\{([a-zA-Z]*)\}/g)) expect(KEY_TOKENS).toContain(m[1]);
+    expect(l.text.replace(/\{[a-zA-Z]+\}/g, '')).not.toMatch(/[{}]/);
+    expect(l.text).not.toMatch(/defeat/i);
+    expect(l.text).not.toContain('~');
+  }
+  expect(HANDOVER.woods[0].text).toBe('Hmph. Fine. FINE. Take it.');
+  expect(HANDOVER.woods[2].text).toBe('Bring it home. Tell her Grumble kept it warm.');
+  // Captain Pinch talks like a skipper: his handover and his Talk lines each carry "ye", "aye" or "belay" (story.md #I.2
+  // as written: not every single line does)
+  const skipper = /\b(ye|aye|belay)\b/i;
+  expect(HANDOVER.shores.some((l) => skipper.test(l.text))).toBe(true);
+  expect([...CATCHER_TALK.shores.placed, ...CATCHER_TALK.shores.before].some((l) => skipper.test(l.text))).toBe(true);
+  expect(HANDOVER.shores[0].text).toBe('Belay that! ...Aye, aye. Ye\'ve a kind hand, I\'ll give ye that.');
+  expect(HANDOVER.peaks[0].text).toBe('Brrr-rrr... no. Mine.');
+  expect(HANDOVER.peaks[2].text).toBe('You will keep it warm? Promise? ...Hop to it, then.');
+});
+
+test('Shellby\'s instalments (INSTALMENTS): three boxes and the post-bloom wording, each ≤ 220 characters with its text id and known tokens only', () => {
+  expect(INSTALMENTS.map((e) => e.key)).toEqual(['inst:1', 'inst:2', 'inst:3']);
+  expect(INSTALMENTS.map((e) => e.t)).toEqual([1, 2, 3].map((n) => `home.npc.shellby.inst.${n}`));
+  expect(INSTALMENTS[2].bloomT).toBe('home.npc.shellby.inst.3b');
+  const texts = [...INSTALMENTS.map((e) => e.text), INSTALMENTS[2].bloomText];
+  for (const l of texts) {
+    expect(typeof l === 'string' && l.length > 0).toBe(true);
+    expect(l.length).toBeLessThanOrEqual(220);
+    for (const m of l.matchAll(/\{([a-zA-Z]*)\}/g)) expect(KEY_TOKENS).toContain(m[1]);
+    expect(l.replace(/\{[a-zA-Z]+\}/g, '')).not.toMatch(/[{}]/);
+    expect(l).not.toContain('~');
+    expect(l).not.toContain('*');   // the dialogue box has no italic markup
+    expect(l).not.toMatch(/\baltar\b/i);
+  }
+  expect(INSTALMENTS[0].text).toEndWith('like a letter. Still here, it says.');
+  expect(INSTALMENTS[2].text).toEndWith('...Well. Go on, then.');
+  expect(INSTALMENTS[2].bloomText).toEndWith('...Well. Never mind me.');
+});
+
+test('shellbyInstalment: keyed to how many seeds are home, once each; missed ones after the bloom, in order', () => {
+  const st = (seeds, patch = {}) => save({ seeds: { woods: 0, peaks: 0, shores: 0, ...seeds }, flags: {}, ...patch });
+  const key = (S) => { const e = shellbyInstalment(S); return e && e.key; };
+  expect(shellbyInstalment(st({}))).toBeNull();                                   // 0 placed
+  expect(shellbyInstalment(st({ woods: 1 }))).toBeNull();                         // one carried, none placed
+  const one = st({ peaks: 2 });
+  expect(shellbyInstalment(one)).toEqual({ key: 'inst:1', t: 'home.npc.shellby.inst.1', text: INSTALMENTS[0].text });
+  one.flags['inst:1'] = true;
+  expect(shellbyInstalment(one)).toBeNull();                                      // told once
+  // any order: which seed is home does not matter
+  for (const k of SEED_ORDER) expect(key(st({ [k]: 2 }))).toBe('inst:1');
+  const two = st({ woods: 2, shores: 2, peaks: 1 });                              // 2 placed, the third carried
+  expect(key(two)).toBe('inst:2');
+  two.flags['inst:2'] = true;
+  expect(shellbyInstalment(two)).toEqual({ key: 'inst:3', t: 'home.npc.shellby.inst.3', text: INSTALMENTS[2].text });
+  two.flags['inst:3'] = true;
+  expect(shellbyInstalment(two)).toBeNull();                                      // inst:1 missed: kept for after the bloom
+  expect(key(st({ woods: 2, peaks: 2 }))).toBe('inst:2');                         // 2 placed, third not found
+  expect(key(st({ woods: 2, peaks: 1, shores: 1 }))).toBe('inst:1');              // 1 placed and all found: inst:1 first
+  // after the bloom: every unheard one, one per Talk, in order, inst:3 in its post-bloom wording
+  const b = st({ woods: 2, peaks: 2, shores: 2 }, { ending: true });
+  const told = [];
+  for (let e; (e = shellbyInstalment(b)); ) { told.push(e); b.flags[e.key] = true; }
+  expect(told.map((e) => e.key)).toEqual(['inst:1', 'inst:2', 'inst:3']);
+  expect(told[2]).toEqual({ key: 'inst:3', t: 'home.npc.shellby.inst.3b', text: INSTALMENTS[2].bloomText });
+  expect(shellbyInstalment(b)).toBeNull();                                        // all three set
+  const partial = st({ woods: 2, peaks: 2, shores: 2 }, { ending: true, flags: { 'inst:1': true, 'inst:3': true } });
+  expect(key(partial)).toBe('inst:2');
+  // pure: no change to S
+  const snap = JSON.stringify(partial);
+  shellbyInstalment(partial);
+  expect(JSON.stringify(partial)).toBe(snap);
 });

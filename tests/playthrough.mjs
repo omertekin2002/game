@@ -2,12 +2,13 @@
 // Headless-browser playthrough: serve the repo, boot the game in Chromium (software WebGL via SwiftShader) with a clean
 // localStorage and play it from New Game to the ending, then Continue it after a reload:
 //  1. New Game from the title, through Elder Shellby's intro;
-//  2. each guardian (woods, shores, peaks): walk into its arena so the fight starts, beat it (G.debug.killBoss), walk
-//     onto the Starseed it drops until the game picks it up, and read the item-get through; after Captain Pinch, Clover's
+//  2. each guardian (woods, shores, peaks): walk into its arena so the fight starts, beat it (G.debug.killBoss); it sits
+//     down and its handover cutscene plays (S-005, S-006): Use through its three lines and the item-get (no Starseed
+//     drops), it stays sitting on the island, and calm:<id> is the order it was calmed in; after Captain Pinch, Clover's
 //     errand: talking to her starts it, Use picks up the five rainbow shells (each saved), talking again gives the reward
 //     once and finishes it;
-//  3. at the pedestal, Use (the interact press) places the three seeds; the ending runs and shows its card, and closing
-//     the card returns to free roam where Pip can walk; then Mayor Ribbit's parade: talking to him (Use) starts it and
+//  3. at the pedestal, Use (the interact press) places the three seeds; the ending runs and shows its card with the three
+//     Catchers watching at their plaza marks (S-006), and closing the card takes them away and returns to free roam where Pip can walk; then Mayor Ribbit's parade: talking to him (Use) starts it and
 //     shows four unlit lanterns; for each lantern Pip is put about 9 m out and walks to it, and it lights only once
 //     Ribbit, following on his own (walking or a catch-up hop, never moved by the test), is close behind; mid-parade
 //     Save & Quit → Continue keeps the lit lanterns and sends Ribbit home, and a talk picks the parade up again; with Pip
@@ -41,6 +42,8 @@ const STEP_TIMEOUT = 60_000;
 const QUERY = '?debug=1&nolock=1';
 const SHOT = new URL('../test-results/playthrough-failure.png', import.meta.url);
 const GUARDIANS = ['woods', 'shores', 'peaks'];
+// the bloom watchers' marks (js/cutscenes.js WATCH.marks, story.md #I.5); each stands within 4 m of its mark
+const MARKS = { woods: [-9, -2], peaks: [11, 4], shores: [-8, 18] };
 const STEP = 1 / 60;                    // one frame = one fixed step (STEP in js/clock.js)
 const FPS = 60;
 // frames per page.evaluate (one second of game time). Only the last frame of a chunk is drawn: the others run every
@@ -577,21 +580,29 @@ async function main() {
       await framesUntil(`the ${id} intro to hand over to the fight`, "game.fight && game.fight.phase === 'fight'", 10);
       if (!(await page.evaluate(() => window.G.debug.killBoss()))) fail(`G.debug.killBoss() found no ${id} boss to beat`);
       await framesUntil(`the ${id} guardian to be beaten`, `S.bosses['${id}'] === true`, 20);
-      await framesUntil(`the ${id} fight to wind down`, '!game.fight', 10);
-      // the Starseed it dropped: walk onto it (steering at it every chunk) until the game picks it up
-      const seed = await page.evaluate((id) => { const p = window.G.game.pickups.find((q) => q.kind === 'seed' && q.seedId === id && q.alive); return p ? [p.pos.x, p.pos.z] : null; }, id);
-      if (!seed) fail(`no ${id} Starseed dropped`);
-      await page.evaluate(() => window.G.debug.move(0, 1));
-      await framesUntil(`Pip to pick up the ${id} Starseed`, `S.seeds['${id}'] === 1`, 20, `{ const q = game.pickups.find((o) => o.kind === 'seed' && o.seedId === '${id}' && o.alive); if (q) { const p = game.player.pos; G.debug.look(Math.atan2(q.pos.x - p.x, q.pos.z - p.z), 0); G.debug.move(0, Math.hypot(q.pos.x - p.x, q.pos.z - p.z) > 0.6 ? 1 : 0); } }`);
-      await page.evaluate(() => window.G.debug.move(0, 0));
-      await framesUntil(`the ${id} item-get dialogue`, 'G.ui.dlg', 3);
+      // the handover (S-005, S-006): no Starseed drops; the cutscene's three lines, then the shipped item-get
+      if ((await state()).cutscene !== 'handover') fail(`the ${id} win did not start the handover: ${JSON.stringify(await state())}`);
+      if (await page.evaluate((id) => window.G.game.pickups.some((q) => q.kind === 'seed' && q.seedId === id), id)) fail(`a ${id} Starseed dropped at the handover`);
+      const lines = [];
+      for (let k = 0; k < 2; k++) {
+        await framesUntil(`the ${id} handover line box ${k + 1}`, 'G.ui.dlg && game.cutscene', 5);
+        lines.push(...await page.evaluate(() => window.G.ui.dlg.lines));
+        const box = await page.evaluate(() => { window.__box = window.G.ui.dlg; return true; });
+        for (let i = 0; i < 40 && box && await page.evaluate(() => window.G.ui.dlg === window.__box); i++) await pressUse(6);
+      }
+      if (lines.length !== 3) fail(`the ${id} handover showed ${lines.length} lines: ${JSON.stringify(lines)}`);
+      await framesUntil(`the ${id} item-get dialogue`, 'G.ui.dlg && !game.cutscene', 3);
       await readDialogue(`the ${id} item-get`);
+      await framesUntil(`the ${id} fight to wind down`, '!game.fight', 10);
+      const g = await page.evaluate((id) => { const b = window.G.game.bosses[id]; return b ? { sat: b.sat, state: b.state } : null; }, id);
+      if (!g || !g.sat || g.state !== 'sat') fail(`the ${id} guardian is not sitting on the island after the handover: ${JSON.stringify(g)}`);
       s = await state();
-      if (s.bosses[id] !== true) fail(`${id} not recorded as beaten: ${JSON.stringify(s.bosses)}`);
-      if (s.seeds[id] !== 1) fail(`${id} Starseed not carried: ${JSON.stringify(s.seeds)}`);
-      if (!s.playing) fail(`not back in free play after the ${id} Starseed: ${JSON.stringify(s)}`);
-      if (await page.evaluate((id) => !!window.G.game.bosses[id], id)) fail(`the ${id} guardian is still on the island`);
-      step(`${id}: walked into the arena (${walk} frames), beaten, Starseed picked up and carried`);
+      if (s.bosses[id] !== true || s.seeds[id] !== 1) fail(`${id} after the handover: ${JSON.stringify(s)}`);
+      if (!s.playing) fail(`not back in free play after the ${id} handover: ${JSON.stringify(s)}`);
+      // calm:<id> is the order the Catchers were calmed in (woods 1, shores 2, peaks 3 in this script's order)
+      const calm = await page.evaluate((id) => window.G.game.S.flags['calm:' + id], id);
+      if (calm !== GUARDIANS.indexOf(id) + 1) fail(`calm:${id} is ${calm}, expected ${GUARDIANS.indexOf(id) + 1}`);
+      step(`${id}: walked into the arena (${walk} frames), beaten; sat down, handed the Starseed over in ${lines.length} lines and the item-get, stays sitting (calm:${id} = ${calm})`);
       if (id === 'shores') { await cloverErrand(); await landmarkSecrets([0], 'before the bloom'); }
     }
 
@@ -607,6 +618,18 @@ async function main() {
     step('Use at the pedestal placed all three Starseeds; the ending started');
     await framesUntil('the ending card', "G.ui.menu === 'ending'", 30);
     await waitFor('the ending card to show', () => window.G.ui.endingEl.classList.contains('show'));
+    // the bloom watchers (S-006): the three Catchers stand at their plaza marks, facing the Tree; the real ones stay sat
+    const watch = await page.evaluate(() => {
+      const g = window.G.game, ws = g.watchers || [];
+      window.__ws = ws.map((w) => w.root);   // to check they are gone after the card
+      return { ws: ws.map((w) => ({ id: w.id, x: w.root.position.x, z: w.root.position.z, inScene: w.root.parent === g.scene })), sat: Object.keys(g.bosses).filter((q) => g.bosses[q].sat).sort() };
+    });
+    if (watch.ws.length !== 3 || watch.ws.map((w) => w.id).sort().join() !== 'peaks,shores,woods') fail(`the bloom watchers are not the three Catchers: ${JSON.stringify(watch)}`);
+    for (const w of watch.ws) {
+      const d = Math.hypot(w.x - MARKS[w.id][0], w.z - MARKS[w.id][1]);
+      if (!w.inScene || !(d <= 4)) fail(`the ${w.id} watcher is not at its mark (${d.toFixed(2)} m off): ${JSON.stringify(w)}`);
+    }
+    if (watch.sat.join() !== 'peaks,shores,woods') fail(`the real Catchers left their arenas during the ending: ${JSON.stringify(watch.sat)}`);
     // the card ignores presses for its first 1.5 s of wall-clock time, then any button closes it: its opening time is
     // moved back instead of waiting that out
     await page.evaluate(() => { window.G.ui.endingT -= 1600; });
@@ -614,6 +637,8 @@ async function main() {
     s = await state();
     if (s.menu === 'ending') fail('a press did not close the ending card');
     if (s.ending !== true) fail('S.ending is not set after the ending');
+    const left = await page.evaluate(() => { const g = window.G.game, rs = window.__ws || []; delete window.__ws; return { watchers: !!g.watchers, inScene: rs.filter((r) => !!r.parent).length, had: rs.length }; });
+    if (left.watchers || left.inScene || left.had !== 3) fail(`the bloom watchers are still there after the card closed: ${JSON.stringify(left)}`);
     await framesUntil('free roam after the ending', 'game.playing && game.player.state === \'normal\'', 10);
     await frames(90);                   // the eyelid blink back to the altar
     const p0 = await page.evaluate(() => window.G.game.player.pos.toArray());
@@ -625,7 +650,7 @@ async function main() {
     s = await state();
     if (s.state !== 'play' || !s.playing) fail(`not in free roam after the ending: ${JSON.stringify(s)}`);
     if (!(moved > 0.5)) fail(`Pip did not move after the ending (${moved.toFixed(2)} m)`);
-    step(`ending card shown and closed; free roam, Pip walked ${moved.toFixed(2)} m`);
+    step(`ending card shown (the three Catchers watching at their marks: ${watch.ws.map((w) => `${w.id} ${Math.hypot(w.x - MARKS[w.id][0], w.z - MARKS[w.id][1]).toFixed(2)} m off`).join(', ')}) and closed (the watchers gone); free roam, Pip walked ${moved.toFixed(2)} m`);
     await ribbitParade();
     await misoPlushies();
     await guardianRematch();

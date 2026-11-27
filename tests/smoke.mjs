@@ -211,13 +211,14 @@ async function main() {
     await page.waitForTimeout(1000);
     const resumed = await page.evaluate(() => {
       const { S, player, bosses } = window.G.game;
-      return { S, pos: { x: player.pos.x, z: player.pos.z }, liveBosses: Object.keys(bosses).sort() };
+      return { S, pos: { x: player.pos.x, z: player.pos.z }, liveBosses: Object.keys(bosses).sort(), sat: Object.keys(bosses).filter((id) => bosses[id].sat) };
     });
     for (const k of ['seed', 'maxHp', 'coins', 'potions', 'swordLevel', 'seeds', 'chests', 'bosses', 'introDone', 'controlsSeen']) {
       if (JSON.stringify(resumed.S[k]) !== JSON.stringify(save[k])) fail(`continued save differs in ${k}: ${JSON.stringify(resumed.S[k])} vs ${JSON.stringify(save[k])}`);
     }
     if (Math.hypot(resumed.pos.x - save.px, resumed.pos.z - save.pz) > 0.5) fail(`resumed at ${JSON.stringify(resumed.pos)}, saved at ${save.px}, ${save.pz}`);
-    if (resumed.liveBosses.includes('woods') || resumed.liveBosses.length !== 2) fail(`unexpected live bosses after continue: ${resumed.liveBosses}`);
+    // the beaten Grumble Shroom sits in his arena after his handover until the bloom (S-005); the other two sleep
+    if (resumed.liveBosses.length !== 3 || resumed.sat.join() !== 'woods') fail(`unexpected live bosses after continue: ${resumed.liveBosses} (sat: ${resumed.sat})`);
     // migrated to v7 on load (MIGRATIONS[2]–[6] in js/save.js): no errand started, no rainbow shell out, no plushie, no
     // rematch won, no keepsake found (all four still in the world); the Woods guardian beaten gives calm:woods and its handover
     const v7flags = JSON.stringify({ 'calm:woods': 1, 'handover:woods': true });

@@ -66,6 +66,52 @@ export const BOSSES = {
   peaks: { name: 'Frostbun', title: 'Chilly Champion of Frostcap Peaks', key: 'boss_frost', hp: 50 },
 };
 
+// The Catchers' handover (S-005, S-006; story.md #I.2): a guardian with an entry here sits down after its first win
+// instead of bursting, says these lines and hands its Starseed over (cutscenes.js startHandover); `t` is the text id.
+// All three Catchers have one, so no guardian's first win drops a Starseed pick-up any more
+export const HANDOVER = {
+  woods: [
+    { t: 'home.handover.woods.1', text: 'Hmph. Fine. FINE. Take it.' },
+    { t: 'home.handover.woods.2', text: 'The little ones were scared of the dark, you know. Since she went droopy, the woods stopped glowing. That seed lit them right up.' },
+    { t: 'home.handover.woods.3', text: 'Bring it home. Tell her Grumble kept it warm.' },
+  ],
+  shores: [
+    { t: 'home.handover.shores.1', text: 'Belay that! ...Aye, aye. Ye\'ve a kind hand, I\'ll give ye that.' },
+    { t: 'home.handover.shores.2', text: 'My lamp went dark the night she wilted, and Nell Pelliwick\'s boat is still out past the reef. A skipper doesn\'t let a lamp go out with a boat at sea.' },
+    { t: 'home.handover.shores.3', text: 'Take it to the Tree. She\'ll want a light to come home by.' },
+  ],
+  peaks: [
+    { t: 'home.handover.peaks.1', text: 'Brrr-rrr... no. Mine.' },
+    { t: 'home.handover.peaks.2', text: 'It was shivering when it landed. Seeds catch cold. Everyone knows that. I hugged it all night.' },
+    { t: 'home.handover.peaks.3', text: 'You will keep it warm? Promise? ...Hop to it, then.' },
+  ],
+};
+// What a sitting Catcher says to Talk until the bloom (interact.js talkCatcher): `placed` once its seed is in the
+// pedestal, else the `before` lines in turn (a runtime counter, not saved)
+export const CATCHER_TALK = {
+  woods: {
+    placed: [{ t: 'home.catcher.woods.placed', text: 'Look. They glow on their own again. I am still grumpy. On principle.' }],
+    before: [
+      { t: 'home.catcher.woods.before.1', text: 'Still here. Don\'t make a thing of it.' },
+      { t: 'home.catcher.woods.before.2', text: 'The little ones keep asking where the glow went. I told them a kind hand has it. Hmph.' },
+    ],
+  },
+  shores: {
+    placed: [{ t: 'home.catcher.shores.placed', text: 'The lamp\'s burnin\' by day an\' all now. Won\'t stop till Nell\'s home, an\' neither will I.' }],
+    before: [
+      { t: 'home.catcher.shores.before.1', text: 'I\'m restin\' me claws, is all. Ye go on.' },
+      { t: 'home.catcher.shores.before.2', text: 'Keep an eye on the sea for me, would ye? Look for a little lantern.' },
+    ],
+  },
+  peaks: {
+    placed: [{ t: 'home.catcher.peaks.placed', text: 'Can feel the spring from up here. Warrrm. Good seed.' }],
+    before: [
+      { t: 'home.catcher.peaks.before.1', text: 'Mmm. Sleepy now.' },
+      { t: 'home.catcher.peaks.before.2', text: 'You are keeping it warm? Good. Good little bun.' },
+    ],
+  },
+};
+
 // Guardian rematches after the bloom (opt-in: a napping guardian is woken with Use, never by walking in). Harder, still
 // fair: hpK × its first-fight HP (rounded: 48 → 60, Frostbun 50 → 63), enraged from `enrage` of its HP (first fights:
 // half), the same moves and wind-ups. The first rematch win per guardian gives `gems` once (S.rematches[id], save v5);
@@ -197,6 +243,40 @@ const found = (S) => SEED_ORDER.filter((k) => S.seeds[k] > 0).length;
 const placed = (S) => SEED_ORDER.filter((k) => S.seeds[k] === 2).length;
 export const progress = { found, placed, carried: (S) => found(S) - placed(S) };
 
+// ---------------------------------------------------------------- Shellby's instalments (story.md #shellby-instalments)
+// The myth, told in pieces keyed to how many Starseeds are home, never to which (every order works). One box, prepended
+// once to Shellby's lines on a Talk (interact.js talkTo) and marked heard in S.flags[key]. `when(S)` is the condition
+// before the bloom; after it, every unheard one is told in key order, one per Talk, with `bloomText` where one exists.
+// The dialogue box has no italic markup, so "Still here," ships without the bible's *asterisks*.
+export const INSTALMENTS = [
+  {
+    key: 'inst:1', t: 'home.npc.shellby.inst.1', when: (S) => placed(S) === 1,
+    text: 'Do you know why she sneezes, dear? The old songs say she came down from the sky, long ago. Every hundred years she misses it, and she sneezes her light up toward the stars, like a letter. Still here, it says.',
+  },
+  {
+    key: 'inst:2', t: 'home.npc.shellby.inst.2', when: (S) => placed(S) === 2,
+    text: 'The guardians aren\'t thieves, little sprout. They\'re catchers. They catch what flies so the sky doesn\'t keep it, and they hold it one night for a kind hand. I think they just got... attached.',
+  },
+  {
+    key: 'inst:3', t: 'home.npc.shellby.inst.3', when: (S) => placed(S) < 3 && found(S) === 3,
+    text: 'Last time she sneezed, someone very small carried her seeds home. Smaller than you, even. ...Well. Go on, then.',
+    bloomT: 'home.npc.shellby.inst.3b',
+    bloomText: 'Last time she sneezed, someone very small carried her seeds home. Smaller than you, even. ...Well. Never mind me.',
+  },
+];
+/** the instalment Shellby tells on this Talk → { key, t, text } or null. Pure. Before the bloom: the first, in key
+ *  order, whose condition holds and which is not heard yet; after the bloom (S.ending): the first not heard yet, with
+ *  its post-bloom wording */
+export function shellbyInstalment(S) {
+  const heard = (k) => isObj(S && S.flags) && !!S.flags[k];
+  for (const e of INSTALMENTS) {
+    if (heard(e.key)) continue;
+    if (S.ending) return e.bloomText ? { key: e.key, t: e.bloomT, text: e.bloomText } : { key: e.key, t: e.t, text: e.text };
+    if (e.when(S)) return { key: e.key, t: e.t, text: e.text };
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------- villager errands
 // One small favour per villager, unlocked by progress. State lives in the save (js/save.js, v3): S.errands[id] is
 // 0 (not started), 1 (started) or 2 (done); each item is a flag in S.shells (the save's errand item flags) under its
@@ -273,12 +353,14 @@ export const errands = {
 export const NPCS = [
   {
     id: 'shellby', name: 'Elder Shellby', key: 'npc_turtle', wander: 0.6,
-    // the opening (interact.js sessionIntro): three pages, then the coach marks. What the cut pages said lives on in
-    // lines(S) below (the compass, the signpost, Miso's potions), on the compass and the controls card
+    // the opening (interact.js sessionIntro): three pages and a fourth box (story.md #I.1, S-008), then the coach marks.
+    // What the cut pages said lives on in lines(S) below (the compass, the signpost, Miso's potions), on the compass and
+    // the controls card
     intro: [
       'Oh! Little Pip, there you are. Last night the Great Tree sneezed. A big, sad, leafy sneeze... and its three Starseeds went flying!',
       'Three grumpy guardians scooped them up: Grumble Shroom in the Whispering Woods up north, Frostbun in the Frostcap Peaks to the east, and Captain Pinch on the Sunny Shores to the south.',
       'Without its Starseeds the Tree is wilting. Bring them home to this old pedestal, in any order you like. Off you sprout!',
+      'The guardians are older than they look. Be gentle, and they\'ll be gentle back.',   // home.npc.shellby.intro.4
     ],
     lines(S) {
       // after the bloom: a pointer to the guardian rematches (REMATCH), and a thank-you once all three are won

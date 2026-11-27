@@ -649,6 +649,13 @@ export class UI {
     this.dlgClick = false;
   }
   get dialogueOpen() { return !!this.dlg; }
+  /** close the open dialogue at once without running its onDone (a skipped cutscene) */
+  closeDialogue() {
+    if (!this.dlg) return false;
+    this.dlg = null;
+    this.dlgEl.classList.remove('show');
+    return true;
+  }
   updateDialogueLayout() {
     const d = this.dlg;
     if (!d) return;

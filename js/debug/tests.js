@@ -42,6 +42,7 @@ import wp6 from './tests/wp6.js';
 import wp7 from './tests/wp7.js';
 import wp8 from './tests/wp8.js';
 import wp9 from './tests/wp9.js';
+import act1 from './tests/act1.js';
 
 const D2R = Math.PI / 180;
 const SUITES = new Map();
@@ -138,10 +139,12 @@ async function prepare(t, o = {}) {
     else if (ui.menu && ui.menu !== 'ending') ui.closeMenu(true);
     if (!game.trans && !ui.dlg && !ui.shop && !ui.menu) break;
   }
-  if (game.cutscene) { game.view.clearShot(); game.cutscene = null; }
+  if (game.cutscene) { game.view.clearShot(); game.cutscene = null; game.skipScene = null; }
+  if (game.watchers) game.clearWatchers();   // the bloom watchers (S-006) go with a dropped ending
   if (game.fight) game.endFight(true);
-  // no boss is awake outside a fight (its AI would keep stomping and shaking the camera island-wide)
-  for (const id in game.bosses) { const b = game.bosses[id]; if (b.state !== 'sleep' || b.dying) { b.remove(); if (game.S.bosses[id]) delete game.bosses[id]; else game.bosses[id] = new Boss(id, game.world.arenas[id]); } }
+  // no boss is awake outside a fight (its AI would keep stomping and shaking the camera island-wide); a Catcher sitting
+  // after its handover (S-005) stays while it is beaten
+  for (const id in game.bosses) { const b = game.bosses[id]; if (b.sat ? !game.S.bosses[id] : b.state !== 'sleep' || b.dying) { b.remove(); if (game.S.bosses[id]) delete game.bosses[id]; else game.bosses[id] = new Boss(id, game.world.arenas[id]); } }
   t.clearEnemies(); t.resetPlayer();
   for (const p of game.pickups) p.remove();
   game.pickups = [];
@@ -407,7 +410,7 @@ suite('smoke', [
     game.endFight(true); D.pose('spawn'); t.frames(2);   // out of the ring first: a step inside it starts the fight again
     t.ok(!game.fight && game.bosses.woods && game.bosses.woods.state === 'sleep', 'the reset boss sleeps', game.bosses.woods && game.bosses.woods.state);
     t.ok(D.cutscene('place') && game.cutscene && game.cutscene.type === 'place', 'place cutscene');
-    t.ok(Object.values(game.bosses).every((b) => b.state === 'sleep' && !game.S.bosses[b.id]), 'a placed seed\'s boss is gone; the rest sleep');
+    t.ok(Object.values(game.bosses).every((b) => (b.state === 'sleep' && !game.S.bosses[b.id]) || b.sat), 'a placed seed\'s boss is gone; the rest sleep (or sit after a handover)');
     game.view.clearShot(); game.cutscene = null; t.resetPlayer(); t.frames(1);
     t.ok(D.cutscene('ending') && game.cutscene && game.cutscene.type === 'ending', 'ending cutscene');
     game.view.clearShot(); game.cutscene = null; game.ui.showHud(true); t.resetPlayer(); t.frames(1);
@@ -1055,6 +1058,6 @@ suite('sweep', [
 ], { desc: 'perf sweep for baselines (WP7 extends it; ≈ 2 min)', heavy: true });
 
 // ------------------------------------------------------------------ work packages (one file each, no shared edits)
-for (const reg of [wp1, wp2, wp3, wp4, wp5, wp6, wp7, wp8, wp9]) {
+for (const reg of [wp1, wp2, wp3, wp4, wp5, wp6, wp7, wp8, wp9, act1]) {
   try { reg(suite); } catch (e) { console.error('[Starseed] test registration', e); }
 }
