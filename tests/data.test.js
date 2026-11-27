@@ -254,22 +254,36 @@ test('the Catchers\' reasons (REASONS): three Look lines, one per Catcher, each 
 
 // the key tokens a player-facing line may carry (js/hud/keys.js header, contract C7)
 const KEY_TOKENS = ['move', 'look', 'attack', 'jump', 'dash', 'sprint', 'interact', 'potion', 'view', 'shoulder', 'lock', 'map', 'pause', 'roll', 'lockon', 'use', 'swing', 'hop', 'zoom', 'camera', 'ok', 'back', 'tabPrev', 'tabNext'];
-test('the Catchers\' handover (HANDOVER, CATCHER_TALK): Grumble\'s three lines and his Talk lines, each ≤ 220 characters with its text id and known tokens only', () => {
-  expect(Object.keys(HANDOVER)).toEqual(['woods']);   // Pinch and Frostbun keep the shipped burst until S-006
-  expect(Object.keys(CATCHER_TALK)).toEqual(['woods']);
-  expect(HANDOVER.woods.map((l) => l.t)).toEqual(['home.handover.woods.1', 'home.handover.woods.2', 'home.handover.woods.3']);
-  expect(CATCHER_TALK.woods.placed.map((l) => l.t)).toEqual(['home.catcher.woods.placed']);
-  expect(CATCHER_TALK.woods.before.map((l) => l.t)).toEqual(['home.catcher.woods.before.1', 'home.catcher.woods.before.2']);
-  const lines = [...HANDOVER.woods, ...CATCHER_TALK.woods.placed, ...CATCHER_TALK.woods.before];
-  for (const id of Object.keys(HANDOVER)) expect(BOSSES[id]).toBeDefined();
+test('the Catchers\' handover (HANDOVER, CATCHER_TALK): three lines and the Talk lines per Catcher, each ≤ 220 characters with its text id and known tokens only', () => {
+  // all three Catchers hand their Starseed over (S-005 Grumble, S-006 Pinch and Frostbun)
+  expect(Object.keys(HANDOVER).sort()).toEqual([...SEED_ORDER].sort());
+  expect(Object.keys(CATCHER_TALK).sort()).toEqual([...SEED_ORDER].sort());
+  const lines = [];
+  for (const id of SEED_ORDER) {
+    expect(BOSSES[id]).toBeDefined();
+    expect(HANDOVER[id].map((l) => l.t)).toEqual([1, 2, 3].map((n) => `home.handover.${id}.${n}`));
+    expect(CATCHER_TALK[id].placed.map((l) => l.t)).toEqual([`home.catcher.${id}.placed`]);
+    expect(CATCHER_TALK[id].before.map((l) => l.t)).toEqual([`home.catcher.${id}.before.1`, `home.catcher.${id}.before.2`]);
+    lines.push(...HANDOVER[id], ...CATCHER_TALK[id].placed, ...CATCHER_TALK[id].before);
+  }
+  expect(new Set(lines.map((l) => l.t)).size).toBe(lines.length);
   for (const l of lines) {
     expect(typeof l.text === 'string' && l.text.length > 0).toBe(true);
     expect(l.text.length).toBeLessThanOrEqual(220);
-    // braces only as known key tokens (contract C7, js/hud/keys.js); no "defeat" (Tone)
+    // braces only as known key tokens (contract C7, js/hud/keys.js); no "defeat" (Tone); no "~" (Machine)
     for (const m of l.text.matchAll(/\{([a-zA-Z]*)\}/g)) expect(KEY_TOKENS).toContain(m[1]);
     expect(l.text.replace(/\{[a-zA-Z]+\}/g, '')).not.toMatch(/[{}]/);
     expect(l.text).not.toMatch(/defeat/i);
+    expect(l.text).not.toContain('~');
   }
   expect(HANDOVER.woods[0].text).toBe('Hmph. Fine. FINE. Take it.');
   expect(HANDOVER.woods[2].text).toBe('Bring it home. Tell her Grumble kept it warm.');
+  // Captain Pinch talks like a skipper: his handover and his Talk lines each carry "ye", "aye" or "belay" (story.md #I.2
+  // as written: not every single line does)
+  const skipper = /\b(ye|aye|belay)\b/i;
+  expect(HANDOVER.shores.some((l) => skipper.test(l.text))).toBe(true);
+  expect([...CATCHER_TALK.shores.placed, ...CATCHER_TALK.shores.before].some((l) => skipper.test(l.text))).toBe(true);
+  expect(HANDOVER.shores[0].text).toBe('Belay that! ...Aye, aye. Ye\'ve a kind hand, I\'ll give ye that.');
+  expect(HANDOVER.peaks[0].text).toBe('Brrr-rrr... no. Mine.');
+  expect(HANDOVER.peaks[2].text).toBe('You will keep it warm? Promise? ...Hop to it, then.');
 });

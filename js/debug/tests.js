@@ -140,6 +140,7 @@ async function prepare(t, o = {}) {
     if (!game.trans && !ui.dlg && !ui.shop && !ui.menu) break;
   }
   if (game.cutscene) { game.view.clearShot(); game.cutscene = null; game.skipScene = null; }
+  if (game.watchers) game.clearWatchers();   // the bloom watchers (S-006) go with a dropped ending
   if (game.fight) game.endFight(true);
   // no boss is awake outside a fight (its AI would keep stomping and shaking the camera island-wide); a Catcher sitting
   // after its handover (S-005) stays while it is beaten
