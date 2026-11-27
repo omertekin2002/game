@@ -66,14 +66,24 @@ export const BOSSES = {
   peaks: { name: 'Frostbun', title: 'Chilly Champion of Frostcap Peaks', key: 'boss_frost', hp: 50 },
 };
 
-// The Catchers' handover (S-005, story.md #I.2): a guardian with an entry here sits down after its first win instead of
-// bursting, says these lines and hands its Starseed over (cutscenes.js startHandover); `t` is the text id. Without an
-// entry (Pinch and Frostbun until S-006) the shipped burst and seed pick-up stay
+// The Catchers' handover (S-005, S-006; story.md #I.2): a guardian with an entry here sits down after its first win
+// instead of bursting, says these lines and hands its Starseed over (cutscenes.js startHandover); `t` is the text id.
+// All three Catchers have one, so no guardian's first win drops a Starseed pick-up any more
 export const HANDOVER = {
   woods: [
     { t: 'home.handover.woods.1', text: 'Hmph. Fine. FINE. Take it.' },
     { t: 'home.handover.woods.2', text: 'The little ones were scared of the dark, you know. Since she went droopy, the woods stopped glowing. That seed lit them right up.' },
     { t: 'home.handover.woods.3', text: 'Bring it home. Tell her Grumble kept it warm.' },
+  ],
+  shores: [
+    { t: 'home.handover.shores.1', text: 'Belay that! ...Aye, aye. Ye\'ve a kind hand, I\'ll give ye that.' },
+    { t: 'home.handover.shores.2', text: 'My lamp went dark the night she wilted, and Nell Pelliwick\'s boat is still out past the reef. A skipper doesn\'t let a lamp go out with a boat at sea.' },
+    { t: 'home.handover.shores.3', text: 'Take it to the Tree. She\'ll want a light to come home by.' },
+  ],
+  peaks: [
+    { t: 'home.handover.peaks.1', text: 'Brrr-rrr... no. Mine.' },
+    { t: 'home.handover.peaks.2', text: 'It was shivering when it landed. Seeds catch cold. Everyone knows that. I hugged it all night.' },
+    { t: 'home.handover.peaks.3', text: 'You will keep it warm? Promise? ...Hop to it, then.' },
   ],
 };
 // What a sitting Catcher says to Talk until the bloom (interact.js talkCatcher): `placed` once its seed is in the
@@ -84,6 +94,20 @@ export const CATCHER_TALK = {
     before: [
       { t: 'home.catcher.woods.before.1', text: 'Still here. Don\'t make a thing of it.' },
       { t: 'home.catcher.woods.before.2', text: 'The little ones keep asking where the glow went. I told them a kind hand has it. Hmph.' },
+    ],
+  },
+  shores: {
+    placed: [{ t: 'home.catcher.shores.placed', text: 'The lamp\'s burnin\' by day an\' all now. Won\'t stop till Nell\'s home, an\' neither will I.' }],
+    before: [
+      { t: 'home.catcher.shores.before.1', text: 'I\'m restin\' me claws, is all. Ye go on.' },
+      { t: 'home.catcher.shores.before.2', text: 'Keep an eye on the sea for me, would ye? Look for a little lantern.' },
+    ],
+  },
+  peaks: {
+    placed: [{ t: 'home.catcher.peaks.placed', text: 'Can feel the spring from up here. Warrrm. Good seed.' }],
+    before: [
+      { t: 'home.catcher.peaks.before.1', text: 'Mmm. Sleepy now.' },
+      { t: 'home.catcher.peaks.before.2', text: 'You are keeping it warm? Good. Good little bun.' },
     ],
   },
 };

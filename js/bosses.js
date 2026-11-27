@@ -33,6 +33,16 @@ const GLINTS = { woods: [[0, 0.95, 0.35]], shores: [[1.05, 0.62, 0.95], [-1.05, 
 /** the ring hint (C18): at the stomp's crouch, so it reads before the first ring arrives (fight.js keeps it as a fallback) */
 export const RING_HINT = 'A glowing ring! Hop over it with {jump} or roll through it with {dash}.';
 
+/** a guardian's body: its shipped GLB (makeModel), else the procedural rig (instRig + bossDef) → { group, mats (this
+ *  instance's own materials: dispose them with the body; the geometry is the shared template's), nodes, height (its
+ *  in-game height, m), glb }. The Boss builds its body here, and so do the bloom watchers (cutscenes.js, S-006) */
+export function bossBody(id, outline = 'prop') {
+  const glb = makeModel(BOSSES[id].key, { outline });
+  if (glb) return { group: glb.group, mats: glb.materials, nodes: {}, height: glb.height, glb: true };
+  const r = instRig(bossDef(id), { outline });
+  return { group: r.root, mats: r.mats, nodes: r.nodes, height: id === 'woods' ? 3.4 : id === 'shores' ? 2.4 : 4.2, glb: false };
+}
+
 export class Boss {
   /** `opts.rematch`: a guardian rematch after the bloom (fight.js): napping until Pip wakes it with Use, REMATCH.hpK ×
    *  its HP, enraged from REMATCH.enrage of its HP; same moves and wind-ups. `opts.sat`: a Catcher already sitting after
@@ -60,14 +70,8 @@ export class Boss {
     this.hits = [];
     this.root = new THREE.Group();
     this.root.rotation.order = 'YXZ';   // lean / roll in the boss's own frame after the facing yaw
-    const glb = makeModel(this.def.key, { outline: 'prop' });
-    if (glb) { this.root.add(glb.group); this.mats = glb.materials; this.nodes = {}; this.height = glb.height; this.glb = true; }
-    else {
-      const r = instRig(bossDef(id), { outline: 'prop' });
-      this.root.add(r.root);
-      this.nodes = r.nodes; this.mats = r.mats;
-      this.height = id === 'woods' ? 3.4 : id === 'shores' ? 2.4 : 4.2;
-    }
+    const body = bossBody(id, 'prop');
+    this.root.add(body.group); this.mats = body.mats; this.nodes = body.nodes; this.height = body.height; this.glb = body.glb;
     // the handover sit (S-005): sitting = lowering into the pose (updateSitting), sat = sitting down for good (until the
     // bloom: talks, never fights); sitK 0 → 1 is how far into the pose. A sat boss keeps dying = true (never dead): every
     // fight path (sword, lock-on, aim assist, lunge) already leaves a dying boss alone
