@@ -3,7 +3,7 @@
 // freeze) run on sim time (later / tickLater), so they hold while a menu or the shop pauses the world.
 import * as THREE from 'three';
 import { sfx } from './core.js';
-import { BOSSES, CFG, SEED_ORDER, SEEDS, ERRANDS, SECRETS, progress, errands, secrets, reasonFor } from './data.js';
+import { BOSSES, CFG, SEED_ORDER, SEEDS, ERRANDS, SECRETS, HANDOVER, CATCHER_TALK, progress, errands, secrets, reasonFor } from './data.js';
 import { NPC } from './npcs.js';
 import { Boss } from './bosses.js';
 import { Pickup } from './entities.js';
@@ -47,6 +47,7 @@ export const InteractMixin = {
     this.ui.selfFloater('Refreshed!', '#ffb6c8');
   },
   collect(p) {
+    if (p.kind === 'seed') return this.giveSeed(p.seedId);
     const S = this.S;
     const a = this.view.selfAnchor('chest', _a);
     this.events.emit(EV.COLLECT, { kind: p.kind, value: p.value });
@@ -59,17 +60,36 @@ export const InteractMixin = {
       S.hp = Math.min(S.maxHp, S.hp + 2);
       sfx('heart');
       this.fx.sparkle(a.x, a.y, a.z, 0xff9fb6, 4, 0.4);
-    } else if (p.kind === 'seed') {
-      S.seeds[p.seedId] = 1;
-      sfx('seed'); sfx('fanfare');
-      const left = 3 - progress.found(S);
-      this.itemGet(seedBuilt(SEEDS[p.seedId].color), SEEDS[p.seedId].key, [
-        'You got the ' + SEEDS[p.seedId].name + '!',
-        left > 0 ? 'Bring it to the pedestal by the Great Tree. ' + left + ' more to find!' : 'That\'s all three! Hurry back to the Great Tree!',
-      ]);
-      this.save(true);
-      this.updateMusic(true);
     }
+  },
+  /** Pip gets a Starseed: the shipped seed item-get (fanfare, the two lines), from a seed pickup (collect) or at the end
+   *  of a Catcher's handover (cutscenes.js); `after` runs when the item-get closes */
+  giveSeed(id, after) {
+    const S = this.S;
+    this.events.emit(EV.COLLECT, { kind: 'seed' });
+    S.seeds[id] = 1;
+    sfx('seed'); sfx('fanfare');
+    const left = 3 - progress.found(S);
+    this.itemGet(seedBuilt(SEEDS[id].color), SEEDS[id].key, [
+      'You got the ' + SEEDS[id].name + '!',
+      left > 0 ? 'Bring it to the pedestal by the Great Tree. ' + left + ' more to find!' : 'That\'s all three! Hurry back to the Great Tree!',
+    ], after);
+    this.save(true);
+    this.updateMusic(true);
+  },
+  /** Talk to a Catcher sitting after its handover (S-005): the placed line once its seed is in the pedestal, else the
+   *  `before` lines in turn. A save written mid-handover (beaten, no seed, no handover flag) replays the scene from its
+   *  first line instead, so the Starseed is never missed */
+  talkCatcher(b) {
+    const S = this.S, id = b.id, T = CATCHER_TALK[id];
+    if (S.bosses[id] && !S.seeds[id] && !S.flags['handover:' + id] && HANDOVER[id]) return this.startHandover(b, { replay: true });
+    if (!T) return false;
+    const n = (this.catcherTalks || (this.catcherTalks = {}))[id] || 0;
+    const line = S.seeds[id] === 2 ? T.placed[0] : T.before[n % T.before.length];
+    if (S.seeds[id] !== 2) this.catcherTalks[id] = n + 1;
+    sfx('talk');
+    this.ui.say([line.text], { name: BOSSES[id].name, portrait: BOSSES[id].key });
+    return true;
   },
   /** item-get: Pip holds the item up. FP never turns the view: the item is presented in front of the eye (viewmodel.js);
    *  TP turns the body to the camera and raises it overhead */
@@ -131,7 +151,7 @@ export const InteractMixin = {
     this.faceSubject(t.px ?? t.x, t.py ?? (t.y ?? pl.pos.y) + 0.8, t.pz ?? t.z); // FP eases onto the aim point (NPC face, sign board, lid…)
     this.events.emit(EV.INTERACT, { kind: o instanceof NPC ? (o.def.shop ? 'shop' : 'npc') : o instanceof Boss ? 'guardian' : t.kind === 'reason' ? 'reason' : o.kind, target: o });
     if (o instanceof NPC) return this.talkTo(o);
-    if (o instanceof Boss) return this.wakeRematch(o);   // a napping rematch guardian (fight.js)
+    if (o instanceof Boss) return o.sat ? this.talkCatcher(o) : this.wakeRematch(o);   // a sat Catcher, or a napping rematch guardian (fight.js)
     switch (t.kind === 'reason' ? 'reason' : o.kind) {
       case 'reason': { const r = reasonFor(o); if (r) { sfx('talk'); this.ui.say([r.text], {}); } break; }   // a Catcher's reason: no flag, no gems
       case 'sign': sfx('talk'); this.ui.say(o.lines, { name: 'Sign' }); break;

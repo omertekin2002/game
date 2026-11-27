@@ -12,7 +12,7 @@
 // Pip moves itself off him; nothing brings the FP eye inside TA.keepOut[id] of its centre.
 import * as THREE from 'three';
 import { G, sfx } from './core.js';
-import { BOSSES, REMATCH, rematch } from './data.js';
+import { BOSSES, REMATCH, HANDOVER, rematch } from './data.js';
 import { makeModel } from './assets.js';
 import { instRig, bossDef } from './models.js';
 import { Enemy, telegraph, hint } from './entities.js';
@@ -35,7 +35,8 @@ export const RING_HINT = 'A glowing ring! Hop over it with {jump} or roll throug
 
 export class Boss {
   /** `opts.rematch`: a guardian rematch after the bloom (fight.js): napping until Pip wakes it with Use, REMATCH.hpK ×
-   *  its HP, enraged from REMATCH.enrage of its HP; same moves and wind-ups */
+   *  its HP, enraged from REMATCH.enrage of its HP; same moves and wind-ups. `opts.sat`: a Catcher already sitting after
+   *  its handover (S-005; Continue before the bloom): state 'sat', no tells, never attacks, its collider kept */
   constructor(id, arena, opts = {}) {
     this.id = id;
     this.def = BOSSES[id];
@@ -67,6 +68,11 @@ export class Boss {
       this.nodes = r.nodes; this.mats = r.mats;
       this.height = id === 'woods' ? 3.4 : id === 'shores' ? 2.4 : 4.2;
     }
+    // the handover sit (S-005): sitting = lowering into the pose (updateSitting), sat = sitting down for good (until the
+    // bloom: talks, never fights); sitK 0 → 1 is how far into the pose. A sat boss keeps dying = true (never dead): every
+    // fight path (sword, lock-on, aim assist, lunge) already leaves a dying boss alone
+    this.sitting = false; this.sat = false; this.sitK = 0; this.prevSitK = 0;
+    if (opts.sat && !this.rematch) { this.sat = true; this.dying = true; this.state = 'sat'; this.sitK = this.prevSitK = 1; }
     this.root.position.copy(this.pos);
     G.scene.add(this.root);
   }
@@ -77,6 +83,8 @@ export class Boss {
   }
   /** blob shadow on the arena floor, shrinking as the boss lifts off (render; arch §8.2 extension point) */
   blob(out) { out.x = this.root.position.x; out.y = this.arena.h; out.z = this.root.position.z; out.r = this.r * (1.1 - Math.min(0.5, this.lift * 0.08)); return out; }
+  /** the shipped death: flickering and popping until it bursts (not the handover sit) */
+  get bursting() { return this.dying && !this.sitting && !this.sat; }
   get enraged() { return this.hp <= this.maxHp * this.enrageAt; }
   /** in a wind-up or an attack (not walking, recovering or stunned) */
   get busy() { return !(this.state === 'walk' || this.state === 'recover' || this.state === 'stunned' || this.state === 'intro' || this.state === 'sleep'); }
@@ -133,6 +141,8 @@ export class Boss {
     this.iframes = Math.max(0, this.iframes - dt);
     this.flash = Math.max(0, this.flash - dt * 6);
     this.squash *= Math.exp(-7 * dt);
+    this.prevSitK = this.sitK;
+    if (this.sat) return;
     if (this.dying) return this.updateDying(dt);
     if (this.state === 'sleep') return;
     if (this.state === 'intro') {
@@ -601,7 +611,7 @@ export class Boss {
 
   /** returns 'hit' | 'dead' | null; swing: the sword's swingId (i-frames only guard against the swing that caused them) */
   hit(dmg, fx, fz, swing = null) {
-    if ((this.iframes > 0 && (swing == null || swing === this.iframeSwing)) || this.dying || this.state === 'sleep' || this.state === 'intro') return null;
+    if ((this.iframes > 0 && (swing == null || swing === this.iframeSwing)) || this.dying || this.sat || this.state === 'sleep' || this.state === 'intro') return null;
     if (this.lift > 1.6) return null;
     this.iframeSwing = swing;
     this.hp = Math.max(0, this.hp - dmg);
@@ -626,6 +636,8 @@ export class Boss {
     this.lift = 0;
     this.opening = false;
     this.clearTells();
+    // a first win over a Catcher with a handover (data.js HANDOVER): it sits down instead of bursting (S-005)
+    if (!this.rematch && HANDOVER[this.id]) this.sitting = true;
   }
   clearTells() {
     for (const t of [this.tele, this.shadow, this.pre]) if (t) G.fx.ground.remove(t);
@@ -633,6 +645,7 @@ export class Boss {
     if (this.whistle) { this.whistle.stop(); this.whistle = null; }
   }
   updateDying(dt) {
+    if (this.sitting) return this.updateSitting(dt);
     this.deathT += dt;
     const k = this.deathT;
     // the body stays solid while it bursts: the same no-damage personal space (and game.dynamicColliders keeps its
@@ -655,6 +668,32 @@ export class Boss {
       G.game.onBossDefeated(this);
     }
   }
+  /** the handover sit (S-005): over 1.0 s the body lowers 0.35 m and tilts back 0.12 rad (render) while five dizzy stars
+   *  circle 0.4 m over its head; a soft thump and a "phew" (bossSit), no burst, no pops, a light shake. At 1.0 s it is
+   *  sat and the fight is won (fight.js onBossDefeated starts the handover); the root stays */
+  updateSitting(dt) {
+    const k0 = this.deathT, k = (this.deathT += dt);
+    const pl = G.player, d = this.dist();
+    if (d < this.room) this.shove(pl, d);    // the body stays solid while it sits down, as it does while dying
+    this.flash = 0;
+    if (k0 === 0) { sfx('bossSit', this.at(1.5)); G.cam.shake(0.25); this.squash = -0.4; }
+    this.sitK = clamp(k / 1.0, 0, 1);
+    // five stars on a 0.9 m circle (radius 0.45 m) over the head, turning once a second, every 0.08 s of the sit
+    if (G.fx && Math.floor(k / 0.08) !== Math.floor(k0 / 0.08) && k <= 1.0) {
+      const y = this.arena.h + this.height - 0.35 * this.sitK + 0.4;
+      for (let i = 0; i < 5; i++) {
+        const a = k * TAU + (i / 5) * TAU;
+        G.fx.sparkle(this.pos.x + Math.sin(a) * 0.45, y, this.pos.z + Math.cos(a) * 0.45, 0xfff4a0, 1, 0.02);
+      }
+    }
+    if (k >= 1.0) {
+      this.sitting = false;
+      this.sat = true;
+      this.set('sat', 0);
+      this.sitK = this.prevSitK = 1;
+      G.game.onBossDefeated(this);
+    }
+  }
   render(alpha, time) {
     const p = this.root.position;
     p.lerpVectors(this.prev, this.pos, alpha);
@@ -667,6 +706,14 @@ export class Boss {
     const ph = time * (this.id === 'shores' ? 10 : 6);
     this.root.rotation.z = 0; this.root.rotation.x = 0;
     if (this.state === 'sleep') { sy += Math.sin(time * 1.5) * 0.03; this.root.rotation.z = Math.sin(time * 0.8) * 0.03; }
+    // the handover sit: lowered and tilted back (eased in while it sits down), then a slow breathing bob (0.4 Hz)
+    const sit = lerp(this.prevSitK, this.sitK, clamp(alpha, 0, 1));
+    if (sit > 0) {
+      const e = Ease.outCubic(sit);
+      p.y -= 0.35 * e;
+      this.root.rotation.x = -0.12 * e;
+      if (this.state === 'sat') sy *= 1 + Math.sin(time * 0.4 * TAU) * 0.015;
+    }
     if (walking && this.id !== 'shores') this.root.rotation.z = Math.sin(ph) * 0.07;
     // the whole-body tell: lean / rise / swell through the wind-up (eased), shaking a little as it peaks. With Pip
     // close the forward lean, the swell and the crouch's widening shrink (TA.tellNear) so the body never closes in
@@ -684,7 +731,7 @@ export class Boss {
     }
     if (this.state === 'slide') { this.root.rotation.x = 1.2; p.y -= 0.6; }
     if (this.state === 'stunned') this.root.rotation.z = Math.sin(time * 12) * 0.12;
-    if (this.dying) { this.root.rotation.z = Math.sin(time * 30) * 0.08; sy *= 1 + Math.sin(time * 20) * 0.05; }
+    if (this.bursting) { this.root.rotation.z = Math.sin(time * 30) * 0.08; sy *= 1 + Math.sin(time * 20) * 0.05; }
     if (n.legL) { n.legL.rotation.x = walking ? Math.sin(ph) * 0.5 : 0; n.legR.rotation.x = walking ? -Math.sin(ph) * 0.5 : 0; }
     if (this.id === 'shores' && n.legL) { n.legL.rotation.z = Math.sin(ph) * 0.12; n.legR.rotation.z = -Math.sin(ph) * 0.12; n.legL.rotation.x = 0; n.legR.rotation.x = 0; }
     if (n.armL) {
@@ -699,7 +746,7 @@ export class Boss {
     // flash: white hit > coral wind-up pulse > gold opening pulse (3 Hz) with sparkles at belly height. Motion comfort
     // holds the wind-up rim steady at about its mean and the dying flicker (5 Hz) at dieCalm (WCAG 2.3.1)
     const calm = !!(G.settings && G.settings.get('reduceMotion'));
-    let f = (calm && this.dying ? TA.dieCalm : this.flash) * 0.85, c = WHITE;
+    let f = (calm && this.bursting ? TA.dieCalm : this.flash) * 0.85, c = WHITE;
     const rim = wind > 0 ? TA.rimFlash * (calm ? TA.rimCalm : 0.6 + 0.4 * Math.sin(time * TA.rimHz * TAU)) : 0;
     const gold = this.opening && !this.dying ? 0.3 * (0.5 + 0.5 * Math.sin(time * 3 * TAU)) : 0;
     if (rim > f) { f = rim; c = DANGER; }

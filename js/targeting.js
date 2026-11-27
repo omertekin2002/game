@@ -63,11 +63,12 @@ export const TargetingMixin = {
       const a = A[it.kind] || [0.8, 0.5];
       out.push({ o: it, kind: it.kind, px: it.x, py: it.y + a[0], pz: it.z, R: a[1], range: it.r, x: it.x, y: it.y, z: it.z, h: it.h });
     }
-    // a guardian napping for a rematch after the bloom (fight.js): woken with Use, never by walking in. Aimed at its
-    // body (TUNE.combat.aimPts.guardian: fraction of its height, radius), offered within its own radius + guardianRange
+    // a guardian napping for a rematch after the bloom (fight.js): woken with Use, never by walking in; or a Catcher
+    // sitting after its handover (S-005): Talk. Aimed at its body (TUNE.combat.aimPts.guardian: fraction of its height,
+    // radius), offered within its own radius + guardianRange
     if (!this.fight) for (const id in this.bosses) {
       const b = this.bosses[id];
-      if (!b.rematch || b.state !== 'sleep' || Math.abs(b.pos.x - pl.pos.x) > 6 || Math.abs(b.pos.z - pl.pos.z) > 6) continue;
+      if (!(b.sat || (b.rematch && b.state === 'sleep')) || Math.abs(b.pos.x - pl.pos.x) > 6 || Math.abs(b.pos.z - pl.pos.z) > 6) continue;
       const a = A.guardian, y = b.arena.h;
       out.push({ o: b, kind: 'guardian', px: b.pos.x, py: y + a[0] * b.height, pz: b.pos.z, R: a[1], range: b.r + TC.guardianRange, x: b.pos.x, y, z: b.pos.z, h: b.height + 0.3 });
     }
@@ -177,7 +178,7 @@ export const TargetingMixin = {
   labelTarget(t) {
     const o = t.o;
     if (o instanceof NPC) { t.verb = o.def.shop ? 'Shop' : 'Talk'; t.name = o.name; }
-    else if (isBoss(o)) { t.verb = VERB.guardian; t.name = o.name; }   // a napping rematch guardian: 'Wake · Grumble Shroom'
+    else if (isBoss(o)) { t.verb = o.sat ? 'Talk' : VERB.guardian; t.name = o.name; }   // 'Wake · Grumble Shroom' napping, 'Talk · Grumble Shroom' sat
     else if (t.kind === 'reason') { const r = reasonFor(o); t.verb = 'Look'; t.name = (r && r.name) || 'Something'; }   // 'Look · Night-lights'
     else if (t.kind === 'secret') { const s = secrets.get(o.id); t.verb = (s && s.verb) || 'Look'; t.name = (s && s.label) || 'Something'; }   // 'Look · Something glowing'
     else {

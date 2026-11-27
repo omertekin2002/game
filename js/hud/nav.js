@@ -2,7 +2,7 @@
 // W.arenas, W.shop, W.pedestal), the compass ribbon (top centre, 180° span, markers clamp to its edges), the heading-up
 // minimap (real horizontal-FOV wedge, N badge orbiting the rim) and the parchment map card with a click-to-place
 // waypoint (also keyboard / pad: a cursor driven by the move keys / stick). Canvas 2D only, redrawn on change.
-import { SEED_ORDER, SEEDS, BOSSES, REGIONS } from '../data.js';
+import { SEED_ORDER, SEEDS, BOSSES, REGIONS, HANDOVER } from '../data.js';
 import { HALF, SIZE } from '../world-const.js';
 import { hud as TH } from '../tune.js';
 import { drawIcon, iconImg, iconUrl } from './icons.js';
@@ -24,7 +24,8 @@ export function objective(W, S, pl) {
   if (carried && home) return { id: W.pedestal ? 'altar' : 'tree', x: home.x, z: home.z, text: carried > 1 ? 'Bring the Starseeds home' : 'Bring the Starseed home', short: 'Altar' };
   for (const id of SEED_ORDER) {
     const a = W.arenas && W.arenas[id];
-    if (a && S.bosses[id] && !S.seeds[id]) return { id: 'arena-' + id, x: a.x, z: a.z, text: 'Pick up the ' + SEEDS[id].name, short: SEEDS[id].name };
+    // a Catcher with a handover (S-005) gives its seed by hand: talk to it (a handover cut short replays on Talk)
+    if (a && S.bosses[id] && !S.seeds[id]) return { id: 'arena-' + id, x: a.x, z: a.z, text: HANDOVER[id] ? 'Talk to ' + BOSSES[id].name : 'Pick up the ' + SEEDS[id].name, short: SEEDS[id].name };
   }
   let best = null, bd = Infinity;
   for (const id of SEED_ORDER) {

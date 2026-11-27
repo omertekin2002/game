@@ -70,7 +70,7 @@ Grep rules (must stay empty): `grep -rnE "\.yawTarget|cam\.bias|cam\.yaw" js` an
 | `js/toon.js`, `js/scatter.js`, `js/fx.js`, `js/perf/perf.js`, `js/perf/lod.js`, `js/perf/grass.js` | materials, instanced scenery, particles, module `wp7-perf` (culling, LOD, cutaway, lights, warm-up, resolution), tree proxies, near grass | §14.2, [WP7](wp/WP7.md) |
 | `js/perf/dynres.js` | the dynamic-resolution decisions: `dynDecide`, `dynPause`, `titlePace`, `clampDyn` (pure; unit-tested in `tests/dynres.test.js`) | §14.2 |
 | `js/sky.js`, `js/terrain.js`, `js/atmo.js`, `js/ambient.js`, `js/assets.js`, `assets/manifest.js` | sky and fog, terrain and water, module `wp8-atmo`, ambient particles, asset loader, manifest | §14, [WP8](wp/WP8.md) |
-| `js/debug/debug.js`, `js/debug/gpu-timer.js`, `js/debug/tests.js`, `js/debug/tests/wp1.js … wp9.js` | `G.debug`, GPU timer, test runner and suites | §17, §18 |
+| `js/debug/debug.js`, `js/debug/gpu-timer.js`, `js/debug/tests.js`, `js/debug/tests/wp1.js … wp9.js`, `act1.js` | `G.debug`, GPU timer, test runner and suites | §17, §18 |
 | `js/pwa.js`, `manifest.webmanifest`, `assets/ui/app-icon-*.png` | service-worker registration for the Pages build only (`swPlan`, `registerServiceWorker`; unit-tested in `tests/pwa.test.js`); the web manifest and its icons | §14.5 |
 | `tools/build-pages.mjs`, `tools/sw-template.js`, `tools/make-app-icons.mjs` | the Pages build and its checks (`buildPages`, `checkPwa`), the service worker's code, the icon generator | §14.5 |
 
@@ -484,7 +484,15 @@ them), `band`, `stripe` (charge, snap, slide paths), `zone` (Frostbun's landing 
 `alert`, `aura`, `glint`. Every telegraph mesh carries `userData.cull = { dist: Infinity }`. Fight flow: entering the
 arena (within r − 2.5) starts a 2.4 s intro (`EV.BOSS_INTRO`, `CUTSCENE_START`, vine gate rises, Pip walks in, look
 locked), then `EV.BOSS_FIGHT`; defeat → `EV.BOSS_DEFEATED`, the Starseed drops, `EV.FIGHT_END` after 3.2 s; a respawn
-resets an unbeaten boss (`endFight(true)`). Rematches (after the ending): `spawnRematches` keeps a napping rematch `Boss`
+resets an unbeaten boss (`endFight(true)`). The Catchers' handover (S-005): a first win over a guardian with a
+`data.js HANDOVER` entry (Grumble Shroom) sits it down instead (`updateSitting`: 1.0 s, lowered 0.35 m and tilted back,
+dizzy stars, `bossSit`), then `onBossDefeated` keeps it in `game.bosses` (`sat`, state `'sat'`, `dying` kept true so
+no fight path touches it, its collider kept), drops no seed and calls `startHandover(b)` (`cutscenes.js`, steps
+`HANDOVER_STEPS`: wide shot, the sit, a two shot, its lines with the seed held out, the pov hand-back, the flags
+`calm:<id>` / `handover:<id>`, then `giveSeed(id)`, the shipped item-get). `game.skipScene` (or Use held 0.8 s) skips to
+the same save state. Until the bloom a sat Catcher is a Use target (`Talk`, `interact` → `talkCatcher`: `CATCHER_TALK`),
+a Continue rebuilds it sitting 3 m from the arena centre toward its entrance, a save written mid-scene (beaten, no seed,
+no `handover:<id>`) replays the scene on Talk, and `finishEnding` removes it before the rematch nap. Rematches (after the ending): `spawnRematches` keeps a napping rematch `Boss`
 in each beaten guardian's arena (at session start, after the ending, and once Pip is clear of the arena's middle after a
 win). The walk-in trigger skips them; targeting offers a napping one as a Use target (`kind: 'guardian'`, verb `Wake`)
 and `interact` → `wakeRematch` → `startFight`. A rematch win drops no Starseed and calls `rematch.win(S, id)` (40 gems
@@ -964,7 +972,7 @@ await G.debug.test.list()                // [{ name, desc, tests, heavy }]
 
 | Suites | |
 |---|---|
-| in `'all'` | `smoke` (boot contracts, viewmodel composition and night lighting, extension points, collider / touch / projector / heart contracts, the debug-key gate), `look`, `feel-basic`, `combat-basic`, `interact-basic`, `save-migrate`, and one per area: `wp1` … `wp9` |
+| in `'all'` | `smoke` (boot contracts, viewmodel composition and night lighting, extension points, collider / touch / projector / heart contracts, the debug-key gate), `look`, `feel-basic`, `combat-basic`, `interact-basic`, `save-migrate`, one per area: `wp1` … `wp9`, and `act1` (the Catchers' handover, S-005) |
 | heavy (run by name) | `probe` (TP arm vs colliders, `{ n }`), `sweep` (perf sweep: 9 locations × 4 directions per view, `{ modes, ms, settle, time }`), `wp1-heavy`, `wp2-heavy` (vm GPU; run at 1920×1080), `wp3-heavy` (`{ n, walks, per, tree }`), `wp4-matrix`, `wp5-heavy` (boss masher check, audio levels), `wp6-heavy` (overlap audit), `wp7-hitch` (run first in a fresh page), `wp7-sweep` (budget gate; `{ modes, locs, dirs, ms, reps, settle, time, gate }`), `wp8-perf`, `wp9-heavy` |
 
 Each test starts from a deterministic state: manual clock, `Math.random` seeded, play with no modal, cutscene or fight,

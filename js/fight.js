@@ -5,6 +5,8 @@
 // Guardian rematches (after the bloom, data.js REMATCH): each beaten guardian naps in its arena again as a rematch Boss.
 // Walking in never starts one; Use on it does (interact.js wakeRematch → startFight). A win drops no Starseed: the first
 // win per guardian gives REMATCH.gems once (S.rematches), then it naps again; getting dizzy resets it like a first fight.
+// The Catchers' handover (S-005): a first win over a guardian with a data.js HANDOVER entry ends with it sitting down
+// (bosses.js updateSitting): it stays in game.bosses, sat, and the handover cutscene gives its Starseed (cutscenes.js).
 import * as THREE from 'three';
 import { sfx, music } from './core.js';
 import { SEEDS, BOSSES, SEED_ORDER, rematch } from './data.js';
@@ -182,11 +184,11 @@ export const FightMixin = {
     const f = this.fight;
     const S = this.S;
     if (!b.rematch) S.bosses[b.id] = true;
-    delete this.bosses[b.id];
+    if (!b.sat) delete this.bosses[b.id];   // a sat Catcher stays on the island until the bloom
     this.events.emit(EV.BOSS_DEFEATED, { id: b.id, rematch: b.rematch });
     if (f) { f.phase = 'won'; f.wonT = 0; }
     this.ui.bossBar(null);
-    this.whiteFlash = 0.8;
+    if (!b.sat) this.whiteFlash = 0.8;
     for (const e of this.enemies) if (e.minion) { this.fx.poof(e.pos.x, e.pos.y, e.pos.z, 0xffffff, 8); e.remove(); e.removed = true; }
     this.enemies = this.enemies.filter((e) => !e.removed);
     for (const p of this.projectiles) p.pop(true);
@@ -199,6 +201,11 @@ export const FightMixin = {
       if (gems) this.events.emit(EV.COLLECT, { kind: 'gem', value: gems });   // the feed's "+40 gems" line and the gem sound
       this.ui.toast('✿ Rematch won: ' + b.name + '!');
       this.ui.updateHud(S);
+    } else if (b.sat) {
+      // the handover: no seed pickup; the cutscene gives the Starseed with the shipped item-get (cutscenes.js)
+      this.save(true);
+      this.startHandover(b);
+      return;
     } else this.pickups.push(new Pickup('seed', b.pos.x, b.pos.z, { seedId: b.id, color: SEEDS[b.id].color, vy: 7, spread: 0, y0: 1.2 }));
     this.save(true);
   },
