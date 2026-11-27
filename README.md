@@ -119,10 +119,10 @@ Open Settings from the pause menu or the title.
   past four paper lanterns, which light up as they pass and stay lit.
 - Something to spend spare gems on: once the Heart Container and the Shiny Sword are sold, Miso stocks a plushie of each
   guardian Pip has beaten (80 gems each), and every one bought sits on her counter.
-- The Catchers' handover: the first win over Grumble Shroom ends with him sitting down, dizzy, to say why he kept the
-  Woods Starseed and hand it over (the seed item-get follows). He stays sitting in his open arena until the bloom, with
-  `Talk · Grumble Shroom` for a word or two; the scene can be skipped by holding Use. (Captain Pinch and Frostbun still
-  burst and drop their seeds.)
+- The Catchers' handover: the first win over each guardian (Grumble Shroom, Captain Pinch, Frostbun) ends with it
+  sitting down, dizzy, to say why it kept its Starseed and hand it over (the seed item-get follows). Each stays sitting in
+  its open arena until the bloom, with `Talk` for a word or two; the scene can be skipped by holding Use. At the bloom
+  the three stand at the plaza edge and watch the Great Tree flower, then nap in their arenas for the rematches.
 - Guardian rematches after the bloom: the three guardians nap in their arenas again. Walking in wakes nobody; aim at one
   and press Use (`Wake`) for a friendly but harder rematch: 1.25× HP, enraged sooner, the same moves. The first win
   against each gives 40 gems; no Starseed drops.

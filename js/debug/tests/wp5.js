@@ -895,8 +895,9 @@ export default function register(suite) {
           t.frames(1);                                     // its first frame has no wind yet
           for (let i = 0; i < 120 && e.state === 'windup'; i++) { t.frames(1); if (e.state === 'windup') en.push(fe()); }
           t.clearEnemies();
-          // a boss (Pinch's charge wind-up), then its death
-          const b = fight(t, 'shores', 7), fb = flashOf(b), bo = [];
+          // a boss (Pinch's charge wind-up), then its death: a rematch, since a first win sits him down for his handover
+          // (S-006) instead of the flickering burst
+          const b = fight(t, 'shores', 7, true), fb = flashOf(b), bo = [];
           D.actors.boss('charge'); t.frames(2);
           for (let i = 0; i < 200 && b.state === 'chargeWind'; i++) { t.frames(1); if (b.state === 'chargeWind') bo.push(fb()); }
           b.set('walk', 0); b.cool = 99; t.frames(30);

@@ -13,11 +13,15 @@
 //   cutscene runs the script's steps in order (HANDOVER_STEPS, so S-034 can port it to the scene runner): wide shot,
 //   the sit, a two shot over Pip's shoulder, its lines with the Starseed held out, the pov hand-back, the calm flags and
 //   the shipped seed item-get. Skippable (G.debug.scene.skip, or {interact} held 0.8 s) to the same save state.
+// - the bloom watchers (S-006, story.md #I.5): the ending spawns the three Catchers as scene actors at the plaza edge
+//   (WATCH.marks, each moved to a clear walkable spot), 0.6 × their size, facing the Tree; each strikes a small pose at the
+//   bloom and they go (meshes disposed) in finishEnding. The real bosses stay in their arenas.
 import * as THREE from 'three';
 import { sfx, music } from './core.js';
 import { SEED_ORDER, SEEDS, BOSSES, HANDOVER, progress } from './data.js';
 import { toonMat, sharedOutline, meshWithOutline } from './toon.js';
 import { seedBuilt } from './models.js';
+import { bossBody } from './bosses.js';
 import { rand, pick, Ease, clamp, lerp, yawOf, wrapAngle, angDiff, dampAngle, fwdXZ, rightXZ } from './util.js';
 import { EV } from './events.js';
 import { view as TV } from './tune.js';
@@ -52,6 +56,21 @@ function socket(A, i, out) {
 const HO = { sit: 1.0, wide: 6, wideUp: 3, wideIn: 0.6, wideFovH: 62, two: 2.4, twoUp: 1.4, twoSide: 0.55, twoIn: 0.5, twoFovH: 56, povOut: 0.4, seedOut: 0.6, seedH: 1.4, seedT: 0.6, skipHold: 0.8 };
 /** the handover script's step names, in order (story.md #I.2 'handover-woods'); c.step is the index of the running one */
 export const HANDOVER_STEPS = ['wide', 'sit', 'two', 'say12', 'holdOut', 'say3', 'pov', 'flags', 'item'];
+/** the bloom watchers (S-006, story.md #I.5): each Catcher's mark (x, z) at the plaza edge, moved to the nearest walkable
+ *  spot at least `clear` m from every collider (a `step` m grid out to `reach` m), at `scale` × its in-game height */
+export const WATCH = { marks: { woods: [-9, -2], peaks: [11, 4], shores: [-8, 18] }, clear: 3, step: 0.5, reach: 4, scale: 0.6 };
+const D_TILT = 15 * Math.PI / 180;
+/** a watcher's pose s seconds after the bloom → { dy (m), tilt (rad, forward) }: Grumble two small bobs (+0.08 m, 0.3 s
+ *  each: "one small clap"), Frostbun one 0.4 m hop (0.5 s), Pinch tips forward 15° for 0.6 s ("doffs his hat") */
+export function watchPose(id, s, out = { dy: 0, tilt: 0 }) {
+  out.dy = 0; out.tilt = 0;
+  if (!(s >= 0)) return out;
+  if (id === 'woods' && s < 0.6) out.dy = 0.08 * Math.sin(Math.PI * ((s % 0.3) / 0.3));
+  else if (id === 'peaks' && s < 0.5) { const u = s / 0.5; out.dy = 0.4 * 4 * u * (1 - u); }
+  else if (id === 'shores' && s < 0.6) out.tilt = D_TILT * Ease.inOutSine(clamp(Math.min(s, 0.6 - s) / 0.15, 0, 1));
+  return out;
+}
+const _pose = { dy: 0, tilt: 0 }, _near = [];
 const shotPose = (s) => (s && Array.isArray(s.pos) && Array.isArray(s.look) ? { pos: new THREE.Vector3(...s.pos), look: new THREE.Vector3(...s.look) } : null);
 
 export const CutsceneMixin = {
@@ -136,7 +155,10 @@ export const CutsceneMixin = {
    *  by render time (dt 0 while the world is paused) */
   renderCutscene(alpha, dt) {
     const c = this.cutscene;
+    // the bloom watchers live only while the ending runs (a debug reset that drops the scene drops them too)
+    if (this.watchers && (!c || c.type !== 'ending')) this.clearWatchers();
     if (!c) return;
+    if (c.type === 'ending' && this.watchers) this.poseWatchers(c, alpha);
     if (c.type === 'place' && c.cur) {
       const cu = c.cur, K = TV.place, t = clamp(cu.t - (1 - clamp(alpha, 0, 1)) * STEP, 0, K.seedT);
       this.seedAt(cu, t, cu.mesh.position);
@@ -320,10 +342,75 @@ export const CutsceneMixin = {
     if (!Number.isFinite(F['calm:' + id])) F['calm:' + id] = 1 + Object.keys(F).filter((k) => k.startsWith('calm:')).length;
     F['handover:' + id] = true;
   },
+  // ------------------------------------------------------------------ the bloom watchers (S-006)
+  /** the three Catchers as scene actors watching the bloom (story.md #I.5): their bodies (bossBody: the shipped GLB, else
+   *  the procedural rig) at WATCH.scale, on the ground at their marks, facing the Tree → this.watchers */
+  spawnWatchers(Tr) {
+    this.clearWatchers();
+    const W = this.world, out = [];
+    for (const id of SEED_ORDER) {
+      const m = WATCH.marks[id];
+      if (!m) continue;
+      const [x, z] = this.watchMark(m[0], m[1]), y = W.ground(x, z), yaw = yawOf(Tr.x - x, Tr.z - z);
+      const body = bossBody(id, 'char'), root = new THREE.Group();
+      root.rotation.order = 'YXZ';
+      root.add(body.group);
+      root.scale.setScalar(WATCH.scale);
+      root.position.set(x, y, z);
+      root.rotation.y = yaw;
+      this.scene.add(root);
+      out.push({ id, root, mats: body.mats, x, y, z, yaw, height: body.height * WATCH.scale });
+    }
+    this.watchers = out;
+    return out;
+  },
+  /** the nearest walkable spot to (x0, z0), on a WATCH.step m grid out to WATCH.reach m, at least WATCH.clear m from every
+   *  collider; none such: the walkable spot with the most room (else the mark itself) → [x, z] */
+  watchMark(x0, z0) {
+    const W = this.world, K = WATCH, n = Math.round(K.reach / K.step);
+    let best = null, bd = Infinity, roomy = null, rd = -Infinity;
+    for (let i = -n; i <= n; i++) for (let j = -n; j <= n; j++) {
+      const dx = i * K.step, dz = j * K.step, d = Math.hypot(dx, dz);
+      if (d > K.reach + 1e-9 || d >= bd) continue;
+      const x = x0 + dx, z = z0 + dz;
+      if (!W.walkable(x, z)) continue;
+      const room = this.colliderRoom(x, z, K.clear);
+      if (room >= K.clear) { best = [x, z]; bd = d; }
+      else if (room > rd) { roomy = [x, z]; rd = room; }
+    }
+    return best || roomy || [x0, z0];
+  },
+  /** the distance from (x, z) to the nearest active collider's footprint, capped at r */
+  colliderRoom(x, z, r) {
+    const W = this.world;
+    let m = r;
+    for (const c of W.nearColliders(x, z, r, _near)) m = Math.min(m, W.colliderDist(c, x, z));
+    return m;
+  },
+  /** render side: each watcher's bloom pose (watchPose) by the interpolated time since the bloom */
+  poseWatchers(c, alpha) {
+    const s = c.bloomT >= 0 ? c.t - (1 - clamp(alpha, 0, 1)) * STEP - c.bloomT : -1;
+    for (const w of this.watchers) {
+      watchPose(w.id, s, _pose);
+      w.root.position.y = w.y + _pose.dy;
+      w.root.rotation.x = _pose.tilt;
+    }
+  },
+  /** take the watchers out of the scene and dispose their own materials (the geometry is the shared boss template's) */
+  clearWatchers() {
+    const ws = this.watchers;
+    this.watchers = null;
+    if (!ws) return;
+    for (const w of ws) {
+      this.scene.remove(w.root);
+      for (const m of w.mats || []) m.dispose();
+    }
+  },
   startEnding() {
     const A = anchors(this), Tr = A.tree, E = TV.ending, view = this.view;
-    const c = (this.cutscene = { type: 'ending', t: 0, stage: 0, shot: 0, lookShot: 0, crane: 0, A });
+    const c = (this.cutscene = { type: 'ending', t: 0, stage: 0, shot: 0, lookShot: 0, crane: 0, bloomT: -1, A });
     this.player.state = 'frozen';
+    this.spawnWatchers(Tr);
     this.events.emit(EV.CUTSCENE_START, { type: 'ending' });
     // 0 – lookT: from the eye, the view eases up the trunk to +35°
     const e = view.simEye(_v), d = Math.max(1.5, Math.hypot(Tr.x - e.x, Tr.z - e.z));
@@ -361,6 +448,7 @@ export const CutsceneMixin = {
     const c = this.cutscene, A = c.A || (c.A = anchors(this)), Tr = A.tree, E = TV.ending, th = this.scenery.greatTree.height || Tr.height;
     if (c.stage === 0 && c.t > E.bloom) {
       c.stage = 1;
+      c.bloomT = c.t;   // the watchers' poses start here (poseWatchers)
       this.scenery.setBloom(true);
       this.treeSeeds.forEach((g) => (g.visible = this.treeSeedsWanted()));
       sfx('bloom');
@@ -406,6 +494,7 @@ export const CutsceneMixin = {
     this.ui.showHud(true);
     this.S.ending = true;
     this.S.flags.bloom = true;   // story I.5: the bloom (S.flags, save v7)
+    this.clearWatchers();        // the bloom watchers (S-006) go with the scene
     // the sitting Catchers (S-005) go: the shipped rematch nap takes over unchanged
     for (const id in this.bosses) { const b = this.bosses[id]; if (b.sat) { b.remove(); delete this.bosses[id]; } }
     this.spawnRematches(true);   // the guardians nap in their arenas again, for a friendly rematch (fight.js)
