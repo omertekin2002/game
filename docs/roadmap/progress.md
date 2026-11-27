@@ -7,7 +7,7 @@ the format of [bible/charter.md#progress-template](bible/charter.md#progress-tem
 ## 2026-11-27 · M01 Canon in the repo; the Catchers hand over closed (S-001 - S-007)
 
 - Steps: S-001 #56 (PR #57), S-002a #60 (PR #61), S-002b #62 (PR #63), S-002c #64 (PR #65), S-003 #66 (PR #67),
-  S-004 #68 (PR #69), S-005 #70 (PR #71), S-006 #73 (PR #74), S-007 #75 (PR __PR__); splits: S-002a/S-002b/S-002c;
+  S-004 #68 (PR #69), S-005 #70 (PR #71), S-006 #73 (PR #74), S-007 #75 (PR #76); splits: S-002a/S-002b/S-002c;
   fallbacks used: none (the two S-004 decals were generated; the four reason models are code-built, their GLB slots
   commented out)
 - Hours: +0.3 h this milestone (an estimate, as before S-078b: three reason props to look at, three handover scenes
