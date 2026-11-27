@@ -224,13 +224,13 @@ export const CutsceneMixin = {
     else if (c.type === 'handover') this.updateHandover(dt);
   },
   // ------------------------------------------------------------------ the Catchers' handover (S-005)
-  /** start the handover of Catcher `b` (sat, fight.js onBossDefeated); `replay`: a Talk after a save written mid-scene
-   *  (beaten, no seed, no handover flag) starts it at the two shot and its first line */
+  /** start the handover of Catcher `b` (sat, fight.js onBossDefeated); `replay`: a Talk on a save with a beaten Catcher
+   *  and no seed (mid-scene or migrated from v2–v6) starts it at the two shot and its first line */
   startHandover(b, { replay = false } = {}) {
     const id = b.id;
-    if (!HANDOVER[id] || this.cutscene) return false;
+    if (!HANDOVER[id] || this.cutscene || this.player.state === 'dizzy') return false;
     const pl = this.player, view = this.view;
-    const c = (this.cutscene = { type: 'handover', id, b, t: 0, step: 0, shot: 0, mode: view.mode, seed: null, seedT: 0, holdT: 0, flagged: false, done: false });
+    const c = (this.cutscene = { type: 'handover', id, b, t: 0, step: 0, shot: 0, mode: view.mode, seed: null, seedT: 0, holdT: 0, done: false });
     pl.state = 'frozen'; pl.vel.set(0, 0); pl.autoMove = null; pl.endSwing();
     this.skipScene = () => this.skipHandover();
     this.events.emit(EV.CUTSCENE_START, { type: 'handover', id });
@@ -239,7 +239,7 @@ export const CutsceneMixin = {
     if (c.mode === 'fp') view.faceTo(face.x, face.y, face.z, { dur: 0.6, lock: true, hold: 99 });
     else if (!replay) c.shot = view.setShot(this.handoverShot(c, 'wide'));
     if (replay) this.handoverStep(c, 2);   // straight to the two shot and the lines
-    else c.step = 1;                       // 2 sit: the sit plays (bosses.js updateSitting), held for HO.sit s
+    else c.step = 1;                       // 2 sit: hold on the wide shot / FP look for HO.sit s before the two shot
     return true;
   },
   /** the handover's camera shots (TP): 'wide' or 'two' → setShot options */

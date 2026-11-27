@@ -533,8 +533,8 @@ no fight path touches it, its collider kept), drops no seed and calls `startHand
 `HANDOVER_STEPS`: wide shot, the sit, a two shot, its lines with the seed held out, the pov hand-back, the flags
 `calm:<id>` / `handover:<id>`, then `giveSeed(id)`, the shipped item-get). `game.skipScene` (or Use held 0.8 s) skips to
 the same save state. Until the bloom a sat Catcher is a Use target (`Talk`, `interact` → `talkCatcher`: `CATCHER_TALK`),
-a Continue rebuilds it sitting 3 m from the arena centre toward its entrance, a save written mid-scene (beaten, no seed,
-no `handover:<id>`) replays the scene on Talk, and `finishEnding` removes it before the rematch nap. The bloom watchers
+a Continue rebuilds it sitting 3 m from the arena centre toward its entrance, a save with a beaten Catcher and no seed
+(mid-scene or migrated from v2–v6) replays the scene on Talk, and `finishEnding` removes it before the rematch nap. The bloom watchers
 (S-006): `startEnding` spawns the three Catchers as scene actors (`spawnWatchers` → `game.watchers`; `bosses.js
 bossBody`, the GLB else the procedural rig, at `WATCH.scale` 0.6) at `WATCH.marks`, each moved to the nearest walkable
 spot ≥ 3 m from every collider (`watchMark`), facing the Tree; `renderCutscene` poses them after the bloom (`watchPose`)

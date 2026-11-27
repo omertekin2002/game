@@ -615,7 +615,7 @@ export class Boss {
 
   /** returns 'hit' | 'dead' | null; swing: the sword's swingId (i-frames only guard against the swing that caused them) */
   hit(dmg, fx, fz, swing = null) {
-    if ((this.iframes > 0 && (swing == null || swing === this.iframeSwing)) || this.dying || this.sat || this.state === 'sleep' || this.state === 'intro') return null;
+    if ((this.iframes > 0 && (swing == null || swing === this.iframeSwing)) || this.dying || this.state === 'sleep' || this.state === 'intro') return null;
     if (this.lift > 1.6) return null;
     this.iframeSwing = swing;
     this.hp = Math.max(0, this.hp - dmg);

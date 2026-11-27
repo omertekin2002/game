@@ -78,11 +78,11 @@ export const InteractMixin = {
     this.updateMusic(true);
   },
   /** Talk to a Catcher sitting after its handover (S-005): the placed line once its seed is in the pedestal, else the
-   *  `before` lines in turn. A save written mid-handover (beaten, no seed, no handover flag) replays the scene from its
-   *  first line instead, so the Starseed is never missed */
+   *  `before` lines in turn. A save with a beaten Catcher and no seed (written mid-handover, or migrated from v2–v6
+   *  before the seed was picked up) replays the scene from its first line instead, so the Starseed is never missed */
   talkCatcher(b) {
     const S = this.S, id = b.id, T = CATCHER_TALK[id];
-    if (S.bosses[id] && !S.seeds[id] && !S.flags['handover:' + id] && HANDOVER[id]) return this.startHandover(b, { replay: true });
+    if (S.bosses[id] && !S.seeds[id] && HANDOVER[id]) return this.startHandover(b, { replay: true });
     if (!T) return false;
     const n = (this.catcherTalks || (this.catcherTalks = {}))[id] || 0;
     const line = S.seeds[id] === 2 ? T.placed[0] : T.before[n % T.before.length];

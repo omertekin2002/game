@@ -240,6 +240,58 @@ export default function register(suite) {
       t.dlgDone();
       t.ok(game.S.seeds.woods === 1 && game.S.flags['handover:woods'] === true && game.S.flags['calm:woods'] === 1, 'the seed and the flags', game.S.flags);
     }],
+    ['a migrated v6 save with an uncollected seed replays the handover on Talk', async (t) => {
+      const { game, D, ui } = t;
+      const s = await fixture('act1-fresh');
+      s.v = 6; delete s.flags;
+      s.bosses.woods = true;   // beaten in v6, seed not picked up yet: v7Flags marks handover:woods while seeds.woods stays 0
+      load(t, s);
+      t.ok(game.S.v === 7 && game.S.flags['handover:woods'] === true && game.S.flags['calm:woods'] === 1 && !game.S.seeds.woods, 'migrated with handover:woods and no seed', game.S.flags);
+      const b = game.bosses.woods;
+      t.ok(b && b.sat && !game.pickups.some((p) => p.kind === 'seed'), 'he sits; no seed pickup');
+      const a = b.arena, ang = yawOf(a.outside.x - b.pos.x, a.outside.z - b.pos.z), d = b.r + 1.0;
+      D.teleport(b.pos.x + Math.sin(ang) * d, b.pos.z + Math.cos(ang) * d, ang + Math.PI, 0);
+      D.lookAt(b.pos.x, a.h + TC.aimPts.guardian[0] * b.height, b.pos.z); t.frames(3);
+      t.press('interact'); t.frames(2);
+      t.ok(game.cutscene && game.cutscene.type === 'handover' && ui.dlg, 'Talk replays the handover despite migrated handover:woods');
+      t.ok(D.scene.skip(), 'skip to the item-get');
+      t.ok(ui.dlg && ui.dlg.lines[0] === 'You got the ' + SEEDS.woods.name + '!', 'the item-get gives the seed');
+      t.dlgDone();
+      t.ok(game.S.seeds.woods === 1 && game.S.flags['handover:woods'] === true && game.S.flags['calm:woods'] === 1, 'seed recovered and calm order kept', game.S.flags);
+    }],
+    ['getting dizzy during the sit still respawns Pip and Talk recovers the seed', async (t) => {
+      const { game, D, ui } = t;
+      load(t, await fixture('act1-fresh'));
+      try {
+        D.god(false);
+        t.ok(D.toBoss('woods') === 'woods', 'toBoss(woods)');
+        t.frames(2);
+        const a = game.world.arenas.woods;
+        D.move(0, 1);
+        until(t, () => { const p = game.player.pos; D.look(yawOf(a.x - p.x, a.z - p.z), 0); return !!game.fight; }, 15 * 60);
+        D.move(0, 0);
+        until(t, () => game.fight && game.fight.phase === 'fight', 10 * 60);
+        const b = game.fight.boss;
+        t.ok(D.killBoss(), 'killBoss');
+        t.frames(10);   // mid-sit: a lingering hit downs Pip
+        game.S.hp = 1;
+        t.ok(game.playerHurt(2, a.x, a.z, 0, 'ring'), 'hit during sit');
+        t.eq(game.player.state, 'dizzy', 'Pip is dizzy at 0 HP');
+        t.ok(until(t, () => b.sat, 2 * 60) >= 0, 'Grumble finishes sitting');
+        t.ok(!game.cutscene && game.player.state === 'dizzy', 'dizzy preserved, handover deferred');
+        t.ok(until(t, () => game.player.state === 'normal' && !game.trans, 8 * 60) >= 0, 'Pip respawns');
+        t.eq(game.S.hp, game.S.maxHp, 'full HP after respawn');
+        t.ok(game.bosses.woods === b && b.sat && !game.S.seeds.woods, 'Grumble still sat with seed pending');
+        const ang = yawOf(a.outside.x - b.pos.x, a.outside.z - b.pos.z), d = b.r + 1.0;
+        D.teleport(b.pos.x + Math.sin(ang) * d, b.pos.z + Math.cos(ang) * d, ang + Math.PI, 0);
+        D.lookAt(b.pos.x, a.h + TC.aimPts.guardian[0] * b.height, b.pos.z); t.frames(3);
+        t.press('interact'); t.frames(2);
+        t.ok(game.cutscene && game.cutscene.type === 'handover' && ui.dlg, 'Talk replays handover after respawn');
+        t.ok(D.scene.skip(), 'skip to item-get');
+        t.dlgDone();
+        t.eq(game.S.seeds.woods, 1, 'seed recovered after respawn');
+      } finally { D.god(true); }
+    }],
     ['bloom: the three watch from their marks, then nap', async (t) => {
       const { game, D, ui } = t, W = game.world;
       load(t, await fixture('act1-3carried'));
