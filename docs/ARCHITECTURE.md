@@ -62,9 +62,10 @@ Grep rules (must stay empty): `grep -rnE "\.yawTarget|cam\.bias|cam\.yaw" js` an
 | `js/player.js`, `js/player-body.js`, `js/player-fx.js`, `js/fx-trail.js` | Pip's simulation and attack chain; body build and TP animation; module `wp3-player-fx` (dust, footprints, sprint toggle, stuck warp); TP slash trail | §8, [WP3](wp/WP3.md), [WP2](wp/WP2.md) |
 | `js/phys.js`, `js/world-collide.js` | movement collision; colliders, ground, probes, eye keep-out (World mixin) | §9, [WP3](wp/WP3.md) |
 | `js/world.js`, `js/world-const.js`, `js/props.js`, `js/models.js`, `js/world-mod.js` | world generation, prop and character models, module `wp9-world` (landmarks, signs, lamps, animation, culling of world-space meshes) | §9, [WP9](wp/WP9.md) |
+| `js/world-post.js` | `attachPost(W)`: post-pass solids become colliders after generation (`POST_LISTS`) | §9.5 |
 | `js/combat.js`, `js/targeting.js`, `js/interact.js`, `js/spawn.js` | sword hit test, damage, kills, hurt, dizzy; module `wp4-targeting` (lock-on, aim friction, crosshair interaction); gameplay input, talk, shop, chests, pedestal, sim-time scheduler; spawner | §10, [WP4](wp/WP4.md) |
 | `js/entities.js`, `js/bosses.js`, `js/fight.js`, `js/npcs.js`, `js/fx-ground.js`, `js/actors-mod.js`, `js/audio-bus.js`, `js/audio.js` | enemies and projectiles, bosses, boss fights, villagers, ground telegraphs, module `wp5-actors`, event-driven audio, the sound engine | §10, §14.4, [WP5](wp/WP5.md) |
-| `js/cutscenes.js` | pedestal and ending cutscenes, world anchors | §7.5, [WP1](wp/WP1.md) |
+| `js/cutscenes.js` | pedestal, handover and ending cutscenes (the Catchers' handover, the bloom watchers), world anchors | §7.5, [WP1](wp/WP1.md) |
 | `js/input.js`, `js/input-lock.js`, `js/touch.js`, `js/keybinds.js`, `js/padbinds.js` | input, pointer lock, touch controls; keyboard bindings and controller buttons (pure; unit-tested in `tests/keys.test.js`, `tests/padbinds.test.js`) | §11, [WP6](wp/WP6.md) |
 | `js/ui.js`, `js/hud/*.js`, `styles.css`, `index.html` | HUD, menus, dialogue, title, module `wp6-hud` | §15, [WP6](wp/WP6.md) |
 | `js/toon.js`, `js/scatter.js`, `js/fx.js`, `js/perf/perf.js`, `js/perf/lod.js`, `js/perf/grass.js` | materials, instanced scenery, particles, module `wp7-perf` (culling, LOD, cutaway, lights, warm-up, resolution), tree proxies, near grass | §14.2, [WP7](wp/WP7.md) |
@@ -417,6 +418,47 @@ fight boss and nearby enemies are dynamic circles (`game.dynamicColliders`, `gam
 and uses `walkOK(W, x, z)` as the ground test (`W.walkable` without hairline slivers under 0.2 m). Walkers that pass
 their feet (`feetY`, `grounded`, `on`) get standable tops, overhead parts and one-way deck walls. `headroom(…)` is the
 jump ceiling, `penetration(…)` the overlap, `HEAD` (1.0 m) a walker's height. Enemies and NPCs keep `W.walkable`.
+
+**9.5 Post-passes** (the full plan: `docs/roadmap/bible/atlas-home.md#passes`). Everything the island gains after the
+shipped generator is a post-pass: a `World` method that runs at the end of `generate()`, after `publishAnchors()`, and
+writes only its own list. The rules:
+
+- **Own stream.** Each pass draws only from its own `new RNG(seed × k + c)`, a row of the table below; a pass with no
+  randomness (a pure scan) still takes a row. Never draw from `this.rng` or another pass's stream, so adding a pass
+  moves nothing that exists.
+- **Guard.** Each pass runs in table order behind `if (o.<pass> !== false) { this.place…(); lap('<pass>'); }`, so
+  `generateWorld(seed, { <pass>: false })` builds the world without it (the "changes nothing else" tests).
+- **Touches nothing it does not own.** No additions to `props`, `deco`, `colliders`, `reserved`, `interact`,
+  `chests`, `npcSpots`, `bridges` or any other generator list; it saves `[W.walk, W.reach]`, computes its own reach
+  (`this.bfs(this.buildWalk())`, the `placeShells` pattern) and restores them. Its `ok(x, z)` keeps clear of every
+  earlier pass's items, never the other way round. Positions are rounded to 0.001 m. Placement never reads the save:
+  what shows is decided at runtime from `S.flags`.
+- **`attachPost` rule.** An item that must block Pip declares `solid: { r }` in its own record instead of adding a
+  collider. `attachPost(W)` (`js/world-post.js`) walks every list in `POST_LISTS` (today `['reasons']`) and adds one
+  circle collider of kind `post` (`COLLIDER_H.post`: h 0.67) per solid item with `W.addDynamicCollider`; it runs once
+  (`W._postAttached`). Only `main.js` calls it, right after `generateWorld(seed)`; tests and the prints never do, so
+  `tests/fixtures/world-prints.json`, `walk` and `reach` stay byte-identical.
+- **Tests.** In `tests/world.test.js`: with and without the pass equal on `placementPrint`, `fingerprint`, `walk`,
+  `reach`, `unreachable` and every other list; the documented ids in order; every item obeys its rule and is
+  reachable (seeds 1–40, read through the per-process cache `worldAll(seed)` in `tests/lib/world-cache.js`).
+
+| # | Stream / pass | `new RNG(seed × k + c)` | Since | Writes |
+|---|---|---|---|---|
+| g1 | world main (`this.rng`) | 7, 3 | shipped | terrain, layout, scatter |
+| g2 | landmarks | 13, 5 | shipped | `landmarks` |
+| g3 | woods gaps (clearings, trails) | 17, 3 | shipped | `woodsGaps` |
+| g4 | coins (gem chests) | 31, 17 | shipped | `chests` `coin_*` |
+| g5 | path dressing (waymarkers) | 7, 11 | shipped | `waymarkers`, `edgeStones` |
+| g6 | `placeShells` (guard `shells`) | 41, 29 | shipped | `shells` |
+| g7 | `placeLanterns` (guard `lanterns`) | 53, 7 | shipped | `lanterns` |
+| g8 | `placeSecrets` (guard `secrets`) | none (scan) | shipped | `secrets` |
+| 1 | `placeReasons` (guard `reasons`) | 67, 13 (`7151 × 67 + 13` on the home seed) | S-004 | `reasons` |
+
+g1–g5 are the generator's own streams; g6–g8 and row 1 are post-passes. A new pass takes the next row of the atlas
+table (row 2 `placeThorns` 71, 17 is S-013); append, never renumber. No two streams collide on seeds 1–200 except the
+generator's own pair at seed 1 (g2 and g5, shipped). To add one: a `place<Name>()` method with the rules above, its
+guard line after the last pass in `generate()`, its list in §9.2, its key in `POST_LISTS` if it has solids, and the
+tests above.
 
 ## 10. Actors and combat — detail: [WP4](wp/WP4.md), [WP5](wp/WP5.md)
 
@@ -910,7 +952,7 @@ comparison only).
 |---|---|
 | `teleport(x, z, yaw = null, pitch = 0) → [x, y, z]`, `pose(name)`, `standAt(kind \| npcId, n, { dist })` (`kind` `'shell'`: rainbow shell n of `W.shells`; `'secret'`: landmark keepsake n of `W.secrets`, from outside its landmark; `'reason'`: a `W.reasons` item by id or n) | `pose`: `spawn`, `plaza-N`, `plaza-S`, `tree`, `village`, `woods`, `peaks`, `shores`, `meadow`, `hilltop`, `arena-woods / peaks / shores` (an unknown name lists them) |
 | `spawn(type, dist = 4, relDeg = null, { alt, face, state, st })`, `last`, `enemies()`, `freezeAI(on)`, `freezeTime(on)`, `god(on)`, `hurt(dmg, relDeg)`, `down()` | `relDeg` from the view yaw (+ = left); the new enemy is `G.debug.last` |
-| `setTime(h)`, `giveSeeds()`, `toBoss(id)`, `killBoss()`, `cutscene(name, id)` | `cutscene`: `'place'`, `'ending'`, `'bossIntro'`, `'itemGet'` |
+| `setTime(h)`, `giveSeeds()`, `toBoss(id)`, `killBoss()`, `cutscene(name, id)` | `cutscene`: `'place'`, `'ending'`, `'bossIntro'`, `'itemGet'`; `killBoss` on a first win runs the Catcher's handover (§10; skip it with `scene.skip()`) |
 | `aim()`, `target()`, `aimAt(x, y, z)` | what a full swing would hit now; the interaction target; aim the crosshair at a point (TP: from the camera the rig settles at for that look, which it runs the live rig to; where a slide flips shoulders with the aim it keeps the best look) |
 | `setView(mode, { instant })`, `view(mode?)`, `look(yaw, pitch)`, `lookDelta(dx, dy, { single })`, `lookAt(x, y, z)`, `fov(h?)` | |
 | `press(a, ms)`, `hold(a, ms)`, `release(a?)`, `move(x, y, ms)`, `pad(rx, ry)`, `inject({ look, hold, release, press, pad, touch, frames })` | input injection |
@@ -939,15 +981,19 @@ Namespaces added by modules:
 | `G.debug.atmo` | `info()`, `caps()`, `applyCaps()`, `fogCap(obj, cap)`, `ripple(x, z, k)`, `snapFog()`, `features(patch)` (switch fog, caps, terrain layers incl. `terrainGrain`, sprites, water, gulls, shafts) |
 | `G.debug.wp9` | `info()`, `objects()`, `signInk()`, `losCrown(o)`, `losLandmarks(o)` |
 
-## 18. In-page tests (`js/debug/tests.js`, `js/debug/tests/wp1.js … wp9.js`)
+## 18. In-page tests (`js/debug/tests.js`, `js/debug/tests/wp1.js … wp9.js`, `act1.js`)
 
-CI (`.github/workflows/ci.yml`) does not run these. It runs `bun test` (`tests/*.test.js`: world generation, content
+CI (`.github/workflows/ci.yml`) runs the regular in-page suites with `node tests/inpage.mjs` (job `inpage`, one matrix
+entry each: `wp1`, `wp2:1/3`–`wp2:3/3`, `wp3`–`wp7`, `wp8:1/3`–`wp8:3/3`, `wp9`, `act1`, and `core` = `smoke look
+feel-basic combat-basic interact-basic save-migrate`); heavy suites stay out of CI. It also runs `bun test` (`tests/*.test.js`: world generation, content
 tables, save schema, the settings store, the dynamic-resolution controller against simulated displays, the service-worker
 registration and the PWA build checks), `tests/smoke.mjs` (headless Chromium with software WebGL: New Game, then Continue a valid, a
 corrupt and a newer-version save, each load with stored settings: valid, wrong-typed, unreadable; no service worker),
 `tests/pwa.mjs` (the Pages build under `/game/`: install, offline play, an update, `?nosw=1`; §14.5) and
 `tests/playthrough.mjs` (a whole game from a clean `localStorage`: New Game, Shellby's intro, each guardian's arena walked
-into, beaten with `G.debug.killBoss()` and its Starseed walked onto, Use at the pedestal, the ending and its card, free roam,
+into, beaten with `G.debug.killBoss()`, its handover played (three lines and the item-get, no Starseed dropped, the
+Catcher left sitting, `calm:<id>` in the order calmed), Use at the pedestal, the ending with the three bloom watchers at
+their marks and its card, free roam,
 Clover's errand after Captain Pinch (talk, Use on the five rainbow shells, talk again for the reward once), Mayor
 Ribbit's parade after the ending (a talk; for each lantern Pip walks in from about 9 m and it lights only with Ribbit
 close behind, having walked or catch-up hopped there himself; a mid-parade Save & Quit → Continue; Pip out of the village
@@ -977,7 +1023,7 @@ await G.debug.test.list()                // [{ name, desc, tests, heavy }]
 
 | Suites | |
 |---|---|
-| in `'all'` | `smoke` (boot contracts, viewmodel composition and night lighting, extension points, collider / touch / projector / heart contracts, the debug-key gate), `look`, `feel-basic`, `combat-basic`, `interact-basic`, `save-migrate`, one per area: `wp1` … `wp9`, and `act1` (the Catchers' handover and the bloom watchers, S-005 / S-006) |
+| in `'all'` | `smoke` (boot contracts, viewmodel composition and night lighting, extension points, collider / touch / projector / heart contracts, the debug-key gate), `look`, `feel-basic`, `combat-basic`, `interact-basic`, `save-migrate` (v6 → v7 through `loadSave`, the backup key, `flags.set / get`), one per area: `wp1` … `wp9`, and `act1` (`js/debug/tests/act1.js`, S-005 / S-006: each Catcher's handover played, a skip giving the same save state, a mid-scene save replaying it on Talk, Talk until the bloom, Continue keeps it sitting, the bloom sends it to nap, the bloom watchers; starts from the `tests/fixtures/saves/act1-*.json` fixtures through `G.debug.loadSave`) |
 | heavy (run by name) | `probe` (TP arm vs colliders, `{ n }`), `sweep` (perf sweep: 9 locations × 4 directions per view, `{ modes, ms, settle, time }`), `wp1-heavy`, `wp2-heavy` (vm GPU; run at 1920×1080), `wp3-heavy` (`{ n, walks, per, tree }`), `wp4-matrix`, `wp5-heavy` (boss masher check, audio levels), `wp6-heavy` (overlap audit), `wp7-hitch` (run first in a fresh page), `wp7-sweep` (budget gate; `{ modes, locs, dirs, ms, reps, settle, time, gate }`), `wp8-perf`, `wp9-heavy` |
 
 Each test starts from a deterministic state: manual clock, `Math.random` seeded, play with no modal, cutscene or fight,
